@@ -102,6 +102,34 @@ and Cache & Backup — Rust compiled to WebAssembly, no Tauri/Node.js/TypeScript
 See **[PORTING.md](PORTING.md)** for enabling the AI HTML cache in your own app,
 plus the full list of environment variables and endpoints.
 
+### Registering a new service with Federation (CLI)
+
+Registering a GraphQL schema via `open-runo-cli` makes `open-runo-gateway`
+route that service through Federation.
+
+```bash
+# 1. Write the SDL for the service you want to register
+cat > users.graphql << 'EOF'
+type User { id: ID! name: String! }
+type Query { user(id: ID!): User }
+EOF
+
+# 2. With the server running, register it (stage defaults to "local")
+cargo run -p open-runo-cli -- schema register \
+  --service users \
+  --sdl-file users.graphql \
+  --stage local
+
+# 3. Check the version history for that service
+cargo run -p open-runo-cli -- schema history --service users
+
+# 4. Check overall federation status (contributing services, type/field counts)
+cargo run -p open-runo-cli -- federation status
+```
+
+If you don't pass `--api-key`, one is auto self-issued, so local development
+works with no extra setup.
+
 ## Workspace structure (17 crates)
 
 Composed of `open-runo-router` (REST gateway / auth / audit / AI HTML cache /

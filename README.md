@@ -134,6 +134,34 @@ Cache & Backup の8ページ管理UIが使えます(Tauri・Node.js・TypeScript
 AI HTML キャッシュを有効化して自分のアプリに載せる例・全環境変数・
 全エンドポイントは **[PORTING.md](PORTING.md)** を参照してください。
 
+### 新しいサービスを Federation に登録する(CLI)
+
+`open-runo-cli` でGraphQLスキーマを登録すると、`open-runo-gateway`が
+そのサービスをFederation経由でルーティングするようになります。
+
+```bash
+# 1. 登録したいサービスの SDL をファイルに用意
+cat > users.graphql << 'EOF'
+type User { id: ID! name: String! }
+type Query { user(id: ID!): User }
+EOF
+
+# 2. サーバが起動している状態で登録 (stage省略時は "local")
+cargo run -p open-runo-cli -- schema register \
+  --service users \
+  --sdl-file users.graphql \
+  --stage local
+
+# 3. 登録済みバージョンの履歴を確認
+cargo run -p open-runo-cli -- schema history --service users
+
+# 4. Federation全体の合成状況(参加サービス・型/フィールド数)を確認
+cargo run -p open-runo-cli -- federation status
+```
+
+APIキーを `--api-key` で明示しない場合は自動で self-issue されるため、
+ローカル開発では追加設定なしでそのまま動きます。
+
 ## ワークスペース構成（17 クレート）
 
 | クレート | 役割 |
