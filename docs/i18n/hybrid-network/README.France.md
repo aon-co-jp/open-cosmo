@@ -10,3 +10,5 @@
 **Prochaines étapes :** (1) corriger le parseur UPSERT, (2) auditer `open-web-server`, (3) définir un contrat de négociation de transport partagé, (4) relier les sommes de contrôle façon ZFS au chemin d'écriture de la base, (5) construire la voie rapide QUIC/UDP en dernier.
 
 Voir `docs/HYBRID_NETWORK_ARCHITECTURE.md` pour les règles complètes. Remarque : rédigé sans recherche web en temps réel ; les affirmations « à la pointe » doivent être considérées non vérifiées avant tout benchmark.
+
+**Règle de recherche :** Le développement et la maintenance doivent activement rechercher sur le web (ex. Google) et GitHub si nécessaire — et les recherches doivent être effectuées **en japonais ET en anglais**, car les informations pertinentes (articles de blog, avis, issues) n'apparaissent souvent que dans une seule langue.

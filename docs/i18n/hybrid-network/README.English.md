@@ -10,3 +10,5 @@
 **Next steps:** (1) fix the UPSERT parser gap, (2) audit `open-web-server`, (3) define a shared transport-negotiation contract, (4) wire ZFS-style checksums into the DB write path, (5) build the QUIC/UDP fast path last.
 
 See `docs/HYBRID_NETWORK_ARCHITECTURE.md` for the full technical rules. Note: authored without live web search; treat "state of the art" claims as unverified until benchmarked.
+
+**Research rule:** Development and maintenance should actively search the web (e.g. Google) and GitHub as needed — and searches should be run in **both Japanese and English**, since relevant findings (blog posts, advisories, issues) often only surface in one language.

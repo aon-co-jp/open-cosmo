@@ -10,3 +10,5 @@
 **Nächste Schritte:** (1) UPSERT-Parser-Lücke schließen, (2) `open-web-server` prüfen, (3) gemeinsamen Transport-Verhandlungsvertrag definieren, (4) ZFS-artige Prüfsummen in den DB-Schreibpfad einbinden, (5) QUIC/UDP-Fastpath zuletzt bauen.
 
 Vollständige Regeln siehe `docs/HYBRID_NETWORK_ARCHITECTURE.md`. Hinweis: ohne Live-Websuche erstellt; "State of the Art"-Aussagen gelten bis zum Benchmark als unverifiziert.
+
+**Recherche-Regel:** Entwicklung und Wartung sollen bei Bedarf aktiv im Web (z. B. Google) und auf GitHub recherchieren — und zwar **sowohl auf Japanisch als auch auf Englisch**, da relevante Informationen (Blogbeiträge, Advisories, Issues) oft nur in einer Sprache auftauchen.
