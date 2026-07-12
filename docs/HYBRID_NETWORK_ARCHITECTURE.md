@@ -1,6 +1,6 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.3 (2026-07-12) — merged: zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and a standing research-discipline rule
+**Status:** Draft v0.4 (2026-07-12) — merged: zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, JP+EN research rule, and the open-runo/poem-cosmo-tauri relationship & sync policy
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -26,6 +26,32 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
 2. **Durable before acknowledged** — a client is only told "success" after the write is committed and (where `open-raid-z` is in the path) checksummed/persisted — not merely buffered in a fast transport layer.
 3. **Layer-switch transparency** — if a session migrates from QUIC (L2) to TCP (L3) mid-transaction (see §1 table), the in-flight transaction must survive the switch or be safely retried, never silently dropped.
 4. **Auditability** — every asset/financial write must be traceable end-to-end across the transport and storage layers for reconciliation and dispute resolution.
+
+## 0.5 `open-runo` ⇔ `poem-cosmo-tauri` の関係と同期ルール(2026-07-12 確認)
+
+この2リポジトリは同一のクレート構成(`crates/open-runo-*`)を持つ姉妹関係にあり、
+過去に別セッションで独立に開発が進んだ結果、コードが乖離することがある。
+以下をユーザーに確認の上、確定した方針:
+
+- **実装の先行方向に決まりはない。** 「必ずこちらが先行してあちらにミラーする」
+  という一方向ルールは存在しない。どちらのリポジトリで先に変更・修正が
+  行われても構わない。**乖離に気づいた側が、もう一方へその差分をミラーする**
+  (2026-07-12 の `open-runo-db::federated_config` 移植はこの運用の実例)。
+- **`poem-cosmo-tauri` は `open-runo` より広いスコープを持つ(現在も有効)。**
+  両リポジトリとも Poem・Tauri・WunderGraph Cosmo にパッケージとして直接
+  依存しない方針は共通だが、`poem-cosmo-tauri` にはさらに「Poem と Tauri の
+  機能そのものを一から自作・再現する」という上乗せ目標がある(単なる
+  API形状・体験の互換性維持にとどまらない)。`open-runo` にはこの上乗せ
+  目標はない。この非対称性を理由に、`poem-cosmo-tauri` 側にだけ存在する
+  実験的・先行的なコードがあっても、それ自体は乖離の「バグ」ではない
+  ——ミラー判断は個別に行う。
+- **同期(ミラー)の対象は「共有クレート内の実コード」のみ。** README の
+  ブランディング文言、`CLAUDE.md`/`PORTING.md`/`docs/HANDOFF.md` 等の
+  セッション固有メモ・意思決定記録は意図的に同期対象外とする
+  (各リポジトリの経緯・文脈が異なるため)。
+- 新しい共有クレートの差分に気づいたら、まず `diff -rq` 等でリポジトリ全体を
+  比較し、「共有クレートの実コード差分」と「意図的なリポジトリ固有差分」を
+  区別してから移植すること。
 
 ## 1. Goal (目指すもの)
 
