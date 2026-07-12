@@ -1,6 +1,8 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.8 (2026-07-12) — added §0.8 next-session directive (continue ZFS+ACID hybrid rollout; research-then-implement 4-layer/4-redundant cutting-edge transport via JP+EN web/GitHub search; fuse both into one zero-loss pipeline, not separate features); merged with §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** Draft v0.9 (2026-07-12) — §0.5 updated with the exact user-confirmed phrasing for the Poem/Tauri reproduction mission (including in-browser execution); fixed stale one-directional lead/mirror claims in open-runo/poem-cosmo-tauri READMEs (JP+EN); left-aligned the docs-links lists in open-runo/poem-cosmo-tauri READMEs (JP+EN, were a flowing middot-separated paragraph); merged with §0.8 next-session directive, §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+
+**Tooling honesty note:** this session has no general web-search tool (only `github.com`/`crates.io`/`npmjs.com`-class dev-infra domains are network-reachable). Requests to "Google search in Japanese and English, check GitHub, read blogs/SNS/X, confirm official doc URLs" for unresearched/unverified topics could not be executed literally in this session. Where verification was possible, it was done by reading this repo family's own source code directly (which caught several real stale-doc bugs — see §0.6) rather than external research. §0.8's directive to research before implementing the 4-layer transport stack stands for whichever future session has web-search available; if this constraint hasn't changed, say so explicitly rather than fabricating research findings.
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -58,7 +60,9 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
   いう、全く別次元の役割を追加で背負っている。** これは「Federation
   プラットフォームの一機能」ではなく、「他社製フレームワーク2つを
   ゼロから作り直すR&Dプロジェクト」という、スケール感も目的も異なる
-  仕事である。`open-runo` にはこの役割は無い。
+  仕事である。`open-runo` にはこの役割は無い。**Poemとブラウザ内実行
+  機能搭載も含めたTauri両方共に、一から開発して完全互換で再現する。**
+  (2026-07-12、ユーザー確定の表現として本文にそのまま記録)
 - **現状、共有クレート(`crates/`・`apps/`)が両リポジトリで完全一致して
   いるのは、「2プロジェクトの規模・役割が同じだから」ではなく、
   「これまでの実装がその都度ミラーされてきたため、役割の違いがまだ
