@@ -16,6 +16,14 @@ use opentelemetry_otlp::WithExportConfig;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+pub mod request_metrics;
+pub use request_metrics::{
+    InMemorySink, MetricsSink, MonthlyCount, OperationStat, RequestMetricRow, RequestMetrics,
+    spawn_periodic_flush,
+};
+#[cfg(feature = "clickhouse")]
+pub use request_metrics::clickhouse_sink::ClickHouseSink;
+
 /// Initialize a JSON-structured `tracing` subscriber reading its level
 /// from `log_level` (e.g. `"info"`, `"debug"`). Safe to call once per
 /// process at startup. Console-only; see [`init_tracing_with_otlp`] to

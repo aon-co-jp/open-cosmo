@@ -98,9 +98,11 @@ make wasm-frontend                                # generates apps/desktop-wasm/
 cargo run -p open-runo-gateway                    # now serves the built UI too
 ```
 
-Open `http://localhost:8080/` for an 8-page admin UI: Dashboard, Schema
+Open `http://localhost:8080/` for a 10-page admin UI: Dashboard, Schema
 Registry, Federation, AI Routing, DUAL DATABASE, SCIM, Persisted Queries,
-and Cache & Backup — Rust compiled to WebAssembly, no Tauri/Node.js/TypeScript.
+Feature Flags, Cache & Backup, and Analytics (monthly request-count
+metering + per-operation latency/error-rate, `docs/cosmo-parity.md` 4a) —
+Rust compiled to WebAssembly, no Tauri/Node.js/TypeScript.
 
 See **[PORTING.md](PORTING.md)** for enabling the AI HTML cache in your own app,
 plus the full list of environment variables and endpoints.

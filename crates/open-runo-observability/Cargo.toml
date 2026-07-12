@@ -18,3 +18,11 @@ opentelemetry = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+clickhouse = { version = "0.13", optional = true, features = ["chrono"] }
+
+[features]
+clickhouse = ["dep:clickhouse"]

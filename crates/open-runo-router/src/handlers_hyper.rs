@@ -12,6 +12,7 @@ use crate::keyring::{KeyDecision, KeyGuardian};
 use crate::session::SessionStore;
 use crate::state::AppState;
 use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA_REQUEST};
+use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::{
     DbDeleteResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry, DbRoutingInfo,
@@ -526,11 +527,29 @@ async fn register_schema_and_respond(
     )
     .await;
 
-    let _ = state.events.send(crate::state::SchemaEvent {
+    let event = crate::state::SchemaEvent {
         service_name: body.service_name.clone(),
         stage: body.stage.clone(),
         at: chrono::Utc::now().to_rfc3339(),
-    });
+    };
+    let _ = state.events.send(event.clone());
+
+    // EDFS (docs/cosmo-parity.md §4a): if configured, also publish this
+    // event to Redis so instances *other* than this one (in a
+    // load-balanced deployment) pick it up via their own edfs::spawn_bridge
+    // task and deliver it to their locally-connected subscribers. A
+    // publish failure is deliberately non-fatal here -- see edfs.rs's
+    // `publish` doc comment for why -- and is a no-op entirely when the
+    // `edfs` Cargo feature isn't compiled in.
+    #[cfg(feature = "edfs")]
+    {
+        let target = state.edfs_publish.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        if let Some((redis_url, channel)) = target {
+            if let Err(error) = crate::edfs::publish(&redis_url, &channel, &event).await {
+                tracing::warn!(%error, "EDFS: failed to publish schema event to Redis");
+            }
+        }
+    }
 
     json_response(
         StatusCode::OK,
@@ -647,6 +666,72 @@ pub fn register_schema_upload_handler(state: Arc<AppState>, guardian: Arc<KeyGua
                 service_name,
                 sdl,
                 stage: stage.unwrap_or_else(|| "local".to_string()),
+                namespace,
+            };
+
+            register_schema_and_respond(&state, &actor, body).await
+        })
+    })
+}
+
+/// POST /api/schemas/upload-raw?service_name=...&stage=...&namespace=... —
+/// a **non-multipart** equivalent of `register_schema_upload_handler`, for
+/// clients that just want to `PUT`/`POST` the raw SDL bytes as the entire
+/// request body (`Content-Type: application/octet-stream` or
+/// `text/plain`) rather than building a `multipart/form-data` envelope.
+/// Closes the "file attachment besides Multipart" Poem-parity gap: some
+/// HTTP clients (simple `curl --data-binary @file`, some language SDKs'
+/// default upload helpers) don't have convenient multipart support, but
+/// can always POST a raw byte stream.
+///
+/// `service_name` (required) and `stage`/`namespace` (optional, same
+/// defaults as the other two registration entry points) are read from the
+/// query string, since the request body here is 100% the SDL bytes with
+/// no room for other fields. Delegates to the same
+/// `register_schema_and_respond` used by the JSON and multipart paths, so
+/// this is a transport-only difference, never a behavioral one.
+pub fn register_schema_upload_raw_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            let actor = match authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                Ok(actor) => format!("{}{}", if actor.via_session { "session:" } else { "" }, actor.owner),
+                Err(status) => return empty_status(status),
+            };
+
+            let query = query_params(&req);
+            let Some(service_name) = query.get("service_name").cloned() else {
+                return json_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    &serde_json::json!({ "error": "missing required query parameter: service_name" }),
+                );
+            };
+            let stage = query.get("stage").cloned().unwrap_or_else(|| "local".to_string());
+            let namespace = query.get("namespace").cloned();
+
+            let sdl_bytes = match req.into_body().collect().await {
+                Ok(collected) => collected.to_bytes(),
+                Err(_) => {
+                    return json_response(
+                        StatusCode::BAD_REQUEST,
+                        &serde_json::json!({ "error": "failed to read request body" }),
+                    )
+                }
+            };
+            if sdl_bytes.is_empty() {
+                return json_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    &serde_json::json!({ "error": "request body (SDL bytes) must not be empty" }),
+                );
+            }
+            let sdl = String::from_utf8_lossy(&sdl_bytes).into_owned();
+
+            let body = RegisterSchemaRequest {
+                service_name,
+                sdl,
+                stage,
                 namespace,
             };
 
@@ -2088,6 +2173,65 @@ pub fn feature_flag_evaluate_handler(state: Arc<AppState>, guardian: Arc<KeyGuar
     })
 }
 
+/// GET /api/analytics/requests-per-month — monthly request-count metering
+/// (`docs/cosmo-parity.md` 4a). An **operational metric only**: this is
+/// never used to throttle or bill a caller (rate limiting is entirely
+/// separate, see `open-runo-security::RateLimiter`). Served from the
+/// in-process aggregate (`open_runo_observability::RequestMetrics`), not
+/// a ClickHouse query, so it works identically whether or not a
+/// ClickHouse export sink is configured -- see that crate's doc comment
+/// for why the two read paths are kept separate.
+pub fn requests_per_month_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                return empty_status(status);
+            }
+            json_response(
+                StatusCode::OK,
+                &serde_json::json!({ "months": state.request_metrics.requests_per_month() }),
+            )
+        })
+    })
+}
+
+/// GET /api/analytics/operations — per-operation (method+path) latency and
+/// error-rate breakdown (Cosmo Studio parity, `docs/cosmo-parity.md` 4a),
+/// sorted by total time contributed (busiest/slowest first). Same
+/// in-process aggregate as [`requests_per_month_handler`].
+pub fn operations_summary_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, _params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                return empty_status(status);
+            }
+            let operations: Vec<serde_json::Value> = state
+                .request_metrics
+                .operations_summary()
+                .into_iter()
+                .map(|op| {
+                    serde_json::json!({
+                        "method": op.method,
+                        "path": op.path,
+                        "count": op.count,
+                        "error_count": op.error_count,
+                        "total_duration_ms": op.total_duration_ms,
+                        "avg_duration_ms": op.avg_duration_ms(),
+                        "error_rate": op.error_rate(),
+                    })
+                })
+                .collect();
+            json_response(StatusCode::OK, &serde_json::json!({ "operations": operations }))
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2437,6 +2581,81 @@ mod tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = resp.json().await.expect("valid json body");
         assert_eq!(body["sdl"], "type Order { id: ID! total: Float }");
+    }
+
+    /// Same registration flow again, but via the raw (non-multipart)
+    /// `/api/schemas/upload-raw` endpoint -- SDL bytes as the entire
+    /// request body, `service_name`/`stage` in the query string. Proves
+    /// all three transports (JSON, multipart, raw) converge on the same
+    /// registered schema state via the shared `register_schema_and_respond`.
+    #[tokio::test]
+    async fn register_schema_upload_raw_and_fetch_roundtrip() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = Router::new()
+            .route(
+                Method::POST,
+                "/api/schemas/upload-raw",
+                register_schema_upload_raw_handler(Arc::clone(&state), Arc::clone(&guardian)),
+            )
+            .route(
+                Method::GET,
+                "/api/schemas/:service",
+                get_schema_handler(Arc::clone(&state), guardian),
+            );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+        let client = reqwest::Client::new();
+
+        let resp = client
+            .post(format!(
+                "http://{addr}/api/schemas/upload-raw?service_name=invoices&stage=local"
+            ))
+            .header("x-api-key", "test-key")
+            .header("content-type", "application/octet-stream")
+            .body("type Invoice { id: ID! amount: Float }")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["service_name"], "invoices");
+        assert_eq!(body["sdl"], "type Invoice { id: ID! amount: Float }");
+
+        let resp = client
+            .get(format!("http://{addr}/api/schemas/invoices"))
+            .header("x-api-key", "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        let body: serde_json::Value = resp.json().await.expect("valid json body");
+        assert_eq!(body["sdl"], "type Invoice { id: ID! amount: Float }");
+    }
+
+    #[tokio::test]
+    async fn register_schema_upload_raw_requires_service_name() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = Router::new().route(
+            Method::POST,
+            "/api/schemas/upload-raw",
+            register_schema_upload_raw_handler(Arc::clone(&state), guardian),
+        );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+
+        // No ?service_name=... in the query string.
+        let resp = reqwest::Client::new()
+            .post(format!("http://{addr}/api/schemas/upload-raw"))
+            .header("x-api-key", "test-key")
+            .body("type Foo { id: ID! }")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]

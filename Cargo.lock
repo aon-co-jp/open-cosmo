@@ -908,6 +908,7 @@ checksum = "9a9a81a1dffadd762ee662635ce409232258ce9beebd7cc0fa227df0b5e7efc0"
 dependencies = [
  "bstr",
  "bytes",
+ "chrono",
  "cityhash-rs",
  "clickhouse-derive",
  "futures",
@@ -3485,9 +3486,14 @@ dependencies = [
 name = "open-runo-observability"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "chrono",
+ "clickhouse",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "serde",
+ "tokio",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -3537,6 +3543,7 @@ dependencies = [
  "open-runo-security",
  "poem",
  "rcgen",
+ "redis",
  "reqwest 0.12.28",
  "ring",
  "rustls",

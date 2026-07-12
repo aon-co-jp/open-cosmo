@@ -498,3 +498,40 @@ pub async fn backup_export() -> Result<ExportResponse, String> {
 pub async fn integrity_check() -> Result<IntegrityResponse, String> {
     post_json("/api/integrity/check", &serde_json::json!({})).await
 }
+
+// ── Analytics (docs/cosmo-parity.md 4a: monthly request-count metering +
+// Cosmo Studio-style operation latency/error-rate) ──────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct MonthlyCount {
+    pub month: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RequestsPerMonthResponse {
+    pub months: Vec<MonthlyCount>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OperationSummary {
+    pub method: String,
+    pub path: String,
+    pub count: u64,
+    pub error_count: u64,
+    pub avg_duration_ms: f64,
+    pub error_rate: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OperationsResponse {
+    pub operations: Vec<OperationSummary>,
+}
+
+pub async fn requests_per_month() -> Result<RequestsPerMonthResponse, String> {
+    get_json("/api/analytics/requests-per-month").await
+}
+
+pub async fn operations_summary() -> Result<OperationsResponse, String> {
+    get_json("/api/analytics/operations").await
+}

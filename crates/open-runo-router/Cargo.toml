@@ -71,10 +71,25 @@ rustls-pemfile = { version = "2.2", optional = true }
 ring = { version = "0.17", optional = true }
 reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
 rcgen = { version = "0.13", optional = true }
+# EDFS (Event-Driven Federated Subscriptions, Cosmo-parity gap,
+# docs/cosmo-parity.md 4a): bridges the existing in-process
+# `broadcast::Sender<SchemaEvent>` (crates/open-runo-router/src/edfs.rs)
+# across processes via Redis Pub/Sub, so GraphQL Subscriptions work in a
+# multi-instance/load-balanced deployment, not just within a single
+# process. Reuses the same `redis` version open-runo-cache's
+# `redis-backend` feature already depends on.
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
 
 [features]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 acme = ["tls", "dep:ring", "dep:reqwest", "dep:rcgen"]
+edfs = ["dep:redis"]
+# Request-metrics export to ClickHouse (docs/cosmo-parity.md 4a: monthly
+# request-count metering + operations analytics). Off by default -- the
+# in-process aggregates `open_runo_observability::RequestMetrics` still
+# collects and serves via `/api/analytics/*` regardless of this feature;
+# it only gates the buffered `ClickHouseSink` export path.
+clickhouse = ["open-runo-observability/clickhouse"]
 
 [dev-dependencies]
 jsonwebtoken = { workspace = true }

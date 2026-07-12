@@ -28,6 +28,7 @@
 pub mod acme;
 pub mod audit;
 pub mod auth_hyper;
+pub mod edfs;
 pub mod grpc;
 pub mod handlers_hyper;
 pub mod hyper_compat;
@@ -75,9 +76,22 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
     // them; compression outermost since it operates on whatever response
     // body the inner stack ultimately produced, including CORS preflight
     // and rate-limit-exceeded responses).
+    // Periodically flush buffered request metrics to their configured sink
+    // (ClickHouse if `OPEN_RUNO_CLICKHOUSE_URL` + the `clickhouse` feature
+    // are set, otherwise an in-memory sink nothing reads back from).
+    // Deliberately not awaited/blocking here -- same fire-and-forget
+    // background-task shape as `maintenance::spawn` just above.
+    open_runo_observability::spawn_periodic_flush(
+        Arc::clone(&state.request_metrics),
+        std::time::Duration::from_secs(30),
+    );
+
     let wrap = |h: Handler| -> Handler {
         middleware_hyper::with_compression(middleware_hyper::with_cors(middleware_hyper::with_tracing(
-            middleware_hyper::with_shared_rate_limit(h, Arc::clone(&limiter)),
+            middleware_hyper::with_metrics(
+                middleware_hyper::with_shared_rate_limit(h, Arc::clone(&limiter)),
+                Arc::clone(&state.request_metrics),
+            ),
         )))
     };
 
@@ -119,6 +133,11 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
             Method::POST,
             "/api/schemas/upload",
             wrap(handlers_hyper::register_schema_upload_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        )
+        .route(
+            Method::POST,
+            "/api/schemas/upload-raw",
+            wrap(handlers_hyper::register_schema_upload_raw_handler(Arc::clone(&state), Arc::clone(&guardian))),
         )
         .route(
             Method::GET,
@@ -322,6 +341,18 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
             Method::GET,
             "/api/feature-flags/:name/evaluate",
             wrap(handlers_hyper::feature_flag_evaluate_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        )
+        // ── Analytics (docs/cosmo-parity.md 4a: monthly request-count
+        // metering + Cosmo Studio-style operation latency/error-rate) ────
+        .route(
+            Method::GET,
+            "/api/analytics/requests-per-month",
+            wrap(handlers_hyper::requests_per_month_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        )
+        .route(
+            Method::GET,
+            "/api/analytics/operations",
+            wrap(handlers_hyper::operations_summary_handler(Arc::clone(&state), Arc::clone(&guardian))),
         )
         // ── WASM frontend bundle (apps/desktop-wasm/www) ─────────────────
         // Directory is configurable via OPEN_RUNO_STATIC_DIR so the

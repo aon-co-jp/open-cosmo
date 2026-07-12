@@ -99,7 +99,7 @@ pub fn mount() {
     };
     let _ = content;
 
-    for page in ["dashboard", "schemas", "federation", "ai-routing", "db", "scim", "persisted-queries", "feature-flags", "cache-backup"] {
+    for page in ["dashboard", "schemas", "federation", "ai-routing", "db", "scim", "persisted-queries", "feature-flags", "cache-backup", "analytics"] {
         let link_id = format!("nav-{page}");
         on_click(&link_id, move || navigate(page));
     }
@@ -133,6 +133,7 @@ fn navigate(page: &str) {
         "persisted-queries" => render_persisted_queries(),
         "feature-flags" => render_feature_flags(),
         "cache-backup" => render_cache_backup(),
+        "analytics" => render_analytics(),
         _ => {}
     }
 }
@@ -809,4 +810,80 @@ fn render_cache_backup() {
             }
         });
     });
+}
+
+/// Analytics page (Cosmo Studio parity, `docs/cosmo-parity.md` 4a):
+/// monthly request-count metering + per-operation latency/error-rate,
+/// both served from `open_runo_observability::RequestMetrics`'s
+/// in-process aggregates via `GET /api/analytics/requests-per-month` and
+/// `GET /api/analytics/operations`. An operational dashboard, not a
+/// billing/rate-limit surface -- see those handlers' doc comments.
+fn render_analytics() {
+    let Some(content) = content_el() else { return };
+    content.set_inner_html(
+        r#"
+        <h2>Analytics</h2>
+        <fieldset>
+          <legend>Requests per month</legend>
+          <button id="analytics-refresh-btn">Refresh</button>
+          <table id="analytics-months-table">
+            <thead><tr><th>Month</th><th>Requests</th></tr></thead>
+            <tbody id="analytics-months-body"></tbody>
+          </table>
+        </fieldset>
+        <fieldset>
+          <legend>Per-operation latency &amp; error rate</legend>
+          <table id="analytics-ops-table">
+            <thead><tr><th>Method</th><th>Path</th><th>Count</th><th>Errors</th><th>Avg ms</th><th>Error rate</th></tr></thead>
+            <tbody id="analytics-ops-body"></tbody>
+          </table>
+        </fieldset>
+        <pre id="analytics-error"></pre>
+        "#,
+    );
+
+    fn load() {
+        wasm_bindgen_futures::spawn_local(async move {
+            match api::requests_per_month().await {
+                Ok(resp) => {
+                    if let Some(body) = by_id("analytics-months-body") {
+                        let rows: String = resp
+                            .months
+                            .iter()
+                            .map(|m| format!("<tr><td>{}</td><td>{}</td></tr>", m.month, m.count))
+                            .collect();
+                        body.set_inner_html(&rows);
+                    }
+                }
+                Err(e) => set_text("analytics-error", &format!("requests-per-month failed: {e}")),
+            }
+
+            match api::operations_summary().await {
+                Ok(resp) => {
+                    if let Some(body) = by_id("analytics-ops-body") {
+                        let rows: String = resp
+                            .operations
+                            .iter()
+                            .map(|op| {
+                                format!(
+                                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:.1}</td><td>{:.1}%</td></tr>",
+                                    op.method,
+                                    op.path,
+                                    op.count,
+                                    op.error_count,
+                                    op.avg_duration_ms,
+                                    op.error_rate * 100.0,
+                                )
+                            })
+                            .collect();
+                        body.set_inner_html(&rows);
+                    }
+                }
+                Err(e) => set_text("analytics-error", &format!("operations failed: {e}")),
+            }
+        });
+    }
+
+    on_click("analytics-refresh-btn", load);
+    load();
 }

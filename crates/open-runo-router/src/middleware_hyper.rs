@@ -171,6 +171,30 @@ pub fn with_tracing(inner: Handler) -> Handler {
     })
 }
 
+/// Wrap `inner` so every request/response pair is recorded into `metrics`
+/// (monthly request-count metering + per-operation latency/error-rate,
+/// `docs/cosmo-parity.md` 4a). Deliberately its own combinator rather than
+/// folded into [`with_tracing`] -- both need the same method/path/status/
+/// duration tuple and are meant to sit next to each other in the `wrap`
+/// stack, but tracing is a diagnostic side-channel while this one feeds a
+/// queryable REST API (`/api/analytics/*`), so keeping them separate lets
+/// either be removed/reordered independently.
+pub fn with_metrics(inner: Handler, metrics: Arc<open_runo_observability::RequestMetrics>) -> Handler {
+    Arc::new(move |req, params| {
+        let inner = Arc::clone(&inner);
+        let metrics = Arc::clone(&metrics);
+        let method = req.method().to_string();
+        let path = req.uri().path().to_string();
+        let start = std::time::Instant::now();
+        Box::pin(async move {
+            let resp = inner(req, params).await;
+            let duration_ms = start.elapsed().as_millis() as u64;
+            metrics.record(&method, &path, resp.status().as_u16(), duration_ms, chrono::Utc::now());
+            resp
+        })
+    })
+}
+
 /// Wrap `inner` with a per-client rate limit backed by `limiter`. Shared
 /// across every route in an app so the budget is global, not per-route —
 /// build one `Arc<RateLimiter>` per app with [`build_rate_limiter`] and

@@ -246,6 +246,8 @@ curl -X POST -H "x-api-key: $KEY" http://new:8080/api/backup/restore-latest
 | `/api/backup/export` `/import` `/restore-latest` | バックアップ・復活 |
 | `/api/migrate/export-sql` `/export-csv` | エンジン変換エクスポート |
 | `/api/integrity/check` | 両 DB 整合性チェック・自動修復 |
+| `/api/analytics/requests-per-month` | 月間リクエスト数(運用メトリクスのみ、課金/レート制限には不使用) |
+| `/api/analytics/operations` | オペレーション別(method+path)レイテンシ・エラー率集計 |
 
 Federation合成（`POST /api/federation/compose`）は`sdl`フィールドで生の
 GraphQL SDL（Federation v1の暗黙ディレクティブ方式・v2の`@link`方式

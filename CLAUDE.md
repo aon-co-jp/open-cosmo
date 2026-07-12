@@ -179,9 +179,16 @@ Federation Gateway/バックエンド側として関与しうる。
 ## 現状(このリポジトリ固有)
 
 - `cargo check --workspace` / `cargo test --workspace` は成功する
-  (18クレート構成。2026-07-11時点で`cargo test --workspace`実測
-  262テストpassed、failed 0)。todo!()/unimplemented!()マーカーなし。
-- 直近パスで追加された機能(poem-cosmo-tauriからミラー): Feature
+  (18クレート構成。2026-07-13時点で`open-runo-router`単体146テスト・
+  `open-runo-observability`9テスト含め全体failed 0)。
+  todo!()/unimplemented!()マーカーなし。
+- 直近パスで追加された機能(poem-cosmo-tauriからミラー): 月間リクエスト数
+  計測+Analytics(`open-runo-observability::request_metrics`、
+  `GET /api/analytics/requests-per-month` `/operations`、
+  `apps/desktop-wasm`のAnalyticsページ、EDFSモジュール`edfs.rs`も
+  このパスで初めてこちらへ移植——poem-cosmo-tauri側で先行実装済み
+  だったが未ミラーだったことをlib.rsのモジュール差分で発見)。
+  それ以前: Feature
   Flags REST API + WASM管理画面(`open-runo-feature-flags`)、
   gzipレスポンス圧縮ミドルウェア、汎用WebSocket対応(手書きRFC 6455、
   `GET /api/ws-echo` / `GET /api/ws-events`)、Federation v1/v2
@@ -194,6 +201,49 @@ Federation Gateway/バックエンド側として関与しうる。
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-13 月間リクエスト数計測 + Analytics(Cosmo Studio相当)を
+  poem-cosmo-tauriからミラー完了(docs/cosmo-parity.md 4a節の残り2件を
+  両方解消) — EDFSモジュール未ミラーの発見・是正も含む**:
+  poem-cosmo-tauri側コミット`2bb5363`("Add monthly request-count metering
+  + Cosmo Studio-style Analytics dashboard")で実装・実バイナリ+実ブラウザ
+  検証済みだった`crates/open-runo-observability/src/request_metrics.rs`
+  (`RequestMetrics`: 月別カウント+method/pathごとのcount/error_count/
+  total_duration_ms集計、`MetricsSink` trait経由でバッファをClickHouseへ
+  非同期flush)・`middleware_hyper::with_metrics`・`AppState.request_metrics`
+  ・`GET /api/analytics/requests-per-month` `/operations`・
+  `apps/desktop-wasm`のAnalyticsページ(計10ページ)をそのままコピーして
+  ミラー。**ミラー中に発見した既存の未解消drift**: `lib.rs`を丸ごと
+  コピーしたところ`pub mod edfs;`の参照先(`edfs.rs`)がこのリポジトリに
+  一度も移植されていなかったことが`cargo check`のコンパイルエラー
+  (`E0583 file not found for module`)で判明——EDFS(Event-Driven
+  Federated Subscriptions、`docs/cosmo-parity.md`4a節で
+  poem-cosmo-tauri側は2026-07-12に完了済みだったが、こちらへの
+  ミラーが漏れていた)。`crates/open-runo-router/src/edfs.rs`を追加で
+  移植して解消(このパスの主目的ではないが、放置すると今後の丸ごと
+  コピー型ミラーが毎回同じ理由で壊れるため合わせて対応)。
+  **検証**: `cargo check --workspace`green(既存3警告のみ)、
+  `cargo test --workspace`(open-runo-router: 146テスト、
+  open-runo-observability: 9テスト)ともfailed 0。実バイナリ+curlで
+  このリポジトリ自身に対しても`OPEN_RUNO_BIND_ADDR=127.0.0.1:18944`で
+  独立に自己発行キー取得→`/api/analytics/requests-per-month`
+  `/api/analytics/operations`が実データを返すことを再確認(poem-cosmo-tauri
+  側と同じ結果)。**未検証点(poem-cosmo-tauri側と同一の理由で継続)**:
+  実ClickHouseインスタンスがこのサンドボックスに無いため、
+  `ClickHouseSink`の実ラウンドトリップは`#[ignore]`テストのまま
+  (`OPEN_RUNO_CLICKHOUSE_URL`環境変数で実インスタンス相手に明示実行可能)。
+  `docs/cosmo-parity.md`4a節の該当2行を取り消し線+「✅ 完了」に更新
+  (詳細な実装記録はpoem-cosmo-tauri側の同日CLAUDE.md HANDOFFエントリを
+  正とする)。
+  次回パスがすべきこと: (1) 実ClickHouseインスタンスが用意でき次第、
+  両リポジトリの`#[ignore]`テストを実行して実ラウンドトリップを確認、
+  (2) `docs/cosmo-parity.md`4a節はこれで全項目✅完了(旧★★☆が0件に)
+  ——次に高価値なタスクを探す場合は`docs/poem-parity.md`/
+  `docs/tauri-parity.md`の残ギャップ、または今後poem-cosmo-tauri側で
+  新規実装される機能のミラー待ちを継続、(3) 丸ごとファイルコピーで
+  ミラーする際は`cargo check --workspace`を必ず先に通し、今回のような
+  「モジュール宣言はあるがファイルが無い」drift(過去にpoem-cosmo-tauri
+  側が先行実装した機能の未ミラー)を早期発見すること。
 
 - **2026-07-13 OpenAPI spec coverage拡大をpoem-cosmo-tauriからミラー
   完了(docs/api-examples.md Coverage note指摘の実ギャップ解消)**:
