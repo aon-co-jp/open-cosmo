@@ -5,8 +5,11 @@ direct dependencies — their functionality is hand-implemented for
 compatibility on tokio+hyper) — WunderGraph Cosmo's paid-plan features,
 delivered as OSS. Ships with its own self-learning AI (no external LLM
 contract required). Developed in parallel with its sibling repo
-[poem-cosmo-tauri](https://github.com/aon-co-jp/poem-cosmo-tauri) (where
-implementation work lands first, then gets mirrored here once verified).
+[poem-cosmo-tauri](https://github.com/aon-co-jp/poem-cosmo-tauri) — either
+repo may lead a given change; whichever side notices a divergence mirrors
+it to the other. **Both Poem and Tauri — including in-browser execution
+capability — are developed from scratch and reproduced with full
+compatibility.**
 
 📖 Other languages: [日本語](README-Japan.md) / [中文](README-Chinese.md) /
 [한국어](README-Korea.md) / [Español](README-Spain.md) / [Français](README-France.md) /
@@ -154,14 +157,14 @@ ClickHouse) via feature flags. There is no functionality gated behind a
 
 ## Documentation
 
-[docs/architecture.md](docs/architecture.md) — overall design ·
-[docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo feature-parity matrix ·
-[docs/poem-parity.md](docs/poem-parity.md) — Poem feature-parity matrix ·
-[docs/tauri-parity.md](docs/tauri-parity.md) — Tauri feature-parity matrix ·
-[docs/migration.md](docs/migration.md) — move / convert / consolidate ·
-[docs/api-spec.md](docs/api-spec.md) — API spec ·
-[docs/security.md](docs/security.md) — security ·
-[docs/HANDOFF.md](docs/HANDOFF.md) — development history
+- [docs/architecture.md](docs/architecture.md) — overall design
+- [docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo feature-parity matrix
+- [docs/poem-parity.md](docs/poem-parity.md) — Poem feature-parity matrix
+- [docs/tauri-parity.md](docs/tauri-parity.md) — Tauri feature-parity matrix
+- [docs/migration.md](docs/migration.md) — move / convert / consolidate
+- [docs/api-spec.md](docs/api-spec.md) — API spec
+- [docs/security.md](docs/security.md) — security
+- [docs/HANDOFF.md](docs/HANDOFF.md) — development history
 
 ## Related Projects
 

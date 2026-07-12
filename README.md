@@ -3,12 +3,14 @@
 **Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
 — WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載(外部 LLM 契約不要)。
 
-> [poem-cosmo-tauri](https://github.com/aon-co-jp/poem-cosmo-tauri)(姉妹リポジトリ・
-> 実装の先行地点)と同時並行で開発しています。実装作業は poem-cosmo-tauri 側で
-> 先行し、動作確認が取れたファイルをこちらへミラーする運用です。両リポジトリとも
-> Poem・Tauri・WunderGraph Cosmo のいずれにもパッケージとして直接依存せず、
-> それぞれの機能・API 形状には互換性を保ちつつ Rust 標準ライブラリ + tokio/hyper +
-> WebAssembly で自前実装しています。
+> [poem-cosmo-tauri](https://github.com/aon-co-jp/poem-cosmo-tauri)(姉妹リポジトリ)
+> と同時並行で開発しています。どちらが先行してもよく、乖離に気づいた側がもう
+> 一方へミラーする運用です(詳細は共有の `docs/HYBRID_NETWORK_ARCHITECTURE.md`
+> §0.5)。両リポジトリとも Poem・Tauri・WunderGraph Cosmo のいずれにもパッケージ
+> として直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ Rust 標準
+> ライブラリ + tokio/hyper + WebAssembly で自前実装しています。
+> **Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
+> 再現する。**
 
 [![CI](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
@@ -190,14 +192,14 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 
 ## ドキュメント
 
-[docs/architecture.md](docs/architecture.md) — 全体設計 ·
-[docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表 ·
-[docs/poem-parity.md](docs/poem-parity.md) — Poem 機能対応表 ·
-[docs/tauri-parity.md](docs/tauri-parity.md) — Tauri 機能対応表 ·
-[docs/migration.md](docs/migration.md) — お引越し/変換/統合 ·
-[docs/api-spec.md](docs/api-spec.md) — API 仕様 ·
-[docs/security.md](docs/security.md) — セキュリティ ·
-[docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
+- [docs/architecture.md](docs/architecture.md) — 全体設計
+- [docs/cosmo-parity.md](docs/cosmo-parity.md) — Cosmo 機能対応表
+- [docs/poem-parity.md](docs/poem-parity.md) — Poem 機能対応表
+- [docs/tauri-parity.md](docs/tauri-parity.md) — Tauri 機能対応表
+- [docs/migration.md](docs/migration.md) — お引越し/変換/統合
+- [docs/api-spec.md](docs/api-spec.md) — API 仕様
+- [docs/security.md](docs/security.md) — セキュリティ
+- [docs/HANDOFF.md](docs/HANDOFF.md) — 開発履歴
 
 ## 関連プロジェクト
 
