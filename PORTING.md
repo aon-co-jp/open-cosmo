@@ -284,3 +284,11 @@ cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 
 `docs/HANDOFF.md`（全開発履歴）/ `architecture.md` / `cosmo-parity.md` /
 `migration.md` / `api-spec.md` / `database.md` / `security.md` / `federation.md`
+
+## 11. 移植・拡張時の注意
+
+他プロジェクトへ移植・拡張する際、依存クレートの現状（バージョン・
+メンテナンス状況）や仕様の詳細で判断に迷う場合は、学習データからの
+推測だけに頼らず、実際に検索（日本語・英語の両方の Google 検索、
+および GitHub 上の実装状況調査）して裏付けを取ってから技術選定を
+行うことを推奨する。
