@@ -1,6 +1,6 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.4 (2026-07-12) — merged: zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, JP+EN research rule, and the open-runo/poem-cosmo-tauri relationship & sync policy
+**Status:** Draft v0.5 (2026-07-12) — corrected §0.5: core-tech sync between open-runo/poem-cosmo-tauri does NOT imply equal scale/function/role; merged with zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -27,31 +27,50 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
 3. **Layer-switch transparency** — if a session migrates from QUIC (L2) to TCP (L3) mid-transaction (see §1 table), the in-flight transaction must survive the switch or be safely retried, never silently dropped.
 4. **Auditability** — every asset/financial write must be traceable end-to-end across the transport and storage layers for reconciliation and dispute resolution.
 
-## 0.5 `open-runo` ⇔ `poem-cosmo-tauri` の関係と同期ルール(2026-07-12 確認)
+## 0.5 `open-runo` ⇔ `poem-cosmo-tauri` の関係と同期ルール(2026-07-12 確認、同日中に訂正)
+
+> ⚠️ **訂正(同日中)**: 本節の初版は「共有クレートが完全一致 = 2プロジェクトの
+> 規模・機能・役割はほぼ同じ」と誤って結論づけていた。これは誤り。
+> 「中心技術(共有クレート)だけ同期を取る」ことと「2プロジェクトの規模・
+> 機能・役割が同じである」ことは**全く別の話**であり、混同してはならない。
 
 この2リポジトリは同一のクレート構成(`crates/open-runo-*`)を持つ姉妹関係にあり、
 過去に別セッションで独立に開発が進んだ結果、コードが乖離することがある。
-以下をユーザーに確認の上、確定した方針:
 
 - **実装の先行方向に決まりはない。** 「必ずこちらが先行してあちらにミラーする」
   という一方向ルールは存在しない。どちらのリポジトリで先に変更・修正が
   行われても構わない。**乖離に気づいた側が、もう一方へその差分をミラーする**
   (2026-07-12 の `open-runo-db::federated_config` 移植はこの運用の実例)。
-- **`poem-cosmo-tauri` は `open-runo` より広いスコープを持つ(現在も有効)。**
-  両リポジトリとも Poem・Tauri・WunderGraph Cosmo にパッケージとして直接
-  依存しない方針は共通だが、`poem-cosmo-tauri` にはさらに「Poem と Tauri の
-  機能そのものを一から自作・再現する」という上乗せ目標がある(単なる
-  API形状・体験の互換性維持にとどまらない)。`open-runo` にはこの上乗せ
-  目標はない。この非対称性を理由に、`poem-cosmo-tauri` 側にだけ存在する
-  実験的・先行的なコードがあっても、それ自体は乖離の「バグ」ではない
-  ——ミラー判断は個別に行う。
 - **同期(ミラー)の対象は「共有クレート内の実コード」のみ。** README の
   ブランディング文言、`CLAUDE.md`/`PORTING.md`/`docs/HANDOFF.md` 等の
   セッション固有メモ・意思決定記録は意図的に同期対象外とする
   (各リポジトリの経緯・文脈が異なるため)。
-- 新しい共有クレートの差分に気づいたら、まず `diff -rq` 等でリポジトリ全体を
-  比較し、「共有クレートの実コード差分」と「意図的なリポジトリ固有差分」を
-  区別してから移植すること。
+
+### 規模・機能・役割は全く別物(重要、混同厳禁)
+
+- **`open-runo` = GraphQL Federation プラットフォームという「製品」そのもの。**
+  WunderGraph Cosmo の有料版機能(Federation・Schema Registry・SCIM・
+  Persisted Queries・Cache/Backup・AI Routing・DUAL DATABASE・
+  Versionless API 等)を OSS で提供することが役割。スコープは
+  「Federation プラットフォームとして何を提供するか」に閉じている。
+- **`poem-cosmo-tauri` = それに加えて、Poem(Web フレームワーク本体)と
+  Tauri(デスクトップフレームワーク本体)そのものを一から自作・再現すると
+  いう、全く別次元の役割を追加で背負っている。** これは「Federation
+  プラットフォームの一機能」ではなく、「他社製フレームワーク2つを
+  ゼロから作り直すR&Dプロジェクト」という、スケール感も目的も異なる
+  仕事である。`open-runo` にはこの役割は無い。
+- **現状、共有クレート(`crates/`・`apps/`)が両リポジトリで完全一致して
+  いるのは、「2プロジェクトの規模・役割が同じだから」ではなく、
+  「これまでの実装がその都度ミラーされてきたため、役割の違いがまだ
+  実コードの分岐として表面化していないだけ」である。** 将来、
+  `poem-cosmo-tauri` 側で Poem/Tauri 再現の作業が本格的に進めば、
+  `open-runo` には無い独自コードが大量に増える見込みであり、それは
+  正常な乖離であって「同期漏れ」ではない。
+- **今後この2リポジトリを扱う際は、「共有クレートの中心技術部分だけを
+  見比べて同期する」作業と、「それぞれのプロジェクトが本来目指す規模・
+  役割の違いを評価する」作業を、常に別のものとして扱うこと。** 前者の
+  完了(diffが無い)を根拠に後者(規模・役割の同等性)を結論づけては
+  ならない。
 
 ## 1. Goal (目指すもの)
 
