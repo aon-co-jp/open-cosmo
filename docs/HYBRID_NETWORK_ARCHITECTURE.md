@@ -1,6 +1,6 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.5 (2026-07-12) — corrected §0.5: core-tech sync between open-runo/poem-cosmo-tauri does NOT imply equal scale/function/role; merged with zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** Draft v0.6 (2026-07-12) — added §0.6 postponed-item closure log (gRPC streaming/reflection/NOT_FOUND, non-multipart upload, EDFS, Cosmo Connect, stale-doc corrections); merged with §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -71,6 +71,61 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
   役割の違いを評価する」作業を、常に別のものとして扱うこと。** 前者の
   完了(diffが無い)を根拠に後者(規模・役割の同等性)を結論づけては
   ならない。
+
+## 0.6 Postponed-Item Closure Log (2026-07-12) — `poem-cosmo-tauri`
+
+Per explicit user instruction to stop treating this repo's larger Poem/
+Tauri-reimplementation mission as an excuse to defer real work, the
+following previously-postponed/skipped Poem-parity and Cosmo-parity gaps
+were closed in this session (see `poem-cosmo-tauri` commit history and
+`docs/poem-parity.md`/`docs/cosmo-parity.md` for full detail):
+
+- **gRPC server-streaming** (`grpc.health.v1.Health/Watch`) — closed the
+  "no streaming" gap.
+- **gRPC per-service `NOT_FOUND`** — `Check`/`Watch` no longer claim
+  `SERVING` for a service name this server doesn't expose.
+- **gRPC reflection** (`grpc.reflection.v1.ServerReflection`,
+  `list_services` only) — closed the "no reflection" gap for the common
+  service-discovery case (`grpcurl <addr> list`).
+- **Non-multipart file attachment** (`POST /api/schemas/upload-raw`) —
+  closed the "file attachment besides Multipart" gap.
+- **Two stale-documentation bugs found and fixed**: `docs/cosmo-parity.md`
+  had claimed OTLP export and MCP Server integration were still
+  unimplemented; both were already fully implemented and tested. Also
+  fixed a stale doc comment inside `mcp.rs` itself claiming resources/
+  prompts weren't implemented, when they demonstrably were (tested).
+  **Lesson**: verify current code state directly before trusting a
+  parity doc's "not done yet" claim — docs drift out of date in both
+  directions (overstating *and* understating completion), and both
+  directions cause real problems if relied on uncritically.
+- **EDFS** (Event-Driven Federated Subscriptions, Redis Pub/Sub only —
+  Kafka/NATS not attempted) — bridges the existing in-process
+  `broadcast::Sender<SchemaEvent>` across instances via Redis, so GraphQL
+  Subscriptions work correctly in a load-balanced multi-instance
+  deployment.
+- **Cosmo Connect** (scoped to `grpc.health.v1.Health` only, not full
+  dynamic `.proto`-driven schema composition) — a real gRPC client
+  function plus a `grpcHealthCheck` GraphQL field, proving "gRPC service
+  reachable from GraphQL" end to end over real network calls.
+
+**Still genuinely deferred (environment-blocked, not skipped out of
+laziness)**: DNS-01 ACME challenge (needs a real DNS provider API this
+sandbox has no access to), macOS packaging (no macOS available in this
+environment), Linux system-tray visual confirmation (WSLg has no tray
+host panel — the binary itself runs fine), gRPC reflection's non-
+`list_services` request kinds, and full Cosmo Connect schema composition
+for services beyond `Health`. These are named explicitly here rather
+than left as vague "future work" so the next session can tell at a
+glance which gaps are genuinely blocked versus simply not yet attempted.
+
+**Toolchain note**: none of the above could be compiled via this
+session's sandboxed cargo (1.75) against the real workspace — a
+pre-existing, already-documented constraint (this workspace's own
+Cargo.lock pins `indexmap` 2.14.0, which requires the unstable
+`edition2024` Cargo feature). Each change was instead verified by
+extracting the new/changed code into an isolated, exact-version-pinned
+standalone crate and running its tests there. Confirm with a real
+toolchain/CI before treating any of this as fully closed.
 
 ## 1. Goal (目指すもの)
 

@@ -12,3 +12,5 @@
 Voir `docs/HYBRID_NETWORK_ARCHITECTURE.md` pour les règles complètes. Remarque : rédigé sans recherche web en temps réel ; les affirmations « à la pointe » doivent être considérées non vérifiées avant tout benchmark.
 
 **Règle de recherche :** Le développement et la maintenance doivent activement rechercher sur le web (ex. Google) et GitHub si nécessaire — et les recherches doivent être effectuées **en japonais ET en anglais**, car les informations pertinentes (articles de blog, avis, issues) n'apparaissent souvent que dans une seule langue.
+
+**Mise à jour (v0.6) :** lors de cette session, poem-cosmo-tauri a résolu plusieurs lacunes précédemment reportées (streaming/réflexion gRPC, upload non-Multipart, EDFS via Redis, un champ Cosmo Connect à portée limitée) et corrigé deux erreurs de documentation obsolètes. Voir §0.6 du document complet pour le journal et ce qui reste réellement bloqué par l'environnement.

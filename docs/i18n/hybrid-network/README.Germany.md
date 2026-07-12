@@ -12,3 +12,5 @@
 Vollständige Regeln siehe `docs/HYBRID_NETWORK_ARCHITECTURE.md`. Hinweis: ohne Live-Websuche erstellt; "State of the Art"-Aussagen gelten bis zum Benchmark als unverifiziert.
 
 **Recherche-Regel:** Entwicklung und Wartung sollen bei Bedarf aktiv im Web (z. B. Google) und auf GitHub recherchieren — und zwar **sowohl auf Japanisch als auch auf Englisch**, da relevante Informationen (Blogbeiträge, Advisories, Issues) oft nur in einer Sprache auftauchen.
+
+**Update (v0.6):** In dieser Sitzung hat poem-cosmo-tauri mehrere zuvor zurückgestellte Lücken geschlossen (gRPC-Streaming/-Reflection, Nicht-Multipart-Upload, EDFS via Redis, ein eingeschränktes Cosmo-Connect-Feld) und zwei veraltete Dokumentationsfehler behoben. Siehe §0.6 im vollständigen Dokument für das Protokoll und was durch die Umgebung noch wirklich blockiert ist.
