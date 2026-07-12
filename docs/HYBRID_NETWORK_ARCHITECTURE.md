@@ -1,6 +1,6 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.6 (2026-07-12) — added §0.6 postponed-item closure log (gRPC streaming/reflection/NOT_FOUND, non-multipart upload, EDFS, Cosmo Connect, stale-doc corrections); merged with §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** Draft v0.7 (2026-07-12) — added §0.7: concrete ZFS-compatible checksum + ACID hybrid implementation in aruaru-db (compute_checksum, __checksums partition, scan_table verification, scrub()); merged with §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -126,6 +126,61 @@ Cargo.lock pins `indexmap` 2.14.0, which requires the unstable
 extracting the new/changed code into an isolated, exact-version-pinned
 standalone crate and running its tests there. Confirm with a real
 toolchain/CI before treating any of this as fully closed.
+
+## 0.7 ZFS互換 × ACID互換ハイブリッド — 具体的実装(2026-07-12, `aruaru-db`)
+
+`open-web-server`/`open-runo`/`poem-cosmo-tauri`/`aruaru-db`/`open-raid-z`
+の5リポジトリ全体で目指す「ZFS互換とACID互換のハイブリッド」を、まず
+`aruaru-db`で具体的なコードとして実装した(§1の目標アーキテクチャの一部を
+前倒しで着手)。
+
+### 実装内容
+
+`crates/aruaru-core/src/storage/mod.rs`(`PersistentStore`)に:
+
+- **`compute_checksum(data) -> [u8; 32]`**: SHA-256。`open-raid-z`の
+  `open_raid_z_core::checksum::compute_checksum`と**アルゴリズム・型とも
+  完全同一**(バイト単位で相互検証可能——§0.5でいう「共有すべき中心技術」
+  の実例)。
+- **`__checksums`パーティション**: `save_row`で書き込みバイト列のチェック
+  サムを必ず記録(ZFSの「全書き込みにチェックサムを付与」)。
+- **`scan_table`での読み込み時検証**: 保存時チェックサムと再計算値が
+  不一致なら`StorageError::ChecksumMismatch`を返す(黙って壊れたデータを
+  返さない。ZFSの「全読み込みで検証」)。チェックサム未記録の既存データは
+  スキップし後方互換を維持。
+- **`scrub()`**: 全行のチェックサムを検証し破損箇所一覧を返す
+  (`zpool scrub`相当。最初の不一致で打ち切らない)。
+
+### なぜ「ハイブリッド」か(直交する2つの保証)
+
+- **ACID**(既存): `BEGIN`/`COMMIT`/`ROLLBACK`とGit-on-SQLコミットが、
+  「正しい順序で確定した」ことを保証する。
+- **ZFS互換チェックサム**(新規): 「確定後に保存バイトが破損していない」
+  ことを保証する。
+
+どちらか一方では「正しい順序で、かつ壊れていないデータが確定している」
+とは言えない——両方揃って初めて、§0のゼロロス使命(課金アイテム・金融
+データを紛失しない)に必要な完全性が得られる。
+
+### 他リポジトリへの展開(次のステップ)
+
+- `open-web-server-ledger`のWAL書き込みステップに同じチェックサム層を
+  接続する(§1の優先順位6番)。
+- `open-runo`/`poem-cosmo-tauri`側の`open-runo-db`クレート(federated
+  バックエンド)にも同様のチェックサム検証を追加できるか検討する。
+- `open-raid-z`側は逆に、`aruaru-db`のGit-on-SQLコミットIDをZFS
+  スナップショットのタグとして扱えないか(README-Japan.mdで「次回新規
+  開発予定」と記載されていたアイデア)を次回検討する。
+
+### 検証状況
+
+`compute_checksum`自体は分離クレート(sha2のみ)で標準SHA-256テスト
+ベクタと一致することを確認済み。`PersistentStore`本体(fjall統合部分)は
+このセッションのサンドボックスでは検証できなかった——`fjall`自体がrustc
+1.76+を要求し、このサンドボックスのrustc 1.75では(edition2024問題とは
+別の、より根本的な制約として)ビルドすら開始できないため。既存の動作実績
+あるパターンを踏襲した最小限の追加であることを目視レビューで確認したが、
+実CI/実ツールチェーンでの確認を推奨する。
 
 ## 1. Goal (目指すもの)
 

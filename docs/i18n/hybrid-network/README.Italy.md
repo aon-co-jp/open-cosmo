@@ -14,3 +14,5 @@ Regole complete in `docs/HYBRID_NETWORK_ARCHITECTURE.md`. Nota: redatto senza ri
 **Regola di ricerca:** Sviluppo e manutenzione devono cercare attivamente sul web (es. Google) e su GitHub quando necessario — e le ricerche vanno effettuate **sia in giapponese che in inglese**, poiché le informazioni rilevanti (post di blog, avvisi, issue) spesso emergono in una sola lingua.
 
 **Aggiornamento (v0.6):** in questa sessione poem-cosmo-tauri ha chiuso diverse lacune precedentemente rimandate (streaming/reflection gRPC, upload non-Multipart, EDFS via Redis, un campo Cosmo Connect di portata limitata) e corretto due errori di documentazione obsoleti. Vedi §0.6 nel documento completo per il registro e cosa resta realmente bloccato dall'ambiente.
+
+**Aggiornamento (v0.7):** aruaru-db ora dispone di un livello di checksum compatibile con ZFS (algoritmo SHA-256 identico byte per byte a quello di open-raid-z), ibridato con le transazioni ACID esistenti -- ogni scrittura viene sottoposta a checksum, ogni lettura viene verificata, e un metodo equivalente a zpool scrub trova tutte le righe corrotte. Vedi §0.7 per dettagli e prossimi passi.
