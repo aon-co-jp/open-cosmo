@@ -1,5 +1,8 @@
 # 하이브리드 네트워크 아키텍처 (요약)
 
+
+**사명 (v0.2 통합):** 절대 손실되어서는 안 되는 데이터에 대한 보장된 전달과 보장된 읽기/쓰기 — 3D 온라인 게임 유료 아이템, 온라인 금융, 온라인 증권 대상. 속도와 4계층 전송은 이 사명을 위해 존재하며 이와 경쟁해서는 안 된다.
+
 **목표:** 4계층 전송 스택(순수 UDP → QUIC/HTTP3 → TCP 폴백 → GraphQL 페더레이션 멀티플렉싱)과 `aruaru-db`의 ACID 보장, `open-raid-z`의 ZFS 스타일 무결성을 `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z` 전반에 걸쳐 결합합니다.
 
 **현재 상태:** `aruaru-db`의 Poem 통합은 고성능이 확인됨. `open-runo`와의 SQL UPSERT 호환성은 아직 미해결. `open-raid-z`는 비정렬 I/O와 마이그레이션 도구가 동작하지만, Linux CI에서는 Windows 전용 타입을 사용할 수 없음. `open-web-server`는 아직 감사되지 않음.

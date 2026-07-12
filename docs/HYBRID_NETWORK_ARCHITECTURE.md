@@ -1,12 +1,31 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.1 (2026-07)
+**Status:** Draft v0.2 (2026-07) — merged with zero-data-loss mission for financial/asset-bearing use cases
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
+**Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
 
 > ⚠️ **Research disclosure**: This document was authored without live web access (no general web-search tool was available in this session — only `github.com`, `crates.io`, `npmjs.com` and similar dev-infra domains were reachable). Claims about "2026-07 state of the art" reflect the author's trained knowledge (cutoff ~2026-01) plus inspection of this codebase, not a fresh literature/web survey. Treat performance claims and library version numbers as **to be verified** before being treated as fact — flag them in review rather than citing them externally.
 
 ---
+
+## 0. Mission (使命) — Zero Data Loss for High-Stakes Transactions
+
+This stack's reason for existing, stated plainly so it isn't diluted by later feature work:
+
+> **Deliver and persist data that must never be lost, over a network that must never silently fail, for use cases where "eventually consistent" or "probably arrived" is not an acceptable answer.**
+
+Concrete target domains:
+- **3D online game paid items** (課金アイテム) — a purchase or item-transfer that silently fails or duplicates is a real financial loss for a real user, not a cosmetic bug.
+- **Online finance / online brokerage (オンライン証券)** — order execution, balance updates, and trade confirmations must be durable and exactly-once, even across network layer switches (L1↔L2↔L3) or mid-session failover.
+
+This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *how* we achieve zero-loss delivery, not as separate, competing goals. Speed and the 4-layer transport story matter **only insofar as they never compromise** this guarantee. Any optimization that trades durability for latency must be opt-in, explicit, and off by default for these domains (see §4 rules, unchanged and still binding).
+
+**Non-negotiable properties for money/asset-bearing data:**
+1. **At-least-once delivery + exactly-once application** — the network layer may retry; the DB layer (`aruaru-db`, ACID) must de-duplicate via idempotency keys/transaction IDs so retries never double-charge or double-grant an item.
+2. **Durable before acknowledged** — a client is only told "success" after the write is committed and (where `open-raid-z` is in the path) checksummed/persisted — not merely buffered in a fast transport layer.
+3. **Layer-switch transparency** — if a session migrates from QUIC (L2) to TCP (L3) mid-transaction (see §1 table), the in-flight transaction must survive the switch or be safely retried, never silently dropped.
+4. **Auditability** — every asset/financial write must be traceable end-to-end across the transport and storage layers for reconciliation and dispute resolution.
 
 ## 1. Goal (目指すもの)
 
@@ -51,6 +70,7 @@ Priority order, reasoning included so it can be re-argued later:
 ## 4. Technical Rules (ルール)
 
 - **No transport-only "fast path" may bypass ACID guarantees.** If a low-latency path can't preserve durability semantics, it must be explicitly labeled (e.g. `--allow-eventual`) and off by default.
+- **Money/asset-bearing writes (game item purchases, brokerage orders, balance changes) always use the zero-loss path from §0** — idempotency key required, ack only after durable commit, no exceptions for "just this once, for latency."
 - **Every cross-project integration must have a feature flag.** Follow the `open-raid-z` precedent (`gpu`, `winfsp_backend`, `foreign_fs_fat`/`foreign_fs_exfat`) — don't force one project's platform constraints onto another's default build.
 - **Bilingual docs (JP/EN minimum) for anything user-facing**, consistent with existing project convention.
 - **Large, meaningful commits** over many small ones, consistent with established workflow preference.
@@ -63,3 +83,4 @@ Priority order, reasoning included so it can be re-argued later:
 - Is there a shared crate for transport negotiation, or is each project doing its own?
 - What's the actual current UPSERT-parser fix status in `aruaru-db`?
 - Do we have real benchmark numbers for QUIC vs TCP in this stack, or only from general literature (which should not be cited as fact per §1 disclosure)?
+- Which project owns the idempotency-key / transaction-ID scheme for §0 zero-loss guarantees — `aruaru-db`, or a new shared crate?

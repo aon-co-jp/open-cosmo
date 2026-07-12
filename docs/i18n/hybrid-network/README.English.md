@@ -1,5 +1,8 @@
 # Hybrid Network Architecture (Summary)
 
+
+**Mission (merged in v0.2):** Guaranteed delivery and guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, and online securities/brokerage. Speed and the 4-layer transport story exist to serve this, not compete with it.
+
 **Goal:** Combine a 4-layer transport stack (raw UDP → QUIC/HTTP3 → TCP fallback → GraphQL federation multiplexing) with `aruaru-db`'s ACID guarantees and `open-raid-z`'s ZFS-style integrity, across `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, and `open-raid-z`.
 
 **Current state:** `aruaru-db`'s Poem integration is verified fast; SQL UPSERT parity with `open-runo` is still an open gap. `open-raid-z` has working unaligned I/O and migration tooling, but Windows-native types are unavailable on Linux CI. `open-web-server` status is unaudited.

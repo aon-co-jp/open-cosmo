@@ -1,5 +1,8 @@
 # 混合网络架构(摘要)
 
+
+**使命(v0.2合并):** 对绝不能丢失的数据实现有保证的传递与读写——涵盖3D网络游戏付费道具、网络金融、网络证券。速度与四层传输是为此使命服务的,而非与之竞争。
+
 **目标:** 将四层传输栈(原始UDP → QUIC/HTTP3 → TCP回退 → GraphQL联邦多路复用)与 `aruaru-db` 的ACID保证、`open-raid-z` 的ZFS风格完整性相结合,覆盖 `open-runo`、`poem-cosmo-tauri`、`open-web-server`、`aruaru-db`、`open-raid-z` 各项目。
 
 **现状:** `aruaru-db` 的Poem集成已验证高性能;与 `open-runo` 的SQL UPSERT兼容性仍是待解决问题。`open-raid-z` 已实现非对齐I/O与迁移工具,但在Linux CI上无法使用Windows原生类型。`open-web-server` 尚未审计。
