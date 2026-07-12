@@ -1,0 +1,9 @@
+# Hybrid Network Architecture (Summary)
+
+**Goal:** Combine a 4-layer transport stack (raw UDP → QUIC/HTTP3 → TCP fallback → GraphQL federation multiplexing) with `aruaru-db`'s ACID guarantees and `open-raid-z`'s ZFS-style integrity, across `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, and `open-raid-z`.
+
+**Current state:** `aruaru-db`'s Poem integration is verified fast; SQL UPSERT parity with `open-runo` is still an open gap. `open-raid-z` has working unaligned I/O and migration tooling, but Windows-native types are unavailable on Linux CI. `open-web-server` status is unaudited.
+
+**Next steps:** (1) fix the UPSERT parser gap, (2) audit `open-web-server`, (3) define a shared transport-negotiation contract, (4) wire ZFS-style checksums into the DB write path, (5) build the QUIC/UDP fast path last.
+
+See `docs/HYBRID_NETWORK_ARCHITECTURE.md` for the full technical rules. Note: authored without live web search; treat "state of the art" claims as unverified until benchmarked.
