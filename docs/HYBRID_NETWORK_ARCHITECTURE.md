@@ -1,6 +1,6 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.7 (2026-07-12) — added §0.7: concrete ZFS-compatible checksum + ACID hybrid implementation in aruaru-db (compute_checksum, __checksums partition, scan_table verification, scrub()); merged with §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** Draft v0.8 (2026-07-12) — added §0.8 next-session directive (continue ZFS+ACID hybrid rollout; research-then-implement 4-layer/4-redundant cutting-edge transport via JP+EN web/GitHub search; fuse both into one zero-loss pipeline, not separate features); merged with §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 **Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
@@ -181,6 +181,40 @@ toolchain/CI before treating any of this as fully closed.
 別の、より根本的な制約として)ビルドすら開始できないため。既存の動作実績
 あるパターンを踏襲した最小限の追加であることを目視レビューで確認したが、
 実CI/実ツールチェーンでの確認を推奨する。
+
+## 0.8 次回セッションへの指示(2026-07-12 ユーザー確定)
+
+次回セッションでは、以下を統廃合・融合して実装すること:
+
+1. **ZFS互換 × ACID互換ハイブリッドの継続・融合**: §0.7で`aruaru-db`に
+   実装したチェックサム層(compute_checksum・`__checksums`パーティション・
+   `scan_table`検証・`scrub()`)を土台に、他リポジトリへの展開を進める
+   (§0.7末尾に記載した「他リポジトリへの展開」の3項目——
+   `open-web-server-ledger`のWAL接続、`open-runo-db`federatedバックエンドへの
+   適用、`open-raid-z`側でのGit-on-SQLコミットIDとZFSスナップショットの
+   紐付け)。「ZFS互換」と「ACID互換」を別々の機能として作るのではなく、
+   常に**統合された1つの書き込み・読み込みパスとして融合**すること。
+
+2. **4層4重の最先端通信技術をGoogle検索・GitHub検索で調査した上で実装**:
+   §4のルール(「Web検索・GitHub調査は日本語と英語の両方で行う」)に従い、
+   2026年7月時点の最先端の通信技術(QUIC/HTTP3・MPTCP/MPQUIC・SCTP等)を
+   実際に検索・分析した上で、4層(TCP-IP・UDP-IP・QUIC/MPQUIC・
+   MPTCP/SCTP)×4重の通信スタックとして実装すること。調査せず記憶だけで
+   実装しないこと(§4のルールをそのまま適用)。
+
+3. **上記1と2を、§0のゼロロス使命(3Dオンラインゲーム課金アイテム・
+   金融・証券・クレジットカードデータをネットワーク上で絶対に紛失しない)
+   の実現手段として、単なる個別機能の寄せ集めではなく統廃合・融合した
+   1つの技術として実装すること**。具体的には: 4層4重の通信技術で
+   ハイスピード・ハイセキュリティにデータを届け、ZFS互換×ACID互換
+   ハイブリッドの最先端DATABASE技術で読み書き・保存する、という
+   一気通貫のパイプラインとして設計・実装すること。
+
+4. 実装後は、本ドキュメント(開発方針＆開発環境ルールファイル)・
+   10ケ国語README・他プロジェクトへのお引越し可能ファイル(本ドキュメントと
+   `docs/i18n/hybrid-network/`一式)を最新の実装内容に合わせて更新し、
+   関連リポジトリ全て(`open-web-server`・`open-runo`・`poem-cosmo-tauri`・
+   `aruaru-db`・`open-raid-z`)へ読み書き・統合・pushすること。
 
 ## 1. Goal (目指すもの)
 

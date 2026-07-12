@@ -16,3 +16,5 @@ See `docs/HYBRID_NETWORK_ARCHITECTURE.md` for the full technical rules. Note: au
 **Update (v0.6):** poem-cosmo-tauri closed several previously-postponed gaps this session (gRPC streaming/reflection, non-multipart upload, EDFS via Redis, a scoped Cosmo Connect field) and fixed two stale-documentation bugs. See §0.6 in the full doc for the closure log and what's still genuinely environment-blocked.
 
 **Update (v0.7):** aruaru-db now has a concrete ZFS-compatible checksum layer (byte-identical SHA-256 algorithm to open-raid-z's), hybridized with its existing ACID transactions -- every write is checksummed, every read is verified, and a ZFS-scrub-equivalent method finds all corrupted rows. See §0.7 for detail and remaining rollout steps to other repos.
+
+**Next session directive (v0.8):** continue fusing the ZFS+ACID hybrid across repos, and research (via JP+EN Google/GitHub search, not memory alone) then implement the 4-layer/4-redundant transport stack (TCP-IP/UDP-IP/QUIC-MPQUIC/MPTCP-SCTP) -- both as ONE fused zero-loss pipeline for gaming items/finance/securities/credit-card data, not separate features. See §0.8.
