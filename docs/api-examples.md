@@ -134,15 +134,27 @@ async function registerSchema(
 }
 ```
 
-**Coverage note**: as of this writing, `components.schemas` covers the
-schema registry (`SchemaVersion`, `RegisterSchemaRequest`,
-`SchemaHistoryResponse`) and federation (`FederationStatusResponse`,
-`RateLimitedResponse`) endpoints -- the ones with a shared
-`open-runo-api-types` Rust type behind them. The other ~25 REST endpoints
-(DB CRUD, SCIM, persisted queries, cache/backup) still have
-`description`-only responses in the spec; extending `open-runo-api-types`
-to cover them (and regenerating their schemas the same way) is tracked as
-a follow-up in `CLAUDE.md`'s HANDOFF.
+**Coverage note** (updated 2026-07-13): `components.schemas` now also
+covers DB CRUD (`DbRecordItem`, `DbRecordListResponse`, `DbRecordResponse`,
+`DbUpsertRequest`, `DbDeleteResponse`, `DbStatusResponse`, `DbRoutingEntry`,
+`DbRoutingInfo`) and feature flags (`FeatureFlagRequest`,
+`FeatureFlagResponse`, `FeatureFlagListResponse`,
+`FeatureFlagEvaluationResponse`), in addition to the schema registry
+(`SchemaVersion`, `RegisterSchemaRequest`, `SchemaHistoryResponse`) and
+federation (`FederationStatusResponse`, `RateLimitedResponse`) endpoints
+already covered. The `open-runo-api-types` structs for DB/feature-flags
+already existed (used by the WASM frontend and CLI) but the OpenAPI spec
+in `crates/open-runo-router/src/openapi.rs` hadn't been wired up to them
+yet, and the feature-flags REST paths (`/api/feature-flags`,
+`/api/feature-flags/:name`, `/api/feature-flags/:name/evaluate` -- a real,
+routed REST feature per `open-runo-cli` and `lib.rs`) were missing from
+the spec's `paths` entirely (mirrored from poem-cosmo-tauri). Both gaps
+are now closed and pinned by
+`openapi::tests::db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented`.
+Remaining REST endpoints without typed schemas: SCIM, persisted queries,
+cache/backup, migrate, integrity -- still `description`-only; extending
+`open-runo-api-types` to cover them is tracked as a follow-up in
+`CLAUDE.md`'s HANDOFF.
 
 ## 5. A minimal HTML + Bootstrap example
 

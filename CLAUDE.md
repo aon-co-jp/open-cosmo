@@ -188,6 +188,26 @@ Federation Gateway/バックエンド側として関与しうる。
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-13 OpenAPI spec coverage拡大をpoem-cosmo-tauriからミラー
+  完了(docs/api-examples.md Coverage note指摘の実ギャップ解消)**:
+  poem-cosmo-tauri側で先行実装・検証済みの`crates/open-runo-router/
+  src/openapi.rs`変更(DB CRUD 8型・Feature Flags 4型を
+  `components.schemas`に追加、`/api/db/*`各パスを型付きレスポンス/
+  リクエストボディに書き換え、丸ごと欠落していた`/api/feature-flags`・
+  `/api/feature-flags/:name`・`/api/feature-flags/:name/evaluate`の
+  3パスをspecに新規追加)+新規テスト
+  `db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented`
+  をこちらへコピーしてミラー(`crates/open-runo-api-types/src/lib.rs`・
+  `crates/open-runo-router/src/lib.rs`は既に同一内容だったため無変更)。
+  `docs/cosmo-parity.md`のMCP Server行(古い「未実装」記述のまま残って
+  いた実際は2026-07-12完了済み)・`docs/api-examples.md`のCoverage note
+  も同期。**検証**: `cargo check --workspace`警告のみ(既存3件)で成功、
+  `cargo test --workspace`全スイートgreen(失敗ゼロ、新規2テスト含む)。
+  次回パスがすべきこと: `docs/cosmo-parity.md`4a節の残りギャップ
+  (EDFS/Kafka連携・gRPC Connect対応、いずれも★★☆)、または残る
+  未型付けエンドポイント(SCIM・persisted queries・cache/backup・
+  migrate・integrity、約20本)への同様の型付け拡張。
+
 - **2026-07-12 `docs/poem-parity.md`4a節の残りギャップ(ACME・gRPC・
   MCP Server)をpoem-cosmo-tauriからミラー完了——これで同ドキュメントの
   未実装項目はゼロに**: poem-cosmo-tauri側コミット`a10a4cf`(ACME、

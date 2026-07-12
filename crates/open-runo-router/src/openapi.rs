@@ -95,6 +95,18 @@ fn components_schemas() -> Value {
         schema_component::<open_runo_api_types::SchemaHistoryResponse>(),
         schema_component::<open_runo_api_types::FederationStatusResponse>(),
         schema_component::<open_runo_api_types::RateLimitedResponse>(),
+        schema_component::<open_runo_api_types::DbRecordItem>(),
+        schema_component::<open_runo_api_types::DbRecordListResponse>(),
+        schema_component::<open_runo_api_types::DbRecordResponse>(),
+        schema_component::<open_runo_api_types::DbUpsertRequest>(),
+        schema_component::<open_runo_api_types::DbDeleteResponse>(),
+        schema_component::<open_runo_api_types::DbStatusResponse>(),
+        schema_component::<open_runo_api_types::DbRoutingEntry>(),
+        schema_component::<open_runo_api_types::DbRoutingInfo>(),
+        schema_component::<open_runo_api_types::FeatureFlagRequest>(),
+        schema_component::<open_runo_api_types::FeatureFlagResponse>(),
+        schema_component::<open_runo_api_types::FeatureFlagListResponse>(),
+        schema_component::<open_runo_api_types::FeatureFlagEvaluationResponse>(),
     ] {
         for (name, schema) in entries {
             // `SchemaVersion` is pulled in as a nested `$defs` entry by
@@ -225,18 +237,18 @@ pub(crate) fn spec() -> Value {
                 "post": { "summary": "Select the best AI provider for a request", "security": api_key_security(), "responses": { "200": { "description": "OK" } } }
             },
             "/api/db/status": {
-                "get": { "summary": "DUAL DATABASE backend name & health", "security": api_key_security(), "responses": { "200": { "description": "OK" } } }
+                "get": { "summary": "DUAL DATABASE backend name & health", "security": api_key_security(), "responses": with_standard_errors(json!({ "200": typed_response("OK", "DbStatusResponse") })) }
             },
             "/api/db/routing": {
-                "get": { "summary": "Per-table routing decisions", "security": api_key_security(), "responses": { "200": { "description": "OK" } } }
+                "get": { "summary": "Per-table routing decisions", "security": api_key_security(), "responses": with_standard_errors(json!({ "200": typed_response("OK", "DbRoutingInfo") })) }
             },
             "/api/db/{table}": {
-                "get": { "summary": "List all records in a table", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" } } }
+                "get": { "summary": "List all records in a table", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": with_standard_errors(json!({ "200": typed_response("OK", "DbRecordListResponse") })) }
             },
             "/api/db/{table}/{key}": {
-                "get": { "summary": "Get one record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } } },
-                "put": { "summary": "Upsert a record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Saved" } } },
-                "delete": { "summary": "Delete a record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Deleted" } } }
+                "get": { "summary": "Get one record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": with_standard_errors(json!({ "200": typed_response("OK", "DbRecordResponse"), "404": { "description": "Not found" } })) },
+                "put": { "summary": "Upsert a record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "requestBody": typed_request_body("DbUpsertRequest"), "responses": with_standard_errors(json!({ "200": typed_response("Saved", "DbRecordResponse") })) },
+                "delete": { "summary": "Delete a record", "security": api_key_security(), "parameters": [{ "name": "table", "in": "path", "required": true, "schema": { "type": "string" } }, { "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": with_standard_errors(json!({ "200": typed_response("Deleted", "DbDeleteResponse") })) }
             },
             "/api/cache/purge": {
                 "post": { "summary": "Purge one HTML page from the cache", "security": api_key_security(), "responses": { "200": { "description": "Purged" } } }
@@ -270,6 +282,44 @@ pub(crate) fn spec() -> Value {
             },
             "/api/persisted-queries/{hash}": {
                 "get": { "summary": "Fetch a registered document by hash", "security": api_key_security(), "parameters": [{ "name": "hash", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } } }
+            },
+            "/api/feature-flags": {
+                "post": {
+                    "summary": "Create or update a feature flag (upsert, keyed by name)",
+                    "security": api_key_security(),
+                    "requestBody": typed_request_body("FeatureFlagRequest"),
+                    "responses": with_standard_errors(json!({ "200": typed_response("Upserted", "FeatureFlagResponse") }))
+                },
+                "get": {
+                    "summary": "List all feature flags",
+                    "security": api_key_security(),
+                    "responses": with_standard_errors(json!({ "200": typed_response("OK", "FeatureFlagListResponse") }))
+                }
+            },
+            "/api/feature-flags/{name}": {
+                "get": {
+                    "summary": "Fetch a feature flag",
+                    "security": api_key_security(),
+                    "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+                    "responses": with_standard_errors(json!({ "200": typed_response("OK", "FeatureFlagResponse"), "404": { "description": "Not found" } }))
+                },
+                "delete": {
+                    "summary": "Delete a feature flag",
+                    "security": api_key_security(),
+                    "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }],
+                    "responses": with_standard_errors(json!({ "200": { "description": "Deleted" }, "404": { "description": "Not found" } }))
+                }
+            },
+            "/api/feature-flags/{name}/evaluate": {
+                "get": {
+                    "summary": "Evaluate a feature flag for a given bucket key (deterministic 0-100 rollout bucketing)",
+                    "security": api_key_security(),
+                    "parameters": [
+                        { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } },
+                        { "name": "bucket_key", "in": "query", "required": true, "schema": { "type": "string" } }
+                    ],
+                    "responses": with_standard_errors(json!({ "200": typed_response("OK", "FeatureFlagEvaluationResponse"), "404": { "description": "Not found" } }))
+                }
             },
             "/scim/v2/Users": {
                 "get": { "summary": "List SCIM users (RFC 7644)", "security": api_key_security(), "responses": { "200": { "description": "OK" } } },
@@ -373,6 +423,74 @@ mod tests {
         assert_eq!(
             body["components"]["responses"]["RateLimited"]["content"]["application/json"]["schema"]["$ref"],
             "#/components/schemas/RateLimitedResponse"
+        );
+    }
+
+    /// `docs/api-examples.md`'s "Coverage note" flagged DB CRUD and
+    /// feature flags as still `description`-only (2026-07-11); this test
+    /// pins the fix so it can't silently regress back to untyped.
+    #[tokio::test]
+    async fn db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented() {
+        let router = Router::new().route(Method::GET, "/api/openapi.json", openapi_handler());
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+        let body: Value = reqwest::Client::new()
+            .get(format!("http://{addr}/api/openapi.json"))
+            .send()
+            .await
+            .expect("request should succeed")
+            .json()
+            .await
+            .expect("valid json body");
+
+        let schemas = &body["components"]["schemas"];
+        for name in [
+            "DbRecordItem",
+            "DbRecordListResponse",
+            "DbRecordResponse",
+            "DbUpsertRequest",
+            "DbDeleteResponse",
+            "DbStatusResponse",
+            "DbRoutingEntry",
+            "DbRoutingInfo",
+            "FeatureFlagRequest",
+            "FeatureFlagResponse",
+            "FeatureFlagListResponse",
+            "FeatureFlagEvaluationResponse",
+        ] {
+            assert!(schemas[name].is_object(), "components.schemas.{name} should exist");
+        }
+
+        assert_eq!(
+            body["paths"]["/api/db/{table}"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/DbRecordListResponse"
+        );
+        assert_eq!(
+            body["paths"]["/api/db/{table}/{key}"]["put"]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/DbUpsertRequest"
+        );
+        assert_eq!(
+            body["paths"]["/api/db/{table}/{key}"]["delete"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/DbDeleteResponse"
+        );
+
+        // Feature flags were entirely absent from the OpenAPI paths before
+        // this fix, despite being a real, wired REST feature
+        // (`crates/open-runo-router/src/lib.rs` routes) with types already
+        // sitting unused in `open-runo-api-types`.
+        assert!(body["paths"]["/api/feature-flags"]["post"].is_object());
+        assert!(body["paths"]["/api/feature-flags"]["get"].is_object());
+        assert!(body["paths"]["/api/feature-flags/{name}"]["get"].is_object());
+        assert!(body["paths"]["/api/feature-flags/{name}"]["delete"].is_object());
+        assert!(body["paths"]["/api/feature-flags/{name}/evaluate"]["get"].is_object());
+        assert_eq!(
+            body["paths"]["/api/feature-flags"]["post"]["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/FeatureFlagRequest"
+        );
+        assert_eq!(
+            body["paths"]["/api/feature-flags/{name}/evaluate"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/FeatureFlagEvaluationResponse"
         );
     }
 }
