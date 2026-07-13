@@ -309,6 +309,34 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-13 直前コミット(`66bb5a7`)のgraceful shutdown実装に実バグ2件を
+  発見・修正(mainブランチのテストが実際に壊れていた)**: 別の継続開発
+  パスで`cargo test --workspace`を実行したところ、`open-runo-gateway`の
+  GraphQLテスト3件が`ConnectionReset`で実際に失敗していることを発見。
+  調査の結果、`serve()`ラッパーの「二度と発火しないshutdown」の実装に
+  実際のバグがあった: 関数スコープの`watch::channel`のsenderを使って
+  いたが、`serve()`がreturnした瞬間にそのsenderがdropされ、**dropされた
+  `watch::Sender`はreceiver側の`changed()`を即座に解決させてしまう**
+  ため、「決して発火しないはず」のshutdownシグナルが実際には直後に
+  発火し、接続直後の全コネクションがリセットされていた。
+  `std::future::pending()`(絶対に解決しないFuture)に置き換えて修正。
+  さらに、この修正過程で`hyper_compat::tests::
+  graceful_shutdown_lets_an_in_flight_request_finish_before_the_server_stops`
+  テスト自体にも別の実バグを発見: `reqwest`の`.send()`が返すFutureは
+  遅延評価であり、ローカル変数に束縛しただけでは何も実行されない
+  (spawnもpollもされない限りHTTP接続自体が開始しない)。テストは
+  shutdown発火**後**に初めて`request.await`していたため、実際には
+  「in-flightリクエストの継続」を一切検証できていなかった
+  (常にshutdown後に新規接続を試みて失敗する経路を通っていた)。
+  `tokio::spawn`でリクエストを即座に開始するよう修正し、実際に
+  「shutdown発火時点で処理中だったリクエストが正常完了する」ことを
+  検証できるようにした。`cargo test --workspace`は全テストバイナリで
+  failed 0(gatewayのGraphQLテスト3件・graceful shutdownテスト1件を
+  含め151件)を確認。poem-cosmo-tauri側にも同じ2件の修正を実施済み
+  (`efa5ad2`)。教訓: バックグラウンドパスが「実装完了・テストgreen」と
+  報告しても、実際に`cargo test --workspace`を実行して確認するまでは
+  信用しないこと(このセッションで複数回発生した既知のパターン)。
+
 - **2026-07-13 Tomcat/Apache類推によるユーザー指摘を受け、リバースプロキシ
   配下運用の結論を再検討・部分訂正 — graceful shutdown + 実ヘルスチェック
   を新規実装**: 詳細な調査結論・根拠は本ファイル「Web高速化機能の開発方針」

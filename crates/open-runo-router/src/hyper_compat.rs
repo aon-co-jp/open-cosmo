@@ -742,13 +742,17 @@ pub async fn serve(router: Router, addr: std::net::SocketAddr) -> std::io::Resul
     // [`serve_with_shutdown`] so a rolling restart behind a load balancer
     // (nginx/Caddy/Envoy — see PORTING.md's horizontal-scaling recipe)
     // doesn't cut in-flight requests off mid-response.
-    let (_never_fires_tx, never_fires_rx) = tokio::sync::watch::channel(false);
-    serve_with_shutdown(router, addr, async move {
-        let mut rx = never_fires_rx;
-        let _ = rx.changed().await;
-    })
-    .await
-    .map(|(addr, handle, _tracker)| (addr, handle))
+    //
+    // `std::future::pending()` never resolves, unlike an earlier version of
+    // this wrapper that used a `watch::channel` sender scoped to this
+    // function -- that sender got dropped the instant `serve` returned,
+    // and a dropped `watch::Sender` makes the receiver's `changed()`
+    // resolve immediately, so the "never fires" shutdown signal actually
+    // fired right away and reset every connection moments after accepting
+    // it.
+    serve_with_shutdown(router, addr, std::future::pending())
+        .await
+        .map(|(addr, handle, _tracker)| (addr, handle))
 }
 
 /// Like [`serve`], but stops accepting new connections once `shutdown`
@@ -1497,7 +1501,15 @@ mod tests {
         .expect("bind ephemeral port");
 
         let client = reqwest::Client::new();
-        let request = client.get(format!("http://{addr}/slow")).send();
+        // `reqwest`'s `.send()` future is lazy like any other Rust future --
+        // it does not open the connection until polled. Binding it to a
+        // local without spawning/polling it does nothing until the final
+        // `.await`, which would happen *after* shutdown already fired below,
+        // defeating the whole point of this test (the request would never
+        // even have connected while "in flight"). Spawning it is what
+        // actually starts the request now.
+        let spawn_client = client.clone();
+        let request = tokio::spawn(async move { spawn_client.get(format!("http://{addr}/slow")).send().await });
 
         // Give the request time to be accepted and reach the 200ms sleep,
         // then trigger shutdown while it's still in flight.
@@ -1505,7 +1517,10 @@ mod tests {
         shutdown_tx.send(()).expect("shutdown receiver still alive");
 
         // The in-flight request must still complete successfully...
-        let resp = request.await.expect("in-flight request should still complete, not be severed");
+        let resp = request
+            .await
+            .expect("request task should not panic")
+            .expect("in-flight request should still complete, not be severed");
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         // ...and the server task itself must terminate (proving it did not
