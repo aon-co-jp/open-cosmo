@@ -87,12 +87,14 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
     );
 
     let wrap = |h: Handler| -> Handler {
-        middleware_hyper::with_compression(middleware_hyper::with_cors(middleware_hyper::with_tracing(
-            middleware_hyper::with_metrics(
-                middleware_hyper::with_shared_rate_limit(h, Arc::clone(&limiter)),
-                Arc::clone(&state.request_metrics),
-            ),
-        )))
+        middleware_hyper::with_static_cache_headers(middleware_hyper::with_compression(
+            middleware_hyper::with_cors(middleware_hyper::with_tracing(
+                middleware_hyper::with_metrics(
+                    middleware_hyper::with_shared_rate_limit(h, Arc::clone(&limiter)),
+                    Arc::clone(&state.request_metrics),
+                ),
+            )),
+        ))
     };
 
     Router::new()

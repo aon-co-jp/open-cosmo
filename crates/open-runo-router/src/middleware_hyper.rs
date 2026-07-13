@@ -86,6 +86,75 @@ pub fn with_compression(inner: Handler) -> Handler {
     })
 }
 
+/// File extensions treated as long-lived static assets for
+/// [`with_static_cache_headers`] — the same set aruaru-web's KUSANAGI-style
+/// Nginx/Apache vhost templates hard-coded via `location ~*
+/// \.(?:wasm|js|css|...)$ { expires 30d; ... }` before that speedup logic
+/// was split out of aruaru-web/open-easyweb and reimplemented natively here
+/// (see `docs/cosmo-parity.md` "Web speedup features" note).
+const STATIC_CACHE_EXTENSIONS: &[&str] = &[
+    "wasm", "js", "css", "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2",
+];
+
+/// Default `max-age` (seconds) applied by [`with_static_cache_headers`]:
+/// 30 days, matching the `expires 30d` used by aruaru-web's Nginx
+/// templates. Overridable via `OPEN_RUNO_STATIC_CACHE_MAX_AGE_SECS`.
+const DEFAULT_STATIC_CACHE_MAX_AGE_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// Wrap `inner` so that responses to requests whose path ends in one of
+/// [`STATIC_CACHE_EXTENSIONS`] get a `Cache-Control: public, max-age=N,
+/// immutable` header (unless the handler already set one). This is the
+/// native-Rust equivalent of the `expires`/`Cache-Control` directives that
+/// aruaru-web's (now open-easyweb's, speedup logic split out) Nginx/Apache
+/// vhost templates applied to static assets — see the 2026-07-13 ecosystem
+/// reorg: domain/HTTPS/easy-ops moved to `open-easyweb`, and the speedup
+/// tuning (gzip, static caching, FastCGI buffering, keepalive upstream
+/// pooling) that used to live in aruaru-web's shell-script-generated Nginx
+/// configs is reimplemented here as an in-process hyper middleware instead
+/// (gzip: see [`with_compression`] above, already covered before this
+/// function existed; static caching: this function; FastCGI buffering and
+/// upstream keepalive pooling are Nginx-specific reverse-proxy concerns
+/// this router doesn't have an equivalent for — see the doc comment on
+/// `docs/cosmo-parity.md`'s speedup-gap note for why those two don't need
+/// a port here).
+///
+/// `max_age_secs` is read once at construction time from
+/// `OPEN_RUNO_STATIC_CACHE_MAX_AGE_SECS` (falls back to
+/// [`DEFAULT_STATIC_CACHE_MAX_AGE_SECS`] = 30 days if unset/invalid).
+pub fn with_static_cache_headers(inner: Handler) -> Handler {
+    let max_age_secs = env::var("OPEN_RUNO_STATIC_CACHE_MAX_AGE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_STATIC_CACHE_MAX_AGE_SECS);
+    let cache_control_value = format!("public, max-age={}, immutable", max_age_secs);
+
+    Arc::new(move |req, params| {
+        let inner = Arc::clone(&inner);
+        let is_static_asset = req
+            .uri()
+            .path()
+            .rsplit_once('.')
+            .map(|(_, ext)| {
+                STATIC_CACHE_EXTENSIONS
+                    .iter()
+                    .any(|candidate| candidate.eq_ignore_ascii_case(ext))
+            })
+            .unwrap_or(false);
+        let cache_control_value = cache_control_value.clone();
+
+        Box::pin(async move {
+            let mut resp = inner(req, params).await;
+            if is_static_asset && !resp.headers().contains_key(hyper::header::CACHE_CONTROL) {
+                resp.headers_mut().insert(
+                    hyper::header::CACHE_CONTROL,
+                    cache_control_value.parse().unwrap(),
+                );
+            }
+            resp
+        })
+    })
+}
+
 /// Wrap `inner` so every response gets CORS headers, and `OPTIONS`
 /// preflight requests are answered directly without reaching `inner`.
 /// Poem-free port of `middleware::cors::build_cors`'s behavior.
@@ -479,6 +548,65 @@ mod tests {
                 .unwrap()
                 .status(),
             reqwest::StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+
+    #[tokio::test]
+    async fn static_cache_headers_added_for_static_asset_extensions() {
+        let router = Router::new()
+            .route(Method::GET, "/app.wasm", with_static_cache_headers(ok_handler()))
+            .route(Method::GET, "/app.js", with_static_cache_headers(ok_handler()))
+            .route(Method::GET, "/style.css", with_static_cache_headers(ok_handler()));
+        let (addr, _handle) =
+            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let client = reqwest::Client::new();
+
+        for path in ["/app.wasm", "/app.js", "/style.css"] {
+            let resp = client.get(format!("http://{addr}{path}")).send().await.unwrap();
+            assert_eq!(resp.status(), reqwest::StatusCode::OK);
+            let cache_control =
+                resp.headers().get("cache-control").expect("cache-control header").to_str().unwrap();
+            assert_eq!(cache_control, "public, max-age=2592000, immutable", "for {path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn static_cache_headers_not_added_for_non_static_paths() {
+        let router =
+            Router::new().route(Method::GET, "/api/health", with_static_cache_headers(ok_handler()));
+        let (addr, _handle) =
+            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/api/health"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+        assert!(resp.headers().get("cache-control").is_none());
+    }
+
+    #[tokio::test]
+    async fn static_cache_headers_do_not_override_an_existing_cache_control() {
+        let no_store_handler: Handler = Arc::new(|_req, _params| {
+            Box::pin(async {
+                let mut resp = empty_status(StatusCode::OK);
+                resp.headers_mut().insert(hyper::header::CACHE_CONTROL, "no-store".parse().unwrap());
+                resp
+            })
+        });
+        let router = Router::new().route(
+            Method::GET,
+            "/app.js",
+            with_static_cache_headers(no_store_handler),
+        );
+        let (addr, _handle) =
+            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+
+        let resp = reqwest::Client::new().get(format!("http://{addr}/app.js")).send().await.unwrap();
+        assert_eq!(
+            resp.headers().get("cache-control").unwrap().to_str().unwrap(),
+            "no-store"
         );
     }
 }
