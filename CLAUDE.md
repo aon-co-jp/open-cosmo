@@ -72,18 +72,21 @@ WEBアプリ開発を効率的に行えるようにするための**フレーム
 この節は [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z) の
 `CLAUDE.md` を正本とし、各プロジェクトへコピーして同期する。
 
-## open-web-server 拡張要件との関わり(2026-07-11、ユーザー指示)
+## open-web-server 拡張要件との関わり(2026-07-13、要約を統合・整理)
 
-`open-web-server` リポジトリが、poem-cosmo-tauri(またはこのリポジトリ)・
-PostgreSQL・`aruaru-db`・`open-raid-z`と組み合わせて、3Dオンラインゲームの
-課金アイテム・金融/証券データをネットワーク上で紛失しないための
-通信層の四重化(TCP-IP・UDP-IP・QUIC/MPQUIC・MPTCP/SCTP、2026-07-11に
-三層三重から改訂)・DB書き込みの四重化(PostgreSQL・aruaru-db・マルチ
-リージョン同期レプリケーション・独立監査ログ)・VersionLessAPIとGit管理の
-ハイブリッド版管理を実装する目標アーキテクチャの詳細・進捗は
-`open-web-server/CLAUDE.md`
-(および正本の open-raid-z `CLAUDE.md`)を参照。このリポジトリはその
-Federation Gateway/バックエンド側として関与しうる。
+`open-web-server` は、3Dオンラインゲームのアイテム課金やクレジット
+カード決済のような金融データを扱う、24時間365日ノンストップ運用の
+ミッションクリティカルな Web サーバー。4層防御通信による高セキュリティ
+と高速性の両立、およびZFS互換(`open-raid-z`)とACID互換(PostgreSQL)の
+ハイブリッド技術を核として、poem-cosmo-tauri(またはこのリポジトリ)・
+PostgreSQL・`aruaru-db`・`open-raid-z`と連携する多層防御アーキテクチャ
+により、二重課金・データ消失を防ぐ。通信層の四重化(TCP-IP・UDP-IP・
+QUIC・MPTCP/SCTP相当)・DB書き込みの四重化(PostgreSQL・aruaru-db・
+マルチリージョン同期レプリケーション・独立監査ログ、全系統実装済み)・
+VersionLessAPIとGit管理のハイブリッド版管理の詳細・進捗は
+`open-web-server/CLAUDE.md`(および正本の open-raid-z `CLAUDE.md`)を
+参照。このリポジトリはその Federation Gateway/バックエンド側として
+関与しうる。
 
 ## フロントエンド(2026-07-10、方針更新)
 
