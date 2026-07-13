@@ -309,6 +309,16 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-13(VersionLessAPI+Gitハイブリッド読み出し側を再検証、依然green)**:
+  `cargo test --workspace`(151件、全green、前回パスの報告通り)を再確認
+  した上で、`crates/open-runo-db/tests/aruaru_as_of_commit.rs`の
+  `#[ignore]`統合テスト(`as_of_commit_returns_the_old_value_through_the_
+  real_pgwire_endpoint`)を、`aruaru-db`側で`cargo build -p aruaru-server`
+  してから`cargo test -p open-runo-db --features aruaru --test
+  aruaru_as_of_commit -- --ignored --nocapture`で実行し、**実際に
+  aruaru-serverの実pgwireエンドポイントに接続して成功することを再確認**
+  (ドリフト無し)。他パスがこの間に触れたコード(graceful shutdown修正等)
+  との相互作用による劣化は無かった。
 - **2026-07-13 直前コミット(`66bb5a7`)のgraceful shutdown実装に実バグ2件を
   発見・修正(mainブランチのテストが実際に壊れていた)**: 別の継続開発
   パスで`cargo test --workspace`を実行したところ、`open-runo-gateway`の
