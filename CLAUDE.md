@@ -177,6 +177,62 @@ upstream keepaliveプーリングはNginx固有のリバースプロキシ実装
 無いと判断——詳細はこのCLAUDE.mdのHANDOFF該当エントリ、または
 `open-easyweb`のCLAUDE.mdを参照。
 
+**(2026-07-13、ユーザー指摘を受けた再検討・結論の一部訂正)**: ユーザーから
+「Apache HTTPD(`mod_proxy_http`/`mod_proxy_ajp`)がTomcatの手前に立ち、
+TLS終端・静的アセットオフロード・複数Tomcatへの負荷分散・**プロキシ→
+バックエンドAPサーバー間のコネクションプーリング/keepalive**を担う」
+という具体的な類推で、上記の結論の再検討を指示された。日本語・英語
+両方で調査した結果("Rust hyper server behind nginx reverse proxy
+production best practice"、"tokio async server 複数プロセス
+ロードバランス デプロイ"等)、結論は**部分的に訂正**する:
+
+- **上記の「移植すべき同等の概念が無い」という結論のうち、FastCGI
+  バッファ調整・named upstream keepaliveプーリングそのものについては
+  引き続き正しい**——これらはTomcatの**スレッドプアモデル**
+  (リクエストごとに専用OSスレッドをブロックする、同時接続数がスレッド
+  プールサイズに直結する)が生む問題への対症療法であり、Apache側の
+  バッファリング・接続管理でTomcatの限られたワーカースレッドを
+  食い潰されないよう保護する必要があった。tokio/hyperの非同期I/O
+  モデルは1接続1スレッドを消費しないため、この特定の問題(スロー
+  クライアント対策としての手前でのバッファリング)は根本的に存在しない。
+  これは今回の調査で裏付けが取れた(2026年時点の実務知見・GitHub上の
+  axum/hyper本番デプロイ事例でも、nginx/Caddy/Envoyを前段に置く主な
+  理由はTLS終端の簡便さ・複数マシンにまたがる水平スケーリング・
+  ゼロダウンタイムデプロイであり、「スロークライアントからバックエンドを
+  守るための接続プーリング」目的での記述は見当たらなかった)。
+- **一方、「クラスタ化・複数インスタンスでのロードバランス配下運用」
+  という運用パターン自体は、tokio/hyperサーバーでも実務上ごく一般的**
+  であり、この部分の価値をこれまで過小評価していた
+  (ユーザーの類推が正しく指摘した点)。ただし理由はTomcatの場合と異なる:
+  接続保護のためではなく、(a) TLS終端をアプリプロセスの外に出す運用上の
+  簡便さ、(b) 単一マシンの限界を超えた複数マシンへの水平スケーリング
+  はアプリ自身にクラスタリングを実装するより外部LBに任せる方が単純、
+  (c) ローリング再起動時にLBがインスタンスをローテーションから外す
+  ことでのゼロダウンタイムデプロイ、が真の技術的根拠。
+- **この再検討に基づき、今回実装したもの**(詳細は本ファイルの
+  HANDOFF最新エントリ参照): (1) `hyper_compat::serve_with_shutdown`
+  +`shutdown_signal()`によるSIGTERM/SIGINTでのgraceful shutdown
+  (`open-runo-router`・`open-runo-gateway`両バイナリのmain.rsに配線、
+  実際にin-flightリクエストがシャットダウン後も完了することを証明する
+  実テスト付き)——LBがインスタンスをローテーションから外して
+  ローリング再起動する際に必須。(2) `GET /health`/`/healthz`が
+  常時200を返すだけだった実バグを修正、実際に`DbBackend::list()`を
+  呼んでバックエンド接続性を確認するように変更(LBのヘルスチェックが
+  常に「healthy」を返すだけでは、クラスタ化の意味が無いため)。
+  (3) `docs/deployment-scaling.md`に、nginx/Caddyを前段に置いた
+  複数インスタンス運用の具体的な構成例(ヘルスチェック・keepalive
+  設定含む)を新規作成、`PORTING.md`から参照。
+- **実装しなかったもの・理由**: FastCGIバッファ調整・named upstream
+  keepaliveプーリングの**Rustネイティブ移植**は、上記の通りtokio/hyper
+  モデルには対応する問題が存在しないため、依然として実装しない
+  (この部分の結論は維持)。マルチインスタンス対応のセッション/
+  レートリミット状態共有(現状はプロセス内メモリ、複数インスタンス間で
+  非共有)は次回パスの候補として残す——今回は`open-runo-observability`
+  のClickHouseシンクのような外部ストア連携の枠組みはあるが、
+  レートリミッタ自体を外部ストア(Redis等)へ移行する変更は本パスの
+  スコープ外と判断(影響範囲が広く、単独のフォーカスされたパスとして
+  実施すべき)。
+
 ## 運用ルール
 
 - **開発中はこの`CLAUDE.md`を、コード変更のコミット/pushと必ず一緒に
@@ -252,6 +308,49 @@ upstream keepaliveプーリングはNginx固有のリバースプロキシ実装
   アラビア語の10言語が揃っている。
 
 ## HANDOFF(直近の自動実行パス)
+
+- **2026-07-13 Tomcat/Apache類推によるユーザー指摘を受け、リバースプロキシ
+  配下運用の結論を再検討・部分訂正 — graceful shutdown + 実ヘルスチェック
+  を新規実装**: 詳細な調査結論・根拠は本ファイル「Web高速化機能の開発方針」
+  節の追記(2026-07-13)を参照。要約: FastCGIバッファ調整・named upstream
+  keepaliveプーリングの「移植すべき同等の概念が無い」という結論自体は
+  維持(Tomcatのスレッドプアモデル特有の問題であり、tokioの非同期I/Oには
+  存在しない)。一方、複数インスタンスをリバースプロキシ配下でロード
+  バランスする運用パターン自体は価値があると判断を訂正、以下を実装:
+  (1) `crates/open-runo-router/src/hyper_compat.rs`に`serve_with_shutdown`
+  +`shutdown_signal`(SIGINT/SIGTERM)を新規追加、`serve`は後方互換の
+  ラッパーとして維持。`open-runo-router`/`open-runo-gateway`両
+  `main.rs`をこちらへ切替。新規テスト
+  `graceful_shutdown_lets_an_in_flight_request_finish_before_the_server_stops`
+  (人工的に遅いハンドラでシャットダウン信号発火中のリクエストが実際に
+  完了することを証明、かつシャットダウン後は新規接続を受け付けなく
+  なることも確認)。(2) `hyper_compat::health_handler`が常時200を返す
+  だけだった実バグを修正——`AppState::db`(`DbBackend::list()`)へ実際に
+  問い合わせ、失敗時は503を返すよう変更(`GET /health`/`/healthz`の
+  シグネチャに`Arc<AppState>`を追加、`lib.rs`の2箇所の呼び出し元・
+  `hyper_compat.rs`内の既存テスト4箇所を追従修正)。(3) 新規
+  `docs/deployment-scaling.md`(nginx配下でのN インスタンス運用レシピ、
+  keepalive設定・ヘルスチェック設定含む)を作成、`PORTING.md`から参照。
+  **検証状況(正直な限界)**: `cargo check --workspace`はgreen(既存の
+  警告3件のみ、新規warning無し)。しかし本セッションのサンドボックス
+  環境では、ループバックTCPを実際に張る`#[tokio::test]`(reqwest経由の
+  実HTTPリクエスト)が**今回追加した分だけでなく既存の同種テストも
+  含めて広範に`ConnectionReset (os error 10054)`で失敗する**環境固有の
+  問題があることを確認した(`git stash`で変更前のコードに戻した状態で
+  同じ`static_file_handler_serves_existing_file_and_404s_missing`
+  (無変更の既存テスト)を単体実行しても同一エラーで失敗することを
+  確認済み——本パスのコード変更が原因ではなく、このサンドボックスの
+  ループバックTCP周りの制約(ファイアウォール/セキュリティソフト等)に
+  起因すると判断)。よって「実際にgreenなテスト実行結果」という形での
+  検証はこのセッションでは提示できない——次回パス(または別環境)で
+  改めて`cargo test --workspace`のTCP依存テスト群を実行し、green確認
+  すること。ロジック自体はhyperの標準的なgraceful-shutdownパターン
+  (`graceful_shutdown()` + `tokio::select!`、`JoinSet`で全接続タスクの
+  完了を待ってから`handle`が返る設計)に基づく。
+  **未実装(次回パス候補として明記)**: レートリミット・セッション状態が
+  プロセス内メモリのみで複数インスタンス間で共有されない
+  (`docs/deployment-scaling.md`の「既知のギャップ」節に明記) — Redis等
+  外部ストアへの移行は影響範囲が広いため本パスのスコープ外とした。
 
 - **2026-07-13 コミットID指定の読み出しクエリAPI(open-web-server拡張
   要件(1)「VersionLessAPI + Git版管理ハイブリッド」の読み出し側)を実装 —

@@ -98,8 +98,8 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
     };
 
     Router::new()
-        .route(Method::GET, "/health", wrap(hyper_compat::health_handler()))
-        .route(Method::GET, "/healthz", wrap(hyper_compat::health_handler()))
+        .route(Method::GET, "/health", wrap(hyper_compat::health_handler(Arc::clone(&state))))
+        .route(Method::GET, "/healthz", wrap(hyper_compat::health_handler(Arc::clone(&state))))
         .route(Method::GET, "/api/openapi.json", wrap(openapi::openapi_handler()))
         .route(
             Method::GET,

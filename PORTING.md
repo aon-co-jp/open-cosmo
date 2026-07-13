@@ -287,6 +287,7 @@ cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 
 `docs/HANDOFF.md`（全開発履歴）/ `architecture.md` / `cosmo-parity.md` /
 `migration.md` / `api-spec.md` / `database.md` / `security.md` / `federation.md`
+`deployment-scaling.md`(複数インスタンス+nginx/Caddy等リバースプロキシ配下での水平スケーリングレシピ、graceful shutdown・実ヘルスチェックの実装根拠、2026-07-13)
 
 ## 11. 移植・拡張時の注意
 

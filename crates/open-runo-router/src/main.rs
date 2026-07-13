@@ -35,7 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .bind_addr
         .parse()
         .map_err(|e| format!("invalid bind_addr {:?}: {e}", config.bind_addr))?;
-    let (bound, handle) = hyper_compat::serve(app, addr).await?;
+    let (bound, handle, _drained) =
+        hyper_compat::serve_with_shutdown(app, addr, hyper_compat::shutdown_signal()).await?;
     tracing::info!(%bound, "open-runo-router listening");
 
     // gRPC (grpc.health.v1.Health/Check, docs/poem-parity.md) is opt-in via
