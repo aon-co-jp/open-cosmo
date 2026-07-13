@@ -111,6 +111,18 @@ pub struct DbRecordResponse {
     pub value: serde_json::Value,
 }
 
+/// Response body for `GET /api/db/:table/:key/at/:commit_id` — the
+/// commit-ID read-side query of the VersionLessAPI + Git-on-SQL hybrid
+/// (only backed for real by `AruaruDbBackend`; see
+/// `open-runo-db::DbBackend::get_at_commit`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DbRecordAtCommitResponse {
+    pub table: String,
+    pub key: String,
+    pub commit_id: String,
+    pub value: serde_json::Value,
+}
+
 /// Request body for `PUT /api/db/:table/:key`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DbUpsertRequest {

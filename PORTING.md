@@ -236,6 +236,7 @@ curl -X POST -H "x-api-key: $KEY" http://new:8080/api/backup/restore-latest
 | `/api/federation/*` | 合成・状態 |
 | `/api/persisted-queries*` | Trusted Documents 登録・取得 |
 | `/api/db/*` | DUAL DATABASE KV |
+| `/api/db/:table/:key/at/:commit_id` | VersionLessAPI + Git-on-SQL ハイブリッドの読み出し側 — 指定コミット時点の値を取得(`aruaru-db`バックエンドのみ実対応、他バックエンドは501) |
 | `/api/ai/route` | AI プロバイダ選択 |
 | `/api/events` | SSE |
 | `/api/ws-echo` | 汎用 WebSocket エコー（手書き RFC 6455、認証不要） |

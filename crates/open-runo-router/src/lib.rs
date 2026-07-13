@@ -185,6 +185,11 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
             wrap(handlers_hyper::db_get_handler(Arc::clone(&state), Arc::clone(&guardian))),
         )
         .route(
+            Method::GET,
+            "/api/db/:table/:key/at/:commit_id",
+            wrap(handlers_hyper::db_get_at_commit_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        )
+        .route(
             Method::PUT,
             "/api/db/:table/:key",
             wrap(handlers_hyper::db_put_handler(Arc::clone(&state), Arc::clone(&guardian))),

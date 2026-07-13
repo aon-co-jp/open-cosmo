@@ -15,8 +15,8 @@ use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA
 use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::{
-    DbDeleteResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry, DbRoutingInfo,
-    DbStatusResponse, DbUpsertRequest, FederationStatusResponse, FeatureFlagEvaluationResponse,
+    DbDeleteResponse, DbRecordAtCommitResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry,
+    DbRoutingInfo, DbStatusResponse, DbUpsertRequest, FederationStatusResponse, FeatureFlagEvaluationResponse,
     FeatureFlagListResponse, FeatureFlagRequest, FeatureFlagResponse, RegisterSchemaRequest, SchemaHistoryResponse,
     SchemaVersion,
 };
@@ -301,6 +301,51 @@ pub fn db_get_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handl
                 Ok(None) => json_response(
                     StatusCode::NOT_FOUND,
                     &serde_json::json!({ "error": format!("record not found: {table}/{key}") }),
+                ),
+                Err(e) => json_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &serde_json::json!({ "error": e.to_string() }),
+                ),
+            }
+        })
+    })
+}
+
+/// GET /api/db/:table/:key/at/:commit_id — VersionLessAPI + Git-on-SQL
+/// hybrid read side: the state a key held as of a specific historical
+/// commit, not the latest value. Delegates to
+/// `DbBackend::get_at_commit`, which only `AruaruDbBackend` implements for
+/// real (every other backend reports 501, since they have no commit
+/// history to query against).
+pub fn db_get_at_commit_handler(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Handler {
+    Arc::new(move |req, params| {
+        let state = Arc::clone(&state);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            let method = req.method().clone();
+            if let Err(status) = authenticate_with_session(req.headers(), &method, &guardian, &state.sessions).await {
+                return empty_status(status);
+            }
+            let table = params.get("table").unwrap_or("").to_string();
+            let key = params.get("key").unwrap_or("").to_string();
+            let commit_id = params.get("commit_id").unwrap_or("").to_string();
+            match state.db.get_at_commit(&table, &key, &commit_id).await {
+                Ok(Some(raw)) => json_response(
+                    StatusCode::OK,
+                    &DbRecordAtCommitResponse { table, key, commit_id, value: parse_value(&raw) },
+                ),
+                Ok(None) => json_response(
+                    StatusCode::NOT_FOUND,
+                    &serde_json::json!({
+                        "error": format!(
+                            "no value for {table}/{key} as of commit {commit_id} \
+                             (commit unknown, or the key did not exist yet at that point)"
+                        )
+                    }),
+                ),
+                Err(open_runo_core::AppError::Validation(msg)) => json_response(
+                    StatusCode::NOT_IMPLEMENTED,
+                    &serde_json::json!({ "error": msg }),
                 ),
                 Err(e) => json_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -3036,8 +3081,50 @@ mod tests {
         Router::new()
             .route(Method::GET, "/api/db/:table", db_list_handler(Arc::clone(state), Arc::clone(&guardian)))
             .route(Method::GET, "/api/db/:table/:key", db_get_handler(Arc::clone(state), Arc::clone(&guardian)))
+            .route(
+                Method::GET,
+                "/api/db/:table/:key/at/:commit_id",
+                db_get_at_commit_handler(Arc::clone(state), Arc::clone(&guardian)),
+            )
             .route(Method::PUT, "/api/db/:table/:key", db_put_handler(Arc::clone(state), Arc::clone(&guardian)))
             .route(Method::DELETE, "/api/db/:table/:key", db_delete_handler(Arc::clone(state), guardian))
+    }
+
+    /// The default `AppState` in tests runs on `InMemoryBackend`, which has
+    /// no commit history — `get_at_commit` must report 501 rather than
+    /// silently returning the *current* value under the guise of a
+    /// historical one. The real positive path (an `AS OF COMMIT` query
+    /// actually returning an older value) is proven at the storage layer
+    /// in aruaru-db's own `aruaru-query::engine` test suite
+    /// (`as_of_commit_returns_the_value_from_that_commit_not_the_latest`);
+    /// this test only proves this crate's HTTP plumbing degrades honestly
+    /// for backends that don't support it.
+    #[tokio::test]
+    async fn db_get_at_commit_reports_501_for_backends_without_commit_history() {
+        let state = Arc::new(AppState::new());
+        let guardian = guardian(&state);
+        let router = db_router(&state, guardian);
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+        let client = reqwest::Client::new();
+        let key = "x-api-key";
+
+        client
+            .put(format!("http://{addr}/api/db/test_table/rec1"))
+            .header(key, "test-key")
+            .json(&serde_json::json!({ "value": { "hello": "world" } }))
+            .send()
+            .await
+            .expect("request should succeed");
+
+        let resp = client
+            .get(format!("http://{addr}/api/db/test_table/rec1/at/deadbeef"))
+            .header(key, "test-key")
+            .send()
+            .await
+            .expect("request should succeed");
+        assert_eq!(resp.status(), reqwest::StatusCode::NOT_IMPLEMENTED);
     }
 
     #[tokio::test]

@@ -69,6 +69,25 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
     async fn consistency_check_and_heal(&self) -> Result<Vec<dual::Discrepancy>> {
         Ok(Vec::new())
     }
+
+    /// VersionLessAPI + Git-on-SQL hybrid read side: fetch the value a
+    /// `(table, key)` held as of a specific historical commit, not the
+    /// current value. Only backends built on a Git-managed store (i.e.
+    /// `AruaruDbBackend`) can honor this; every other backend keeps the
+    /// default, which reports the operation as unsupported rather than
+    /// silently returning the *current* value under a false pretense of
+    /// historical accuracy.
+    async fn get_at_commit(
+        &self,
+        _table: &str,
+        _key: &str,
+        _commit_id: &str,
+    ) -> Result<Option<String>> {
+        Err(AppError::Validation(format!(
+            "AS OF COMMIT reads are not supported by the '{}' backend",
+            self.backend_name()
+        )))
+    }
 }
 
 // ── In-memory (常時コンパイル) ─────────────────────────────────────────────────
@@ -274,7 +293,15 @@ pub mod aruaru {
 
     use super::{AppError, DbBackend, Record, Result};
     use async_trait::async_trait;
-    use sqlx::PgPool;
+    use sqlx::{PgPool, Row};
+
+    /// Escape a value for interpolation into aruaru-db literal SQL text.
+    /// Only used for `SELECT`s (see the doc comment on `get`/`list`/
+    /// `get_at_commit` below for why those can't use bind parameters
+    /// against this backend).
+    fn sql_escape(s: &str) -> String {
+        s.replace('\'', "''")
+    }
 
     #[derive(Debug, Clone)]
     pub struct AruaruDbBackend { pool: PgPool }
@@ -286,37 +313,110 @@ pub mod aruaru {
             Ok(Self { pool })
         }
         pub fn pool(&self) -> &PgPool { &self.pool }
+        /// Build directly from an already-established pool (tests /
+        /// callers that manage their own connection lifecycle).
+        pub fn from_pool(pool: PgPool) -> Self { Self { pool } }
     }
     #[async_trait]
     impl DbBackend for AruaruDbBackend {
         fn backend_name(&self) -> &'static str { "aruaru-db" }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
+            let pk = crate::migration::aruaru_pk(table, key);
             sqlx::query(
-                "INSERT INTO kv_store (table_name,key,value) VALUES ($1,$2,$3)
-                 ON CONFLICT (table_name,key) DO UPDATE SET value=EXCLUDED.value",
-            ).bind(table).bind(key).bind(value).execute(&self.pool).await
+                "INSERT INTO kv_store (pk,table_name,key,value) VALUES ($1,$2,$3,$4)
+                 ON CONFLICT (pk) DO UPDATE SET value=EXCLUDED.value",
+            ).bind(pk).bind(table).bind(key).bind(value).execute(&self.pool).await
             .map_err(|e| AppError::Internal(format!("aruaru-db put: {e}")))?;
             Ok(())
         }
+        /// **Why `raw_sql` (simple query protocol) instead of `query_as`/
+        /// `.bind()` (extended/prepared protocol) for every read here**:
+        /// aruaru-wire's `ExtendedQueryHandler::describe_portal` always
+        /// returns an empty column list (`Ok(DescribePortalResponse::new(vec![]))`,
+        /// `crates/aruaru-wire/src/lib.rs`) because aruaru-db's schema is
+        /// dynamic — the real `RowDescription` is only known once the
+        /// engine actually executes the query. `sqlx`'s prepared-statement
+        /// path decodes rows using the column shape it got from Describe,
+        /// so against this server it silently gets zero columns back for
+        /// any `SELECT` that returns data (`ColumnIndexOutOfBounds`),
+        /// discovered while writing this backend's real pgwire
+        /// round-trip test (`open-runo-db/tests/aruaru_as_of_commit.rs`).
+        /// Writes (`INSERT`/`DELETE`, which return only a command tag, no
+        /// rows to decode) are unaffected and keep using bind parameters
+        /// above. `sqlx::raw_sql` uses the simple query protocol, which
+        /// aruaru-wire's `SimpleQueryHandler` answers with real column
+        /// data — so every `SELECT` in this module escapes its literals
+        /// manually via `sql_escape` instead of binding them.
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=$1 AND key=$2",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("aruaru-db get: {e}")))?;
-            Ok(row.map(|(v,)| v))
+            let pk = sql_escape(&crate::migration::aruaru_pk(table, key));
+            let mut rows = sqlx::raw_sql(&format!("SELECT value FROM kv_store WHERE pk = '{pk}'"))
+                .fetch_all(&self.pool).await
+                .map_err(|e| AppError::Internal(format!("aruaru-db get: {e}")))?;
+            Ok(match rows.pop() {
+                Some(row) => Some(row.try_get::<String, _>(0)
+                    .map_err(|e| AppError::Internal(format!("aruaru-db get: decode: {e}")))?),
+                None => None,
+            })
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
-            sqlx::query("DELETE FROM kv_store WHERE table_name=$1 AND key=$2")
-                .bind(table).bind(key).execute(&self.pool).await
+            let pk = crate::migration::aruaru_pk(table, key);
+            sqlx::query("DELETE FROM kv_store WHERE pk=$1")
+                .bind(pk).execute(&self.pool).await
                 .map_err(|e| AppError::Internal(format!("aruaru-db delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
-                "SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key",
-            ).bind(table).fetch_all(&self.pool).await
+            let table_esc = sql_escape(table);
+            let rows = sqlx::raw_sql(&format!(
+                "SELECT key,value FROM kv_store WHERE table_name = '{table_esc}' ORDER BY key"
+            )).fetch_all(&self.pool).await
             .map_err(|e| AppError::Internal(format!("aruaru-db list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            rows.into_iter().map(|row| {
+                let key = row.try_get::<String, _>(0)
+                    .map_err(|e| AppError::Internal(format!("aruaru-db list: decode key: {e}")))?;
+                let value = row.try_get::<String, _>(1)
+                    .map_err(|e| AppError::Internal(format!("aruaru-db list: decode value: {e}")))?;
+                Ok(Record { key, value })
+            }).collect()
+        }
+
+        /// `SELECT value FROM kv_store WHERE pk = '<table\u{1}key>' AS OF
+        /// COMMIT '<commit_id>'` — the commit-ID read-side query, wired
+        /// through to aruaru-db's real `AS OF COMMIT` SQL support
+        /// (`aruaru-query::engine::QueryEngine::select_as_of`, added
+        /// 2026-07-13). Uses the same synthetic `pk` this backend's
+        /// `put`/`get`/`delete` already rely on, since aruaru-db's engine
+        /// only matches a single first-column equality predicate — see
+        /// `migration::KV_STORE_DDL_ARUARU`'s doc comment.
+        ///
+        /// **`select_as_of` ignores the requested column list and always
+        /// returns the full historical row** (`aruaru-query::engine::
+        /// QueryEngine::select_as_of` reconstructs the row from the
+        /// Prolly Tree and returns it verbatim — it doesn't re-run
+        /// column projection the way a normal `SELECT` does). Discovered
+        /// via this backend's real pgwire round-trip test
+        /// (`tests/aruaru_as_of_commit.rs`): the query's own `SELECT
+        /// value` clause is honored for column *naming* but not for
+        /// projection, so the row that comes back is
+        /// `(pk, table_name, key, value)` in `kv_store`'s declared column
+        /// order — the `value` this method wants is therefore at index
+        /// 3, not 0.
+        async fn get_at_commit(&self, table: &str, key: &str, commit_id: &str) -> Result<Option<String>> {
+            const VALUE_COLUMN_INDEX: usize = 3; // kv_store: pk, table_name, key, value
+            let pk = sql_escape(&crate::migration::aruaru_pk(table, key));
+            let commit_esc = sql_escape(commit_id);
+            let sql = format!(
+                "SELECT value FROM kv_store WHERE pk = '{pk}' AS OF COMMIT '{commit_esc}'"
+            );
+            let mut rows = sqlx::raw_sql(&sql)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: {e}")))?;
+            Ok(match rows.pop() {
+                Some(row) => Some(row.try_get::<String, _>(VALUE_COLUMN_INDEX)
+                    .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: decode: {e}")))?),
+                None => None,
+            })
         }
     }
 }
