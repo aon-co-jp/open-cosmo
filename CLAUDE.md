@@ -115,6 +115,18 @@ VersionLessAPIとGit管理のハイブリッド版管理の詳細・進捗は
   https://zenn.dev/ouvill/articles/introduce_rust_poem_framework。
   機能差分の調査結果は`docs/poem-parity.md`を正とする。
 
+### パフォーマンス・並行処理方針(2026-07-13、ユーザー指示)
+
+システム全体として、4層4重の通信・DB冗長化によるハイセキュリティを
+保ちつつ、ハイパースレッディング/マルチコア/マルチスレッドを活かした
+高速性を両立させる。**非同期(tokio、マルチスレッドランタイム)を基本**
+とし、必要な場面(CPU負荷の高い計算・厳密な順序保証が必要な処理等)での
+み同期処理を用いる。着眼点: (1) `#[tokio::main]`のランタイムflavorが
+current_threadに固定されていないか、(2) async関数内でのブロッキング
+I/O・CPU負荷処理は`tokio::task::spawn_blocking`へ退避、(3) CPU律速な
+処理は`rayon`等でのデータ並列化を検討、(4) セキュリティクリティカルな
+ホットパスの排他ロックがボトルネックになっていないか、を確認する。
+
 ## API設計思想(参考・概念のみ)
 
 - **VersionLess API**という考え方を参考にする(WunderGraphのブログ/podcast参照)。
