@@ -15,7 +15,7 @@
 [![CI](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
-![Tests](https://img.shields.io/badge/tests-356%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-362%20passed-brightgreen)
 
 📖 詳細: [日本語 README](README-Japan.md) / [English README](README-English.md) /
 [中文](README-Chinese.md) / [한국어](README-Korea.md) / [Español](README-Spain.md) /
@@ -99,7 +99,7 @@ tokio/hyper で自前実装しています。
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 337 テスト(--all-features で356)
+cargo test --workspace          # 343 テスト(--all-features で362)
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
 

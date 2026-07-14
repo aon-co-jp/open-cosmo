@@ -70,7 +70,7 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 337 tests (356 with --all-features)
+cargo test --workspace          # 343 tests (362 with --all-features)
 cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
 ```
 

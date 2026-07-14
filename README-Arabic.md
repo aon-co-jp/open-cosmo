@@ -45,7 +45,7 @@ WunderGraph Cosmo (المكتوب بلغة Go) فقط في خططه المدفو
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 337 اختبارًا (356 مع --all-features)
+cargo test --workspace          # 343 اختبارًا (362 مع --all-features)
 cargo run -p open-runo-gateway  # تشغيل خادم REST + GraphQL
 ```
 
