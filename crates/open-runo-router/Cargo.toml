@@ -40,6 +40,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+async-trait = { workspace = true }
 futures = { workspace = true }
 jsonschema = { workspace = true }
 once_cell = { workspace = true }
@@ -91,6 +92,11 @@ edfs = ["dep:redis", "dep:anyhow"]
 # `OPEN_RUNO_RATE_LIMIT_REDIS_URL` is also set at runtime (see
 # `middleware_hyper::build_shared_rate_limiter`).
 redis-rate-limit = ["open-runo-security/redis-backend"]
+# Multi-instance shared session storage (session.rs's SessionBackend
+# trait's Redis implementation). Off by default; enabling this alone
+# doesn't change behavior unless `OPEN_RUNO_SESSION_REDIS_URL` is also
+# set at runtime.
+redis-session = ["dep:redis"]
 # Request-metrics export to ClickHouse (docs/cosmo-parity.md 4a: monthly
 # request-count metering + operations analytics). Off by default -- the
 # in-process aggregates `open_runo_observability::RequestMetrics` still

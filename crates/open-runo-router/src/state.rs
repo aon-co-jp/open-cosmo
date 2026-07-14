@@ -7,7 +7,7 @@
 //! handlers can persist and retrieve records across PostgreSQL and aruaru-db.
 
 use crate::acme::ChallengeStore;
-use crate::session::SessionStore;
+use crate::session::{SessionBackend, SessionStore};
 use open_runo_db::{DbBackend, InMemoryBackend};
 use open_runo_federation::ComposedSchema;
 use open_runo_feature_flags::FeatureFlagRegistry;
@@ -48,7 +48,7 @@ pub struct AppState {
     pub feature_flags: Arc<Mutex<FeatureFlagRegistry>>,
     /// Cookie-based sessions, additive to `X-Api-Key` auth (Poem-parity
     /// gap: Cookie/session management, see `session.rs`).
-    pub sessions: Arc<SessionStore>,
+    pub sessions: Arc<dyn SessionBackend>,
     /// Published HTTP-01 challenge responses, served at
     /// `GET /.well-known/acme-challenge/:token` (Poem-parity gap: ACME,
     /// see `acme.rs`). Always present regardless of the `acme` feature --
@@ -83,7 +83,7 @@ impl AppState {
             db: Arc::new(InMemoryBackend::new()),
             events: broadcast::channel(EVENT_CAPACITY).0,
             feature_flags: Arc::new(Mutex::new(FeatureFlagRegistry::new())),
-            sessions: Arc::new(SessionStore::new()),
+            sessions: Arc::new(SessionStore::new()) as Arc<dyn SessionBackend>,
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
@@ -99,7 +99,7 @@ impl AppState {
             db,
             events: broadcast::channel(EVENT_CAPACITY).0,
             feature_flags: Arc::new(Mutex::new(FeatureFlagRegistry::new())),
-            sessions: Arc::new(SessionStore::new()),
+            sessions: Arc::new(SessionStore::new()) as Arc<dyn SessionBackend>,
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
@@ -111,6 +111,20 @@ impl AppState {
     /// identical to DUAL DATABASE deployments.
     pub fn with_single_db(backend: Arc<dyn DbBackend>) -> Self {
         Self::with_db(Arc::new(open_runo_db::dual::DualBackend::single(backend)))
+    }
+
+    /// Swap in a different session backend (e.g.
+    /// `session::redis_backend::RedisSessionStore` for multi-instance
+    /// deployments) after construction. A plain sync builder -- unlike
+    /// `build_hyper_app`'s rate-limiter setup, this doesn't connect to
+    /// Redis itself; the caller connects (an async operation) and passes
+    /// in the already-built `Arc<dyn SessionBackend>`, keeping `AppState`
+    /// construction itself synchronous (used directly by many existing
+    /// `#[tokio::test]` call sites that would otherwise all need an
+    /// `.await` added for no behavioral benefit in tests).
+    pub fn with_sessions(mut self, sessions: Arc<dyn SessionBackend>) -> Self {
+        self.sessions = sessions;
+        self
     }
 }
 

@@ -9,7 +9,7 @@ use crate::hyper_compat::{
     empty_status, json_response, query_params, read_json_body, sse_response, Handler, Response, SseEvent,
 };
 use crate::keyring::{KeyDecision, KeyGuardian};
-use crate::session::SessionStore;
+use crate::session::SessionBackend;
 use crate::state::AppState;
 use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA_REQUEST};
 use http_body_util::BodyExt;
@@ -1963,7 +1963,7 @@ struct SessionLoginResponse {
 /// header by hand on every request. See `session.rs` module doc for the
 /// CSRF double-submit design and `auth_hyper::authenticate_with_session`
 /// for how the resulting session is later accepted.
-pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<SessionStore>) -> Handler {
+pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<dyn SessionBackend>) -> Handler {
     Arc::new(move |req, _params| {
         let guardian = Arc::clone(&guardian);
         let sessions = Arc::clone(&sessions);
@@ -1987,7 +1987,7 @@ pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<SessionSt
                 }
             };
 
-            let (session_id, csrf_token) = sessions.create(owner.clone(), roles);
+            let (session_id, csrf_token) = sessions.create(owner.clone(), roles).await;
             let mut resp = json_response(
                 StatusCode::OK,
                 &SessionLoginResponse {
@@ -2007,12 +2007,12 @@ pub fn session_login_handler(guardian: Arc<KeyGuardian>, sessions: Arc<SessionSt
 /// POST /api/session/logout — destroys the session named by the
 /// `orn_session` cookie (if any) and clears the cookie. Idempotent: logging
 /// out with no session, or an already-expired one, still returns `200`.
-pub fn session_logout_handler(sessions: Arc<SessionStore>) -> Handler {
+pub fn session_logout_handler(sessions: Arc<dyn SessionBackend>) -> Handler {
     Arc::new(move |req, _params| {
         let sessions = Arc::clone(&sessions);
         Box::pin(async move {
             if let Some(session_id) = crate::session::session_id_from_cookie_header(req.headers()) {
-                sessions.destroy(&session_id);
+                sessions.destroy(&session_id).await;
             }
             let mut resp = json_response(StatusCode::OK, &serde_json::json!({ "logged_out": true }));
             if let Ok(value) = crate::session::clear_cookie_header().parse() {

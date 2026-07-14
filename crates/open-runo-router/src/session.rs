@@ -21,6 +21,28 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+/// Backend-agnostic session storage: [`SessionStore`] (in-process, the
+/// default) and [`redis_backend::RedisSessionStore`] (shared across
+/// instances behind a load balancer, `redis-session` Cargo feature) both
+/// implement this. Async so a Redis-backed implementation's network calls
+/// fit the same interface as the in-memory one.
+///
+/// **Why this matters for multiple instances**: without a shared backend,
+/// a session cookie is only valid against the specific instance that
+/// issued it — a load balancer without session affinity (sticky sessions)
+/// will intermittently 401 a logged-in client as requests get routed to
+/// different instances. `docs/deployment-scaling.md` documents this
+/// tradeoff and the alternative (LB session affinity) for deployments
+/// that don't opt into `RedisSessionStore`.
+#[async_trait::async_trait]
+pub trait SessionBackend: Send + Sync + std::fmt::Debug {
+    /// Create a new session for `owner`/`roles`. Returns `(session_id,
+    /// csrf_token)`, same contract as [`SessionStore::create`].
+    async fn create(&self, owner: String, roles: Vec<String>) -> (String, String);
+    async fn get(&self, session_id: &str) -> Option<SessionData>;
+    async fn destroy(&self, session_id: &str);
+}
+
 /// Name of the cookie holding the opaque session id.
 pub const SESSION_COOKIE_NAME: &str = "orn_session";
 
@@ -38,7 +60,7 @@ pub const SESSION_TTL_HOURS: i64 = 12;
 
 /// A live session: which identity it belongs to and the CSRF token that
 /// must accompany state-changing requests using it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionData {
     pub owner: String,
     pub roles: Vec<String>,
@@ -98,6 +120,153 @@ impl SessionStore {
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+    }
+}
+
+#[async_trait::async_trait]
+impl SessionBackend for SessionStore {
+    async fn create(&self, owner: String, roles: Vec<String>) -> (String, String) {
+        SessionStore::create(self, owner, roles)
+    }
+    async fn get(&self, session_id: &str) -> Option<SessionData> {
+        SessionStore::get(self, session_id)
+    }
+    async fn destroy(&self, session_id: &str) {
+        SessionStore::destroy(self, session_id)
+    }
+}
+
+#[cfg(feature = "redis-session")]
+pub mod redis_backend {
+    //! Redis-backed [`SessionBackend`]: session data lives in Redis
+    //! (JSON-serialized `SessionData`, with Redis's own `EX` TTL doing the
+    //! expiry work `SessionStore::get`'s lazy-eviction check does
+    //! in-process) instead of a single process's memory, so every
+    //! instance behind a load balancer can validate a session cookie
+    //! regardless of which instance originally issued it.
+    use super::{SessionBackend, SessionData, SESSION_TTL_HOURS};
+    use open_runo_core::{AppError, Result};
+
+    pub struct RedisSessionStore {
+        manager: redis::aio::ConnectionManager,
+        key_prefix: &'static str,
+    }
+
+    impl std::fmt::Debug for RedisSessionStore {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("RedisSessionStore").finish_non_exhaustive()
+        }
+    }
+
+    impl RedisSessionStore {
+        pub async fn connect(redis_url: &str) -> Result<Self> {
+            let client = redis::Client::open(redis_url)
+                .map_err(|e| AppError::Internal(format!("RedisSessionStore: invalid URL: {e}")))?;
+            let manager = redis::aio::ConnectionManager::new(client)
+                .await
+                .map_err(|e| AppError::Internal(format!("RedisSessionStore: connect failed: {e}")))?;
+            Ok(Self { manager, key_prefix: "open-runo:session:" })
+        }
+
+        fn redis_key(&self, session_id: &str) -> String {
+            format!("{}{session_id}", self.key_prefix)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SessionBackend for RedisSessionStore {
+        async fn create(&self, owner: String, roles: Vec<String>) -> (String, String) {
+            let session_id = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+            let csrf_token = uuid::Uuid::new_v4().to_string();
+            let expires_at = chrono::Utc::now() + chrono::Duration::hours(SESSION_TTL_HOURS);
+            let data = SessionData { owner, roles, csrf_token: csrf_token.clone(), expires_at };
+
+            // Best-effort: if Redis is briefly unreachable, the caller
+            // still gets a session_id/csrf_token back (matching the
+            // in-memory store's infallible `create` signature), but the
+            // session won't actually validate on the next request --
+            // logged in this codebase's usual tracing::warn! style
+            // elsewhere rather than surfaced as an error here, since
+            // `create`'s signature (mirroring `SessionStore::create`)
+            // has no `Result` to propagate one through.
+            if let Ok(json) = serde_json::to_string(&data) {
+                let mut conn = self.manager.clone();
+                let ttl_secs = (SESSION_TTL_HOURS * 3600) as u64;
+                if let Err(e) = redis::cmd("SET")
+                    .arg(self.redis_key(&session_id))
+                    .arg(json)
+                    .arg("EX")
+                    .arg(ttl_secs)
+                    .query_async::<()>(&mut conn)
+                    .await
+                {
+                    tracing::warn!(error = %e, "RedisSessionStore: failed to persist new session");
+                }
+            }
+
+            (session_id, csrf_token)
+        }
+
+        async fn get(&self, session_id: &str) -> Option<SessionData> {
+            let mut conn = self.manager.clone();
+            let json: Option<String> = redis::cmd("GET")
+                .arg(self.redis_key(session_id))
+                .query_async(&mut conn)
+                .await
+                .ok()?;
+            let data: SessionData = serde_json::from_str(&json?).ok()?;
+            // Redis's own EX-based TTL is authoritative for expiry (the
+            // key simply won't exist anymore past expiry), but this
+            // extra check guards against clock skew between instances
+            // that wrote/read the session.
+            (data.expires_at > chrono::Utc::now()).then_some(data)
+        }
+
+        async fn destroy(&self, session_id: &str) {
+            let mut conn = self.manager.clone();
+            let result: std::result::Result<(), redis::RedisError> =
+                redis::cmd("DEL").arg(self.redis_key(session_id)).query_async(&mut conn).await;
+            if let Err(e) = result {
+                tracing::warn!(error = %e, "RedisSessionStore: failed to delete session");
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Requires a real, reachable Redis instance
+        /// (`OPEN_RUNO_TEST_REDIS_URL`) -- `#[ignore]`d like this
+        /// workspace's other live-external-service tests. Run explicitly:
+        /// `cargo test -p open-runo-router --features redis-session --
+        /// --ignored --nocapture`.
+        #[tokio::test]
+        #[ignore = "requires a live Redis instance reachable via OPEN_RUNO_TEST_REDIS_URL"]
+        async fn a_session_created_via_one_store_is_readable_via_a_second_independent_store() {
+            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+
+            // Two separate `RedisSessionStore`s, simulating two different
+            // process instances behind a load balancer -- the actual
+            // cross-instance behavior under test.
+            let store_a = RedisSessionStore::connect(&url).await.expect("connect A");
+            let store_b = RedisSessionStore::connect(&url).await.expect("connect B");
+
+            let (session_id, csrf_token) = store_a.create("dave".to_string(), vec!["developer".to_string()]).await;
+
+            let data = store_b
+                .get(&session_id)
+                .await
+                .expect("session created via store A should be visible via store B");
+            assert_eq!(data.owner, "dave");
+            assert_eq!(data.csrf_token, csrf_token);
+
+            store_b.destroy(&session_id).await;
+            assert!(
+                store_a.get(&session_id).await.is_none(),
+                "destroying via store B should be visible via store A"
+            );
+        }
     }
 }
 

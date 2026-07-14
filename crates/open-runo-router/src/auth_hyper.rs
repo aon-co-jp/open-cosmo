@@ -11,7 +11,7 @@
 //! stack until those are ported too.
 
 use crate::keyring::{KeyDecision, KeyGuardian};
-use crate::session::{self, SessionStore, CSRF_HEADER_NAME};
+use crate::session::{self, SessionBackend, CSRF_HEADER_NAME};
 use hyper::{HeaderMap, Method, StatusCode};
 use std::sync::Arc;
 
@@ -71,7 +71,7 @@ pub async fn authenticate_with_session(
     headers: &HeaderMap,
     method: &Method,
     guardian: &Arc<KeyGuardian>,
-    sessions: &Arc<SessionStore>,
+    sessions: &Arc<dyn SessionBackend>,
 ) -> Result<Actor, StatusCode> {
     let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("").trim();
     if !api_key.is_empty() {
@@ -85,7 +85,7 @@ pub async fn authenticate_with_session(
     }
 
     let session_id = session::session_id_from_cookie_header(headers).ok_or(StatusCode::UNAUTHORIZED)?;
-    let data = sessions.get(&session_id).ok_or(StatusCode::UNAUTHORIZED)?;
+    let data = sessions.get(&session_id).await.ok_or(StatusCode::UNAUTHORIZED)?;
 
     let is_state_changing =
         matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE);
@@ -134,8 +134,8 @@ mod tests {
         assert_eq!(result, Ok(()));
     }
 
-    fn sessions() -> Arc<SessionStore> {
-        Arc::new(SessionStore::new())
+    fn sessions() -> Arc<dyn SessionBackend> {
+        Arc::new(crate::session::SessionStore::new())
     }
 
     #[tokio::test]
@@ -166,7 +166,7 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_get_needs_no_csrf_token() {
         let store = sessions();
-        let (session_id, _csrf) = store.create("alice".to_string(), vec!["developer".to_string()]);
+        let (session_id, _csrf) = store.create("alice".to_string(), vec!["developer".to_string()]).await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,
@@ -182,7 +182,7 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_post_without_csrf_token_is_forbidden() {
         let store = sessions();
-        let (session_id, _csrf) = store.create("alice".to_string(), vec![]);
+        let (session_id, _csrf) = store.create("alice".to_string(), vec![]).await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,
@@ -195,7 +195,7 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_post_with_wrong_csrf_token_is_forbidden() {
         let store = sessions();
-        let (session_id, _csrf) = store.create("alice".to_string(), vec![]);
+        let (session_id, _csrf) = store.create("alice".to_string(), vec![]).await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_post_with_correct_csrf_token_succeeds() {
         let store = sessions();
-        let (session_id, csrf) = store.create("alice".to_string(), vec!["developer".to_string()]);
+        let (session_id, csrf) = store.create("alice".to_string(), vec!["developer".to_string()]).await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,
