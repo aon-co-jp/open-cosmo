@@ -309,6 +309,46 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-14 poem-cosmo-tauriから3件ミラー(MCP Prompts・ACME
+  TLS-ALPN-01/DNS-01) + `--all-features`ビルド破損の実バグ修正 +
+  gRPCストリーミング/reflectionの未ミラーdrift是正 + ドキュメント最終
+  同期**: スマホ経由セッションでの作業再開時、`cargo test --workspace
+  --all-features`が**コンパイルエラーで失敗する**実バグを発見
+  (`edfs.rs`が使う`anyhow`クレートが`open-runo-router/Cargo.toml`に
+  一切宣言されていなかった)——`edfs` feature経由のoptional dependency
+  として追加して修正(`d7a2050`)。続けてpoem-cosmo-tauri側で先行実装・
+  検証済みだった3機能をミラー: (1) MCP Prompts
+  (`prompts/list`/`prompts/get`、`summarize_api`が実際の`openapi::spec()`
+  を動的レンダリング)、(2) ACME TLS-ALPN-01(RFC 8737、`tls_alpn01`
+  サブモジュール、`ResolvesServerCert`によるALPN分岐)、(3) ACME DNS-01
+  (RFC 8555 §8.4、`dns01`サブモジュール、`DnsProvider` trait +
+  `CloudflareDnsProvider`)。3件とも実ファイルコピー後
+  `cargo test --workspace --all-features`で個別に検証、全testgreen
+  (`1d9245e`・`d826922`)。
+  **ドキュメント最終同期パス中に発見した重大drift**: `docs/poem-parity.md`
+  の記述だけを見て「gRPCストリーミング/reflectionは既に完了済み」と
+  誤認しかけたが、実ファイル`crates/open-runo-router/src/grpc.rs`を
+  poem-cosmo-tauri側(978行)とdiffしたところこちら側は393行しかなく、
+  `Health/Watch`ストリーミング・`ServerReflection`(`list_services`)が
+  **一度もミラーされていなかった**ことが判明——ドキュメントの記述と
+  コードの実態は別々に確認すべきという教訓。`grpc.rs`をそのままコピーし
+  ミラー、21件のgRPCテストが一発でgreen(修正不要)。
+  10ヶ国語READMEのテスト数バッジ(307→337、`--all-features`で316→356)・
+  クレート数(17→18、`open-runo-feature-flags`が一覧から漏れていたのも
+  合わせて是正)、`PORTING.md`(`/mcp`行にPrompts追記、ACME段落を
+  3チャレンジ型対応に更新、gRPC言及にストリーミング/reflectionを追記)を
+  同期(`b623380`)。
+  **検証中に遭遇した環境固有の既知パターン**: `cargo test --workspace`
+  (デフォルトfeature)実行中に`LNK1201`(PDB書き込み失敗)で
+  `open-runo-gateway`のリンクが1回失敗したが、`cargo clean -p
+  open-runo-router`を挟んで再実行したところ成功——コード変更とは無関係な
+  Windowsリンカーの一時的競合(過去のHANDOFFエントリに記録済みの
+  既知パターンの再現)。最終的に337テスト全green(失敗ゼロ)を確認。
+  次回パスがすべきこと: 特に緊急の課題は無い。ACME(3チャレンジ型全対応)・
+  MCP Server(Tools/Resources/Prompts全対応)・gRPC(unary/streaming/
+  reflection)はpoem-cosmo-tauriとこちらの両方で同期済み。次に高価値な
+  タスクが必要な場合は`docs/cosmo-parity.md`の残りギャップを検討。
+
 - **2026-07-13(VersionLessAPI+Gitハイブリッド読み出し側を再検証、依然green)**:
   `cargo test --workspace`(151件、全green、前回パスの報告通り)を再確認
   した上で、`crates/open-runo-db/tests/aruaru_as_of_commit.rs`の
