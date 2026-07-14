@@ -85,6 +85,12 @@ anyhow = { workspace = true, optional = true }
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 acme = ["tls", "dep:ring", "dep:reqwest", "dep:rcgen"]
 edfs = ["dep:redis", "dep:anyhow"]
+# Multi-instance shared rate limiting (docs/deployment-scaling.md's known
+# gap: rate-limit budgets are per-instance in-memory otherwise). Off by
+# default; enabling this alone doesn't change behavior unless
+# `OPEN_RUNO_RATE_LIMIT_REDIS_URL` is also set at runtime (see
+# `middleware_hyper::build_shared_rate_limiter`).
+redis-rate-limit = ["open-runo-security/redis-backend"]
 # Request-metrics export to ClickHouse (docs/cosmo-parity.md 4a: monthly
 # request-count metering + operations analytics). Off by default -- the
 # in-process aggregates `open_runo_observability::RequestMetrics` still

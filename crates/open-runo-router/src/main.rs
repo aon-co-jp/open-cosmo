@@ -29,7 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state,
         config.rate_limit_max_requests,
         config.rate_limit_window_secs as i64,
-    );
+    )
+    .await;
 
     let addr = config
         .bind_addr

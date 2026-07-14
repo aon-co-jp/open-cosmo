@@ -9,7 +9,7 @@ use flate2::Compression;
 use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::RateLimitedResponse;
-use open_runo_security::RateLimiter;
+use open_runo_security::{RateLimit, RateLimiter};
 use std::env;
 use std::io::Write;
 use std::sync::Arc;
@@ -268,7 +268,7 @@ pub fn with_metrics(inner: Handler, metrics: Arc<open_runo_observability::Reques
 /// across every route in an app so the budget is global, not per-route —
 /// build one `Arc<RateLimiter>` per app with [`build_rate_limiter`] and
 /// pass clones of it to each route's wrapper.
-pub fn with_shared_rate_limit(inner: Handler, limiter: Arc<RateLimiter>) -> Handler {
+pub fn with_shared_rate_limit(inner: Handler, limiter: Arc<dyn RateLimit>) -> Handler {
     Arc::new(move |req, params| {
         let inner = Arc::clone(&inner);
         let limiter = Arc::clone(&limiter);
@@ -282,8 +282,8 @@ pub fn with_shared_rate_limit(inner: Handler, limiter: Arc<RateLimiter>) -> Hand
 
         Box::pin(async move {
             let now = chrono::Utc::now();
-            if limiter.check(&key, now).is_err() {
-                let retry_after_secs = limiter.seconds_until_reset(&key, now);
+            if limiter.check(&key, now).await.is_err() {
+                let retry_after_secs = limiter.seconds_until_reset(&key, now).await;
                 let mut resp = json_response(
                     StatusCode::TOO_MANY_REQUESTS,
                     &RateLimitedResponse {
@@ -304,6 +304,37 @@ pub fn with_shared_rate_limit(inner: Handler, limiter: Arc<RateLimiter>) -> Hand
 /// Construct a rate limiter suitable for [`with_shared_rate_limit`].
 pub fn build_rate_limiter(max_requests: u32, window_secs: i64) -> Arc<RateLimiter> {
     Arc::new(RateLimiter::new(max_requests, chrono::Duration::seconds(window_secs)))
+}
+
+/// Construct the rate limiter [`build_hyper_app`](crate::build_hyper_app)
+/// actually uses: in-process ([`RateLimiter`], the default) unless
+/// `OPEN_RUNO_RATE_LIMIT_REDIS_URL` is set *and* this crate was built with
+/// the `redis-rate-limit` feature, in which case every instance sharing
+/// that Redis URL shares one rate-limit budget per client key instead of
+/// each instance enforcing its own — closing the multi-instance gap
+/// `docs/deployment-scaling.md` flags: without this, a client behind a
+/// load balancer effectively gets `N×` its intended budget just by
+/// landing on a different backend each time.
+///
+/// Falls back to the in-process limiter (with a warning) if the URL is
+/// set but connecting fails, or if the feature isn't compiled in — a
+/// misconfigured/unreachable Redis must never take the whole app down at
+/// startup for a feature that degrades gracefully to "per-instance" limits
+/// rather than "no limits at all".
+pub async fn build_shared_rate_limiter(max_requests: u32, window_secs: i64) -> Arc<dyn RateLimit> {
+    #[cfg(feature = "redis-rate-limit")]
+    if let Ok(url) = std::env::var("OPEN_RUNO_RATE_LIMIT_REDIS_URL") {
+        match open_runo_security::redis_backend::RedisRateLimiter::connect(&url, max_requests, window_secs).await {
+            Ok(limiter) => {
+                tracing::info!("rate limiting backed by Redis (shared across instances)");
+                return Arc::new(limiter);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to connect to OPEN_RUNO_RATE_LIMIT_REDIS_URL; falling back to in-process (per-instance) rate limiting");
+            }
+        }
+    }
+    build_rate_limiter(max_requests, window_secs)
 }
 
 /// Wrap `inner` with a per-client rate limit, keyed the same way as the

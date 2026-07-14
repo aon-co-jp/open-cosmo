@@ -37,9 +37,31 @@ impl ApiKey {
     }
 }
 
+/// Backend-agnostic rate limiting: [`RateLimiter`] (in-process, per-instance
+/// memory) and [`redis_backend::RedisRateLimiter`] (shared across instances
+/// behind a load balancer, `redis-backend` Cargo feature) both implement
+/// this so callers (`open-runo-router::middleware_hyper::
+/// with_shared_rate_limit`) can be written against either without knowing
+/// which. Async because the Redis-backed implementation is a network call;
+/// the in-memory implementation just doesn't `.await` anything internally.
+///
+/// Closes the "known gap" documented in `docs/deployment-scaling.md`: a
+/// client's rate-limit budget used to be per-instance (each process's own
+/// `HashMap`), not global, when running N instances behind a load balancer
+/// — a client could trivially get N× its intended budget just by landing on
+/// different backends. The Redis-backed implementation makes the budget
+/// actually shared.
+#[async_trait::async_trait]
+pub trait RateLimit: Send + Sync + std::fmt::Debug {
+    async fn check(&self, key: &str, now: DateTime<Utc>) -> Result<()>;
+    async fn seconds_until_reset(&self, key: &str, now: DateTime<Utc>) -> i64;
+}
+
 /// A simple fixed-window rate limiter: `max_requests` per `window` per key.
 /// Sufficient for Phase 1; a token-bucket/leaky-bucket limiter can replace
-/// this without changing the [`RateLimiter::check`] call site.
+/// this without changing the [`RateLimiter::check`] call site. In-process
+/// only — see [`RateLimit`]'s doc comment for the multi-instance caveat and
+/// [`redis_backend::RedisRateLimiter`] for the shared alternative.
 #[derive(Debug)]
 pub struct RateLimiter {
     max_requests: u32,
@@ -94,6 +116,154 @@ impl RateLimiter {
                 .num_seconds()
                 .max(0),
             None => 0,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl RateLimit for RateLimiter {
+    async fn check(&self, key: &str, now: DateTime<Utc>) -> Result<()> {
+        RateLimiter::check(self, key, now)
+    }
+    async fn seconds_until_reset(&self, key: &str, now: DateTime<Utc>) -> i64 {
+        RateLimiter::seconds_until_reset(self, key, now)
+    }
+}
+
+#[cfg(feature = "redis-backend")]
+pub mod redis_backend {
+    //! Redis-backed [`RateLimit`] implementation: the same fixed-window
+    //! semantics as [`RateLimiter`], but the window counters live in Redis
+    //! instead of process memory, so every instance behind a load balancer
+    //! shares one budget per key instead of getting its own.
+    use super::{RateLimit, Result};
+    use chrono::{DateTime, Utc};
+    use open_runo_core::AppError;
+
+    /// Atomically increment `key`'s counter and, only on the very first
+    /// increment of a fresh window, set its expiry to the window length —
+    /// this is the same "fixed window" semantics as [`super::RateLimiter`]
+    /// (a burst right at a window boundary can allow up to `2×max_requests`
+    /// in a short span, a known fixed-window tradeoff, not a bug introduced
+    /// here). Done as a single Lua script (`EVAL`) so the increment and the
+    /// conditional `EXPIRE` are atomic against concurrent requests from
+    /// other instances — two plain `INCR` + `EXPIRE` commands would have a
+    /// race where a slow request's `EXPIRE` overwrites a fast request's
+    /// already-ticking TTL, silently extending the window forever.
+    const INCR_WITH_EXPIRY_SCRIPT: &str = r#"
+        local count = redis.call('INCR', KEYS[1])
+        if count == 1 then
+            redis.call('EXPIRE', KEYS[1], ARGV[1])
+        end
+        return count
+    "#;
+
+    pub struct RedisRateLimiter {
+        manager: redis::aio::ConnectionManager,
+        max_requests: u32,
+        window_secs: i64,
+        /// Namespaces this limiter's keys from anything else sharing the
+        /// same Redis instance (e.g. `open-runo-cache`'s TTL cache,
+        /// `edfs`'s Pub/Sub channel).
+        key_prefix: &'static str,
+    }
+
+    impl std::fmt::Debug for RedisRateLimiter {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("RedisRateLimiter")
+                .field("max_requests", &self.max_requests)
+                .field("window_secs", &self.window_secs)
+                .finish_non_exhaustive()
+        }
+    }
+
+    impl RedisRateLimiter {
+        pub async fn connect(redis_url: &str, max_requests: u32, window_secs: i64) -> Result<Self> {
+            let client = redis::Client::open(redis_url)
+                .map_err(|e| AppError::Internal(format!("RedisRateLimiter: invalid URL: {e}")))?;
+            let manager = redis::aio::ConnectionManager::new(client)
+                .await
+                .map_err(|e| AppError::Internal(format!("RedisRateLimiter: connect failed: {e}")))?;
+            Ok(Self { manager, max_requests, window_secs, key_prefix: "open-runo:ratelimit:" })
+        }
+
+        fn redis_key(&self, key: &str) -> String {
+            format!("{}{key}", self.key_prefix)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RateLimit for RedisRateLimiter {
+        async fn check(&self, key: &str, _now: DateTime<Utc>) -> Result<()> {
+            let mut conn = self.manager.clone();
+            let count: u32 = redis::Script::new(INCR_WITH_EXPIRY_SCRIPT)
+                .key(self.redis_key(key))
+                .arg(self.window_secs)
+                .invoke_async(&mut conn)
+                .await
+                .map_err(|e| AppError::Internal(format!("RedisRateLimiter: script failed: {e}")))?;
+
+            if count > self.max_requests {
+                return Err(AppError::Validation(format!(
+                    "rate limit exceeded for '{key}': {} requests per {}s",
+                    self.max_requests, self.window_secs
+                )));
+            }
+            Ok(())
+        }
+
+        async fn seconds_until_reset(&self, key: &str, _now: DateTime<Utc>) -> i64 {
+            let mut conn = self.manager.clone();
+            redis::cmd("TTL")
+                .arg(self.redis_key(key))
+                .query_async::<i64>(&mut conn)
+                .await
+                .unwrap_or(-1)
+                .max(0)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Requires a real, reachable Redis instance
+        /// (`OPEN_RUNO_TEST_REDIS_URL`, e.g. `redis://127.0.0.1:6379/`) --
+        /// `#[ignore]`d by default like this workspace's other
+        /// live-external-service tests (ClickHouse, PostgreSQL). Run
+        /// explicitly: `cargo test -p open-runo-security --features
+        /// redis-backend -- --ignored --nocapture`.
+        #[tokio::test]
+        #[ignore = "requires a live Redis instance reachable via OPEN_RUNO_TEST_REDIS_URL"]
+        async fn shared_budget_is_enforced_across_two_independent_limiter_instances() {
+            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+            let key = format!("test-key-{}", uuid_like_suffix());
+
+            // Two separate `RedisRateLimiter`s, simulating two different
+            // process instances behind a load balancer -- if the budget
+            // were per-instance (the bug this fixes), each would allow
+            // `max_requests` independently, for 2x the intended total.
+            let limiter_a = RedisRateLimiter::connect(&url, 3, 60).await.expect("connect A");
+            let limiter_b = RedisRateLimiter::connect(&url, 3, 60).await.expect("connect B");
+
+            let now = Utc::now();
+            assert!(limiter_a.check(&key, now).await.is_ok(), "request 1 (via A)");
+            assert!(limiter_b.check(&key, now).await.is_ok(), "request 2 (via B)");
+            assert!(limiter_a.check(&key, now).await.is_ok(), "request 3 (via A)");
+            // Budget of 3 is now exhausted -- request 4, even via the
+            // *other* instance, must be rejected. This is the actual
+            // cross-instance sharing behavior under test.
+            assert!(
+                limiter_b.check(&key, now).await.is_err(),
+                "request 4 (via B) should be rejected: the budget is shared, not per-instance"
+            );
+
+            let retry_after = limiter_a.seconds_until_reset(&key, now).await;
+            assert!(retry_after > 0 && retry_after <= 60, "retry_after should be within the 60s window, got {retry_after}");
+        }
+
+        fn uuid_like_suffix() -> String {
+            format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())
         }
     }
 }

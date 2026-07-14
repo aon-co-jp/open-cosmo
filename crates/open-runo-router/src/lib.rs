@@ -59,7 +59,7 @@ pub fn bind_addr(config: &Config) -> &str {
 /// that order, outermost first). GraphQL Subscriptions over WebSocket are
 /// not available here (see `open-runo-gateway`'s `graphql_hyper` module
 /// doc comment); everything else runs poem-free.
-pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_window_secs: i64) -> hyper_compat::Router {
+pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_window_secs: i64) -> hyper_compat::Router {
     use hyper::Method;
     use hyper_compat::{Handler, Router};
 
@@ -67,7 +67,13 @@ pub fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_limit_win
     let page_cache = Arc::new(middleware::html_cache::HtmlPageCache::new(
         middleware::html_cache::HtmlCacheConfig::from_env(),
     ));
-    let limiter = middleware_hyper::build_rate_limiter(rate_limit_max, rate_limit_window_secs);
+    // `OPEN_RUNO_RATE_LIMIT_REDIS_URL` (+ the `redis-rate-limit` feature)
+    // switches this to a Redis-backed limiter shared across every instance
+    // behind a load balancer; unset (the default) keeps the existing
+    // in-process-only behavior. See `middleware_hyper::
+    // build_shared_rate_limiter`'s doc comment for why this closes a real
+    // multi-instance gap (docs/deployment-scaling.md).
+    let limiter = middleware_hyper::build_shared_rate_limiter(rate_limit_max, rate_limit_window_secs).await;
 
     maintenance::spawn(Arc::clone(&state), Arc::clone(&page_cache));
 
@@ -441,7 +447,7 @@ mod hyper_app_tests {
     #[tokio::test]
     async fn hyper_app_serves_health_and_protected_routes() {
         let state = Arc::new(AppState::new());
-        let app = build_hyper_app(state, 1_000, 60);
+        let app = build_hyper_app(state, 1_000, 60).await;
         let (addr, _handle) = hyper_compat::serve(app, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -485,7 +491,7 @@ mod hyper_app_tests {
     #[tokio::test]
     async fn hyper_app_answers_cors_preflight_on_a_real_protected_route() {
         let state = Arc::new(AppState::new());
-        let app = build_hyper_app(state, 1_000, 60);
+        let app = build_hyper_app(state, 1_000, 60).await;
         let (addr, _handle) = hyper_compat::serve(app, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -506,7 +512,7 @@ mod hyper_app_tests {
     #[tokio::test]
     async fn hyper_app_enforces_shared_rate_limit_across_routes() {
         let state = Arc::new(AppState::new());
-        let app = build_hyper_app(state, 2, 60);
+        let app = build_hyper_app(state, 2, 60).await;
         let (addr, _handle) = hyper_compat::serve(app, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");

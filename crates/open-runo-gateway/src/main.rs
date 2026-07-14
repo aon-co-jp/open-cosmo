@@ -38,6 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.rate_limit_max_requests,
         config.rate_limit_window_secs as i64,
     )
+    .await
     .route(hyper::Method::GET, "/graphql", graphiql)
     .route(hyper::Method::POST, "/graphql", graphql_post);
 

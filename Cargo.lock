@@ -3588,11 +3588,14 @@ dependencies = [
 name = "open-runo-security"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "jsonwebtoken",
  "open-runo-core",
+ "redis",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

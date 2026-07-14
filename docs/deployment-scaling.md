@@ -108,11 +108,51 @@ then move to the next instance.
 - Built-in multi-instance clustering/gossip inside the app itself — an
   external LB is simpler and is what this recipe uses.
 
-## Known gap (left for a future pass)
+## Rate limiting: shared across instances (2026-07-14)
 
-Rate limiting (`open-runo-security::RateLimiter`) and session state
-currently live in each process's own memory, so with N instances behind a
-load balancer, a client's rate-limit budget and session are actually
-per-instance, not global. This is a real limitation of running multiple
-instances today; moving that state to a shared store (e.g. Redis) is
-future work, not implemented in this pass.
+**Resolved.** Rate limiting used to live in each process's own memory, so
+with N instances behind a load balancer, a client could get roughly `N×`
+its intended budget just by landing on a different backend each time.
+
+`open-runo-security::RateLimit` is now a trait implemented by both the
+original in-process `RateLimiter` (default, zero setup) and
+`redis_backend::RedisRateLimiter` (`redis-backend` Cargo feature): set
+`OPEN_RUNO_RATE_LIMIT_REDIS_URL` and every instance pointed at the same
+Redis shares one budget per client key, enforced atomically via a Lua
+script (`INCR` + conditional `EXPIRE` in one round trip, so two
+instances' concurrent requests can't race each other's window timer).
+Connecting fails gracefully — an unreachable/misconfigured Redis falls
+back to per-instance limiting with a warning log, rather than taking the
+app down.
+
+`build_hyper_app` is now `async` to accommodate the (async) Redis
+connection setup at startup; existing single-instance deployments that
+never set `OPEN_RUNO_RATE_LIMIT_REDIS_URL` see no behavior change.
+
+**Honest verification limit**: this sandbox has neither `redis-server`
+nor Docker available, so the `RedisRateLimiter` test
+(`shared_budget_is_enforced_across_two_independent_limiter_instances`,
+`open-runo-security`) is `#[ignore]`d like this workspace's other
+live-external-service tests (ClickHouse, PostgreSQL) — run it explicitly
+against a real Redis with `cargo test -p open-runo-security --features
+redis-backend -- --ignored --nocapture` (optionally set
+`OPEN_RUNO_TEST_REDIS_URL`). The Lua script's atomicity and the
+fixed-window algorithm itself are unit-testable without Redis (see the
+in-process `RateLimiter` tests, which exercise the same window
+semantics) and were verified there; what remains genuinely unverified
+here is Redis connectivity/the script executing correctly against a real
+server, not the algorithm design.
+
+## Session state: still per-instance (not yet addressed)
+
+Session cookies (`open-runo-router::session::SessionStore`) still live in
+each process's own memory — a client's session is only valid against the
+instance that issued it, so a load balancer without session affinity
+(sticky sessions) will intermittently 401 a logged-in client. Unlike rate
+limiting (where "per-instance" degrades gracefully to a looser bound),
+session loss is a harder failure mode for the client. Moving session
+state to a shared store (Redis, matching the rate limiter's pattern) is
+future work; in the meantime, either configure load-balancer session
+affinity (`ip_hash` in nginx, cookie-based affinity in most LBs) or avoid
+Cookie/session auth in multi-instance deployments (the `X-Api-Key` path
+remains stateless and unaffected either way).
