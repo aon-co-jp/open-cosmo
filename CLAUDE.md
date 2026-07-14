@@ -309,6 +309,25 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-14 RJSON Phase 2 着手をpoem-cosmo-tauriからミラー(サーバー側
+  部分抽出のコア実装完了) — ユーザー指示により本日はここで停止・
+  ドキュメント整理してpush**: poem-cosmo-tauri側で実装・テスト済みの
+  `open_runo_rjson::extract_path`(ドット/ブラケット記法のパス言語、
+  `stats.damage`・`bonuses[1]`・`items[2].name`、外部パースクレート
+  非依存の自前実装)と`DbBackend` traitへの`get_field`デフォルト実装
+  (`crates/open-runo-db/src/lib.rs`)をこちらへミラー。
+  `cargo test -p open-runo-rjson`(25件、17→25に増加)・`cargo test -p
+  open-runo-db --features rjson rjson`(4件)ともgreenを確認済み。
+  `docs/rjson.md`もpoem-cosmo-tauriと同内容に同期。
+  **次回セッションが最初に行うべきこと(詳細はpoem-cosmo-tauri側の
+  同日CLAUDE.md HANDOFFエントリが正)**: (1) `RjsonBackend`の
+  `get_field`実装(`extract_path`は完成済み、配線のみ)、(2)
+  `open-runo-router`へのRESTエンドポイント配線(`GET
+  /api/db/:table/:key/field?path=...`)、(3) 上記完了後Phase 3
+  (永続化・レプリケーション・インデックス化)の規模見積もり。
+  次回パスがすべきこと: 上記(1)→(2)→(3)の順で着手(確認不要で実装を
+  進める既存の運用ルールに従う)。
+
 - **2026-07-14 gRPC reflectionの`file_containing_symbol`対応を
   poem-cosmo-tauriからミラー + 10ヶ国語READMEテスト数再同期**:
   poem-cosmo-tauri側で新規実装された`grpc.health.v1.Health`用の手書き

@@ -100,6 +100,76 @@ pub fn to_string(value: &Value) -> String {
     serde_json::to_string(value).expect("serde_json::Value serialization is infallible")
 }
 
+/// Server-side partial extraction (Phase 2, 2026-07-14) — the network-
+/// bandwidth-savings benefit from the original RJSON proposal: pull just
+/// the field(s) a caller actually needs out of a stored value, instead of
+/// transmitting the whole document and making the client discard the
+/// rest.
+///
+/// `path` is a small dot/bracket path language:
+/// - `.` separates object keys: `stats.damage`
+/// - `[N]` indexes into an array: `bonuses[0]`
+/// - the two compose: `items[2].name`
+/// - an empty path (`""`) returns the whole value unchanged.
+///
+/// Returns `None` if any segment of the path doesn't exist (missing key,
+/// out-of-bounds index, or indexing into a non-object/non-array) — a
+/// missing field is not an error, it's simply absent, matching how
+/// `serde_json::Value::get` already behaves for a single segment.
+pub fn extract_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
+    if path.is_empty() {
+        return Some(value);
+    }
+    let mut current = value;
+    for segment in parse_path_segments(path) {
+        current = match segment {
+            PathSegment::Key(key) => current.as_object()?.get(key)?,
+            PathSegment::Index(idx) => current.as_array()?.get(idx)?,
+        };
+    }
+    Some(current)
+}
+
+enum PathSegment<'a> {
+    Key(&'a str),
+    Index(usize),
+}
+
+/// Splits `"items[2].name"` into `[Key("items"), Index(2), Key("name")]`.
+/// Hand-rolled (no regex dependency) to match this crate's existing
+/// "no external parsing crate" boundary.
+fn parse_path_segments(path: &str) -> Vec<PathSegment<'_>> {
+    let mut segments = Vec::new();
+    for dot_part in path.split('.') {
+        let mut rest = dot_part;
+        // A dot-separated part may itself carry one or more `[N]` index
+        // suffixes -- split those off first, left to right.
+        loop {
+            if let Some(bracket_start) = rest.find('[') {
+                let (key_part, bracket_and_after) = rest.split_at(bracket_start);
+                if !key_part.is_empty() {
+                    segments.push(PathSegment::Key(key_part));
+                }
+                let Some(bracket_end) = bracket_and_after.find(']') else { break };
+                let index_str = &bracket_and_after[1..bracket_end];
+                if let Ok(idx) = index_str.parse::<usize>() {
+                    segments.push(PathSegment::Index(idx));
+                }
+                rest = &bracket_and_after[bracket_end + 1..];
+                if rest.is_empty() {
+                    break;
+                }
+            } else {
+                if !rest.is_empty() {
+                    segments.push(PathSegment::Key(rest));
+                }
+                break;
+            }
+        }
+    }
+    segments
+}
+
 fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), RjsonError> {
     loop {
         while *pos < bytes.len() && bytes[*pos].is_ascii_whitespace() {
@@ -492,5 +562,53 @@ mod tests {
     #[test]
     fn numbers_including_negative_fraction_and_exponent() {
         assert_eq!(parse("-3.5e2").unwrap(), json!(-350.0));
+    }
+
+    #[test]
+    fn extract_path_empty_returns_whole_value() {
+        let value = json!({"a": 1});
+        assert_eq!(extract_path(&value, ""), Some(&value));
+    }
+
+    #[test]
+    fn extract_path_single_key() {
+        let value = json!({"name": "sword", "qty": 3});
+        assert_eq!(extract_path(&value, "name"), Some(&json!("sword")));
+    }
+
+    #[test]
+    fn extract_path_nested_keys() {
+        let value = json!({"stats": {"damage": 12, "weight": 4}});
+        assert_eq!(extract_path(&value, "stats.damage"), Some(&json!(12)));
+    }
+
+    #[test]
+    fn extract_path_array_index() {
+        let value = json!({"bonuses": [10, 20, 30]});
+        assert_eq!(extract_path(&value, "bonuses[1]"), Some(&json!(20)));
+    }
+
+    #[test]
+    fn extract_path_combined_key_and_index() {
+        let value = json!({"items": [{"name": "sword"}, {"name": "shield"}]});
+        assert_eq!(extract_path(&value, "items[1].name"), Some(&json!("shield")));
+    }
+
+    #[test]
+    fn extract_path_missing_key_returns_none() {
+        let value = json!({"a": 1});
+        assert_eq!(extract_path(&value, "b"), None);
+    }
+
+    #[test]
+    fn extract_path_out_of_bounds_index_returns_none() {
+        let value = json!({"bonuses": [1, 2]});
+        assert_eq!(extract_path(&value, "bonuses[5]"), None);
+    }
+
+    #[test]
+    fn extract_path_indexing_into_non_array_returns_none() {
+        let value = json!({"name": "sword"});
+        assert_eq!(extract_path(&value, "name[0]"), None);
     }
 }

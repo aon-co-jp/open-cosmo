@@ -88,6 +88,27 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
             self.backend_name()
         )))
     }
+
+    /// RJSON server-side partial extraction (Phase 2, 2026-07-14): fetch
+    /// just `path` (see `open_runo_rjson::extract_path`'s doc comment for
+    /// the path language) out of `(table, key)`'s value, instead of the
+    /// whole document — the network-bandwidth-savings benefit from the
+    /// original RJSON proposal. Only backends that store values as
+    /// well-formed JSON/RJSON can honor this (`RjsonBackend`); every
+    /// other backend keeps the default, which reports the operation as
+    /// unsupported rather than attempting to string-search a value that
+    /// might not even be JSON.
+    async fn get_field(
+        &self,
+        _table: &str,
+        _key: &str,
+        _path: &str,
+    ) -> Result<Option<String>> {
+        Err(AppError::Validation(format!(
+            "field extraction is not supported by the '{}' backend",
+            self.backend_name()
+        )))
+    }
 }
 
 // ── In-memory (常時コンパイル) ─────────────────────────────────────────────────
