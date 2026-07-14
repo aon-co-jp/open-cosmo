@@ -228,7 +228,7 @@ curl -X POST -H "x-api-key: $KEY" http://new:8080/api/backup/restore-latest
 | `/api/openapi.json` | REST APIのOpenAPI 3.0仕様(認証不要、Postman/Insomnia/Swagger UIへインポート可) |
 | `/.well-known/acme-challenge/:token` | ACME HTTP-01チャレンジ応答(認証不要、CAが直接アクセスする) |
 | `/api/keys/self-issue` | **認証不要**でAPIキーを自動発行(developer role、24時間有効)。人間がキーを意識しない設計の起点 |
-| `/mcp` | MCP(Model Context Protocol)Streamable HTTP transport(認証不要、JSON-RPC 2.0)。`initialize`/`tools/list`/`tools/call`に対応、`health_check`・`self_issue_api_key`の2ツールを公開 |
+| `/mcp` | MCP(Model Context Protocol)Streamable HTTP transport(認証不要、JSON-RPC 2.0)。`initialize`/`tools/list`/`tools/call`/`resources/list`/`resources/read`/`prompts/list`/`prompts/get`に対応。実ツール2種(`health_check`・`self_issue_api_key`)+実リソース2種(`openapi://spec`・`health://status`)+実プロンプト1種(`summarize_api`、同じ`openapi::spec()`を動的にレンダリング)、いずれも既存REST APIと同じ本番ロジックを共有 |
 | `/api/session/login` `/logout` | `X-Api-Key`を追加のセッションCookie(HttpOnly+SameSite=Strict)+CSRFトークンへ交換(置き換えではなく追加の認証経路) |
 | `/graphql` (+`/graphql/ws`) | Federation GraphQL / Subscriptions(GraphiQLは`GET /graphql`) |
 | `/api/schemas*`（`?namespace=`） | Schema Registry（マルチグラフ対応） |
@@ -263,11 +263,16 @@ JWT / OIDC Bearer / セッションCookie(`/api/session/login`発行、状態変
 TLS を直接終端したい場合（リバースプロキシを使わない構成）は
 `tls` Cargo feature（既定オフ）で `hyper_compat::tls::{load_tls_config,
 serve_tls}` が使えます。証明書を自動取得したい場合は`acme` feature
-（`tls`を暗黙有効化)で`acme::{AcmeClient, obtain_certificate_http01}`
-（RFC 8555、HTTP-01のみ）が使えます。gRPCが必要な場合は`grpc::serve_grpc`
-（新規依存無し、`grpc.health.v1.Health/Check`）を`OPEN_RUNO_GRPC_BIND_ADDR`
-で有効化。ネイティブのシステムトレイ常駐アプリ・OSネイティブ通知・
-Windows インストーラーが必要な場合は `apps/desktop-tray`
+（`tls`を暗黙有効化）で`acme::{AcmeClient, obtain_certificate_http01,
+tls_alpn01::obtain_certificate, dns01::obtain_certificate}`（RFC 8555、
+HTTP-01・TLS-ALPN-01・DNS-01の3チャレンジ型すべてに対応）が使えます。
+DNS-01は`acme::dns01::DnsProvider` traitを実装すれば任意のDNSプロバイダに
+対応可能（付属の`CloudflareDnsProvider`はbearerトークンのみ・署名不要な
+最小実装例）。gRPCが必要な場合は`grpc::serve_grpc`（新規依存無し、
+`grpc.health.v1.Health/Check`・`/Watch`ストリーミング・
+`grpc.reflection.v1.ServerReflection`の`list_services`）を
+`OPEN_RUNO_GRPC_BIND_ADDR`で有効化。ネイティブのシステムトレイ常駐アプリ・
+OSネイティブ通知・Windows インストーラーが必要な場合は `apps/desktop-tray`
 （`tauri`パッケージ非依存）をそのまま移植できます。
 
 ## 8. 動作確認

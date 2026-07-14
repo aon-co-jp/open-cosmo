@@ -47,11 +47,11 @@ purem Rust, kostenlos und als OSS** implementiert.
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 307 Tests (316 mit --all-features)
+cargo test --workspace          # 337 Tests (356 mit --all-features)
 cargo run -p open-runo-gateway  # REST + GraphQL Server
 ```
 
-## Workspace-Struktur (17 Crates)
+## Workspace-Struktur (18 Crates)
 
 Bestehend aus `open-runo-router` (REST-Gateway/Auth/Audit),
 `open-runo-gateway` (GraphQL-Endpoint), `open-runo-federation` (Schema-Komposition),

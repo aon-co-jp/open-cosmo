@@ -70,7 +70,7 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 307 tests (316 with --all-features)
+cargo test --workspace          # 337 tests (356 with --all-features)
 cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
 ```
 
@@ -135,7 +135,7 @@ cargo run -p open-runo-cli -- federation status
 If you don't pass `--api-key`, one is auto self-issued, so local development
 works with no extra setup.
 
-## Workspace structure (17 crates)
+## Workspace structure (18 crates)
 
 Composed of `open-runo-router` (REST gateway / auth / audit / AI HTML cache /
 self-maintenance), `open-runo-gateway` (GraphQL endpoint: Federation /
@@ -146,7 +146,8 @@ abstraction over 9 engines, DUAL / Federated — including TOML-file config —
 limiting), `open-runo-scim` (SCIM 2.0), `open-runo-cache`,
 `open-runo-persisted-queries`, `open-runo-ai-routing`,
 `open-runo-versionless-api`, `open-runo-cli` (a `wgc`-equivalent CLI),
-`open-runo-api-types` (shared REST/CLI types), and `open-runo-history` /
+`open-runo-api-types` (shared REST/CLI types), `open-runo-feature-flags`
+(deterministic-bucketing canary rollouts), and `open-runo-history` /
 `-backup` / `-observability` (the latter with OTLP trace export). See
 [docs/architecture.md](docs/architecture.md) for details.
 

@@ -46,11 +46,11 @@ Las funciones que WunderGraph Cosmo (Go) solo ofrece en planes de pago
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 307 tests (316 with --all-features)
+cargo test --workspace          # 337 tests (356 with --all-features)
 cargo run -p open-runo-gateway  # servidor REST + GraphQL
 ```
 
-## Estructura del workspace (17 crates)
+## Estructura del workspace (18 crates)
 
 Compuesto por `open-runo-router` (gateway REST/auth/auditoría),
 `open-runo-gateway` (endpoint GraphQL), `open-runo-federation` (composición de esquemas),

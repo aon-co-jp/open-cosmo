@@ -47,11 +47,11 @@ open-runo решает эту проблему в корне с помощью *
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 307 тестов (316 с --all-features)
+cargo test --workspace          # 337 тестов (356 с --all-features)
 cargo run -p open-runo-gateway  # сервер REST + GraphQL
 ```
 
-## Структура workspace (17 крейтов)
+## Структура workspace (18 крейтов)
 
 Состоит из `open-runo-router` (REST-шлюз/аутентификация/аудит),
 `open-runo-gateway` (GraphQL-эндпоинт), `open-runo-federation` (композиция схем),

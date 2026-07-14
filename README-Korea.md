@@ -43,11 +43,11 @@
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 테스트 307개(--all-features 시 316개)
+cargo test --workspace          # 테스트 337개(--all-features 시 356개)
 cargo run -p open-runo-gateway  # REST + GraphQL 서버 실행
 ```
 
-## 워크스페이스 구성(17개 crate)
+## 워크스페이스 구성(18개 crate)
 
 `open-runo-router`(REST 게이트웨이/인증/감사), `open-runo-gateway`(GraphQL 엔드포인트),
 `open-runo-federation`(스키마 합성), `open-runo-db`(멀티 엔진 DB 추상화) 등으로 구성됩니다.

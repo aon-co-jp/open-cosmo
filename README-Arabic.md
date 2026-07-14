@@ -45,11 +45,11 @@ WunderGraph Cosmo (المكتوب بلغة Go) فقط في خططه المدفو
 ```bash
 git clone https://github.com/aon-co-jp/open-runo
 cd open-runo
-cargo test --workspace          # 307 اختبارًا (316 مع --all-features)
+cargo test --workspace          # 337 اختبارًا (356 مع --all-features)
 cargo run -p open-runo-gateway  # تشغيل خادم REST + GraphQL
 ```
 
-## بنية Workspace (17 حزمة)
+## بنية Workspace (18 حزمة)
 
 يتكون من `open-runo-router` (بوابة REST/مصادقة/تدقيق)،
 `open-runo-gateway` (نقطة نهاية GraphQL)، `open-runo-federation` (تركيب المخططات)،
