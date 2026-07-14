@@ -3417,6 +3417,7 @@ dependencies = [
  "deadpool-redis",
  "mongodb",
  "open-runo-core",
+ "open-runo-rjson",
  "redis",
  "serde",
  "serde_json",
@@ -3511,6 +3512,14 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+]
+
+[[package]]
+name = "open-runo-rjson"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

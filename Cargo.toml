@@ -18,6 +18,7 @@ members = [
     "crates/open-runo-cli",
     "crates/open-runo-api-types",
     "crates/open-runo-feature-flags",
+    "crates/open-runo-rjson",
 ]
 
 resolver = "2"

@@ -126,6 +126,160 @@ impl DbBackend for InMemoryBackend {
     }
 }
 
+// ── RJSON (Phase 1: in-memory proof, `rjson` feature) ─────────────────────────
+
+#[cfg(feature = "rjson")]
+pub mod rjson_backend {
+    //! RJSON-aware `DbBackend`: proves, for real, the first of the three
+    //! benefits described for a DB-level RJSON integration (2026-07-14,
+    //! concept: 石塚正浩・aon CEO) —
+    //! **automatic write-time validation against RJSON's grammar**. `put`
+    //! parses the incoming value with [`open_runo_rjson::parse`] and
+    //! rejects it outright if it isn't valid RJSON (which includes every
+    //! valid strict-JSON document, since RJSON is a superset) — a
+    //! malformed value never reaches storage, no matter which client
+    //! sent it or how it was authored (trailing commas, comments, and
+    //! the other RJSON conveniences are silently normalized away, since
+    //! what's actually persisted is [`open_runo_rjson::to_string`]'s
+    //! canonical strict-JSON form).
+    //!
+    //! **Scope of this Phase 1**: storage here is a plain in-memory
+    //! `HashMap`, structurally identical to [`super::InMemoryBackend`] —
+    //! there is no persistence, replication, or Git-on-SQL-style
+    //! versioning yet, and no server-side partial-value extraction
+    //! (the second and third benefits from the original proposal: network
+    //! bandwidth savings via server-side key/array extraction, and a
+    //! genuinely persistent/distributed storage engine comparable in
+    //! scope to `aruaru-db`) are **not** implemented in this pass — both
+    //! are large enough to warrant their own dedicated development passes,
+    //! the same way `aruaru-db` itself grew incrementally across many
+    //! sessions rather than being built in one. This module exists to
+    //! prove the write-time-validation benefit end-to-end with a real,
+    //! tested parser, and to give `open-runo-db` a concrete extension
+    //! point (`DbBackend`) that a future persistent `RjsonDbBackend`
+    //! (backed by its own storage engine, or by extending `aruaru-db`)
+    //! can slot into without changing any call site above this trait.
+    use super::{AppError, DbBackend, Record, Result};
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    #[derive(Debug, Default)]
+    pub struct RjsonBackend {
+        store: Mutex<HashMap<(String, String), String>>,
+    }
+
+    impl RjsonBackend {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    #[async_trait]
+    impl DbBackend for RjsonBackend {
+        fn backend_name(&self) -> &'static str {
+            "rjson"
+        }
+
+        /// Parses `value` as RJSON (accepting strict JSON too, since RJSON
+        /// is a superset) and rejects the write with a validation error
+        /// if it doesn't parse — the "DB-level automatic validation"
+        /// benefit. What's actually stored is the canonical strict-JSON
+        /// re-serialization (`open_runo_rjson::to_string`), not the raw
+        /// input text, so every later `get` returns unambiguous strict
+        /// JSON regardless of how leniently the value was originally
+        /// authored.
+        async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
+            let parsed = open_runo_rjson::parse(value)
+                .map_err(|e| AppError::Validation(format!("invalid RJSON for {table}/{key}: {e}")))?;
+            let canonical = open_runo_rjson::to_string(&parsed);
+            self.store
+                .lock()
+                .map_err(|_| AppError::Internal("lock".into()))?
+                .insert((table.into(), key.into()), canonical);
+            Ok(())
+        }
+
+        async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
+            Ok(self
+                .store
+                .lock()
+                .map_err(|_| AppError::Internal("lock".into()))?
+                .get(&(table.into(), key.into()))
+                .cloned())
+        }
+
+        async fn delete(&self, table: &str, key: &str) -> Result<()> {
+            self.store
+                .lock()
+                .map_err(|_| AppError::Internal("lock".into()))?
+                .remove(&(table.into(), key.into()));
+            Ok(())
+        }
+
+        async fn list(&self, table: &str) -> Result<Vec<Record>> {
+            Ok(self
+                .store
+                .lock()
+                .map_err(|_| AppError::Internal("lock".into()))?
+                .iter()
+                .filter(|((t, _), _)| t == table)
+                .map(|((_, k), v)| Record { key: k.clone(), value: v.clone() })
+                .collect())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[tokio::test]
+        async fn put_normalizes_lenient_rjson_to_canonical_strict_json() {
+            let backend = RjsonBackend::new();
+            // Trailing comma + comment + unquoted key + single-quoted
+            // string -- all four RJSON extensions in one write.
+            let lenient = "{ /* item */ name: 'sword', qty: 3, }";
+            backend.put("items", "sword", lenient).await.expect("valid RJSON should be accepted");
+
+            let stored = backend.get("items", "sword").await.unwrap().unwrap();
+            assert!(!stored.contains("//"), "stored value must be canonical JSON, not the raw lenient input");
+            assert!(!stored.contains("/*"));
+            let value: serde_json::Value = serde_json::from_str(&stored).unwrap();
+            assert_eq!(value, serde_json::json!({"name": "sword", "qty": 3}));
+        }
+
+        #[tokio::test]
+        async fn put_rejects_genuinely_malformed_input() {
+            let backend = RjsonBackend::new();
+            let result = backend.put("items", "broken", "{ this is not json at all").await;
+            assert!(result.is_err(), "malformed input must be rejected at write time, never silently stored");
+        }
+
+        #[tokio::test]
+        async fn strict_json_is_accepted_unchanged_since_rjson_is_a_superset() {
+            let backend = RjsonBackend::new();
+            backend.put("items", "shield", r#"{"name":"shield","qty":1}"#).await.expect("strict JSON is valid RJSON");
+            let stored = backend.get("items", "shield").await.unwrap().unwrap();
+            let value: serde_json::Value = serde_json::from_str(&stored).unwrap();
+            assert_eq!(value, serde_json::json!({"name": "shield", "qty": 1}));
+        }
+
+        #[tokio::test]
+        async fn list_and_delete_behave_like_every_other_backend() {
+            let backend = RjsonBackend::new();
+            backend.put("items", "a", "{x: 1}").await.unwrap();
+            backend.put("items", "b", "{x: 2}").await.unwrap();
+            backend.put("other", "c", "{x: 3}").await.unwrap();
+
+            let items = backend.list("items").await.unwrap();
+            assert_eq!(items.len(), 2, "list must only return the requested table's records");
+
+            backend.delete("items", "a").await.unwrap();
+            assert!(backend.get("items", "a").await.unwrap().is_none());
+            assert_eq!(backend.list("items").await.unwrap().len(), 1);
+        }
+    }
+}
 // ── PostgreSQL :5432 ───────────────────────────────────────────────────────────
 
 #[cfg(feature = "postgres")]

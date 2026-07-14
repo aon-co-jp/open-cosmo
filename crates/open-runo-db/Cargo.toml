@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 open-runo-core = { workspace = true }
+open-runo-rjson = { path = "../open-runo-rjson" }
 async-trait   = { workspace = true }
 serde         = { workspace = true }
 serde_json    = { workspace = true }
@@ -50,6 +51,11 @@ mongodb    = ["dep:mongodb"]                # MongoDB :27017
 surrealdb  = ["dep:surrealdb"]             # SurrealDB (Rust ネイティブ)
 redis      = ["dep:redis", "dep:deadpool-redis"]  # Redis / KeyDB / DragonflyDB
 clickhouse = ["dep:clickhouse"]            # ClickHouse 列指向分析
+
+# RJSON (石塚正浩・aon CEO 発案の独自JSON拡張仕様、Phase 1: インメモリの
+# 実証実装) — lib.rsのrjson_backendモジュール参照。開発コストが軽い
+# (open-runo-rjsonはserde_json+thiserrorのみ)ため既定オフ。
+rjson      = []
 
 # ── 複合プリセット ─────────────────────────────────────────────────────────────
 # open-aruaru 標準 DUAL DATABASE

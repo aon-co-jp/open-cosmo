@@ -1,0 +1,16 @@
+[package]
+name = "open-runo-rjson"
+description = "RJSON: a lenient, human-authorable JSON superset (trailing commas, comments, unquoted keys, single-quoted strings), parsed into the standard serde_json::Value model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
