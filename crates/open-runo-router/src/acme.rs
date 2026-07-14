@@ -896,6 +896,474 @@ mod client {
         }
     }
 
+    // ── DNS-01 (RFC 8555 §8.4) ───────────────────────────────────────────
+    //
+    // The only challenge type that can prove control of a domain without
+    // needing *any* server reachable on that domain at all (no port 80,
+    // no TLS port) -- validation is a DNS lookup, so it's also the only
+    // type that supports wildcard certificates. The tradeoff, and the
+    // reason this is scoped last of the three challenge types: it needs
+    // real, authenticated write access to the domain's DNS zone, which
+    // this development sandbox does not have (no real DNS zone, no
+    // provider credentials) -- there is no way to prove interoperability
+    // with an actual DNS provider's API from here, only the ACME-protocol
+    // side of the exchange (same honest limitation already stated for
+    // HTTP-01/TLS-ALPN-01, just one layer further out).
+    //
+    // What *is* implemented and genuinely testable: the DNS-01 half of
+    // the ACME state machine (computing the TXT record value per RFC 8555
+    // §8.4, publishing/removing it around the challenge/poll sequence)
+    // plus a real DNS-provider client -- Cloudflare's REST API, chosen
+    // because it's simple (plain REST + bearer token, no request signing)
+    // and widely used, so this is a genuine integration a real deployment
+    // could use, not a placeholder. `DnsProvider` is a small trait so any
+    // other provider's API can be added the same way without touching the
+    // ACME orchestration logic, and so the orchestration can be tested
+    // end-to-end against a mock DNS provider server built with
+    // `hyper_compat::serve` -- the same technique already used for the
+    // mock ACME CA above.
+    pub mod dns01 {
+        use super::{base64url_encode, http01_key_authorization, AcmeClient};
+        use crate::hyper_compat::BoxFuture;
+        use open_runo_core::{AppError, Result};
+
+        /// A DNS provider capable of publishing/removing the `TXT` record
+        /// DNS-01 validation checks. Implementations own whatever
+        /// bookkeeping they need to map a record name back to a
+        /// provider-specific record ID for deletion (see
+        /// [`CloudflareDnsProvider`] for an example).
+        pub trait DnsProvider: Send + Sync {
+            /// Create a `TXT` record at `name` (e.g.
+            /// `_acme-challenge.example.com`) with content `value`.
+            fn create_txt_record<'a>(&'a self, name: &'a str, value: &'a str) -> BoxFuture<Result<()>>;
+            /// Remove the `TXT` record previously created at `name`.
+            fn delete_txt_record<'a>(&'a self, name: &'a str) -> BoxFuture<Result<()>>;
+        }
+
+        /// Cloudflare's DNS REST API (`api.cloudflare.com/client/v4`) --
+        /// plain bearer-token REST, no request signing, making it one of
+        /// the simplest real DNS provider APIs to integrate against.
+        /// `base_url` is overridable so tests can point this at a local
+        /// mock server instead of the real Cloudflare API.
+        pub struct CloudflareDnsProvider {
+            http: reqwest::Client,
+            base_url: String,
+            zone_id: String,
+            api_token: String,
+            /// Record name -> Cloudflare record ID, so `delete_txt_record`
+            /// knows which record to `DELETE` (Cloudflare's API deletes by
+            /// ID, not by name/content). `Arc`-wrapped so the async block
+            /// in `create_txt_record` can hold its own owned handle
+            /// instead of borrowing `&self` for the `'static` bound
+            /// `BoxFuture` requires.
+            created_records: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+        }
+
+        impl CloudflareDnsProvider {
+            pub fn new(zone_id: impl Into<String>, api_token: impl Into<String>) -> Self {
+                Self::with_base_url(zone_id, api_token, "https://api.cloudflare.com/client/v4".to_string())
+            }
+
+            /// Test-only entry point: same as [`Self::new`] but pointed at
+            /// a caller-supplied base URL (a local mock server) instead of
+            /// the real Cloudflare API.
+            pub fn with_base_url(zone_id: impl Into<String>, api_token: impl Into<String>, base_url: String) -> Self {
+                Self {
+                    http: reqwest::Client::new(),
+                    base_url,
+                    zone_id: zone_id.into(),
+                    api_token: api_token.into(),
+                    created_records: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                }
+            }
+        }
+
+        impl DnsProvider for CloudflareDnsProvider {
+            fn create_txt_record<'a>(&'a self, name: &'a str, value: &'a str) -> BoxFuture<Result<()>> {
+                let http = self.http.clone();
+                let url = format!("{}/zones/{}/dns_records", self.base_url, self.zone_id);
+                let token = self.api_token.clone();
+                let name = name.to_string();
+                let value = value.to_string();
+                let created_records = std::sync::Arc::clone(&self.created_records);
+                Box::pin(async move {
+                    let resp = http
+                        .post(&url)
+                        .bearer_auth(&token)
+                        .json(&serde_json::json!({ "type": "TXT", "name": name, "content": value, "ttl": 120 }))
+                        .send()
+                        .await
+                        .map_err(|e| AppError::Internal(format!("Cloudflare TXT record create failed: {e}")))?;
+                    let body: serde_json::Value = resp
+                        .json()
+                        .await
+                        .map_err(|e| AppError::Internal(format!("Cloudflare TXT record create response parse failed: {e}")))?;
+                    if body["success"].as_bool() != Some(true) {
+                        return Err(AppError::Internal(format!("Cloudflare TXT record create was not successful: {body}")));
+                    }
+                    let id = body["result"]["id"]
+                        .as_str()
+                        .ok_or_else(|| AppError::Internal("Cloudflare TXT record create response missing result.id".to_string()))?
+                        .to_string();
+                    created_records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(name, id);
+                    Ok(())
+                })
+            }
+
+            fn delete_txt_record<'a>(&'a self, name: &'a str) -> BoxFuture<Result<()>> {
+                let http = self.http.clone();
+                let base_url = self.base_url.clone();
+                let zone_id = self.zone_id.clone();
+                let token = self.api_token.clone();
+                let id = self
+                    .created_records
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(name);
+                Box::pin(async move {
+                    let Some(id) = id else {
+                        // Nothing was ever published under this name (or
+                        // it was already removed) -- deleting is a no-op,
+                        // not an error, matching the idempotent-cleanup
+                        // behavior of ChallengeStore::remove / TlsAlpnResolver::remove.
+                        return Ok(());
+                    };
+                    let url = format!("{base_url}/zones/{zone_id}/dns_records/{id}");
+                    http.delete(&url)
+                        .bearer_auth(&token)
+                        .send()
+                        .await
+                        .map_err(|e| AppError::Internal(format!("Cloudflare TXT record delete failed: {e}")))?;
+                    Ok(())
+                })
+            }
+        }
+
+        /// DNS-01 equivalent of `obtain_certificate_http01`/
+        /// `tls_alpn01::obtain_certificate`: discover -> register -> order
+        /// -> compute+publish the TXT record value (RFC 8555 §8.4:
+        /// base64url(SHA-256(key-authorization)), at
+        /// `_acme-challenge.<domain>`) via `dns` -> respond -> poll
+        /// (the existing fixed-delay retry loop also absorbs ordinary DNS
+        /// propagation delay, though a real deployment may want a longer
+        /// `max_attempts` than the 20 used here) -> finalize -> download
+        /// -> remove the TXT record.
+        pub async fn obtain_certificate(
+            directory_url: &str,
+            domain: &str,
+            contact_email: &str,
+            dns: &dyn DnsProvider,
+        ) -> Result<(String, String)> {
+            let mut client = AcmeClient::discover(directory_url).await?;
+            client.new_account(&[contact_email.to_string()], true).await?;
+            let order = client.new_order(&[domain.to_string()]).await?;
+            let record_name = format!("_acme-challenge.{domain}");
+
+            for auth_url in &order.authorizations {
+                let auth = client.get_authorization(auth_url).await?;
+                let challenge = auth
+                    .challenges
+                    .iter()
+                    .find(|c| c.challenge_type == "dns-01")
+                    .ok_or_else(|| AppError::Internal("no dns-01 challenge offered".to_string()))?;
+
+                let key_auth = http01_key_authorization(&challenge.token, &client.account_key);
+                let digest = ring::digest::digest(&ring::digest::SHA256, key_auth.as_bytes());
+                let txt_value = base64url_encode(digest.as_ref());
+
+                dns.create_txt_record(&record_name, &txt_value).await?;
+                client.respond_to_challenge(&challenge.url).await?;
+                let poll_result = client.poll_authorization_until_valid(auth_url, 20).await;
+                // Always attempt cleanup, even if validation failed --
+                // otherwise a failed attempt leaves a stale TXT record
+                // behind forever.
+                dns.delete_txt_record(&record_name).await?;
+                poll_result?;
+            }
+
+            let (finalized, key_pem) = client.finalize_order(&order, domain).await?;
+            let cert_url = finalized
+                .certificate
+                .ok_or_else(|| AppError::Internal("ACME order finalized without a certificate URL".to_string()))?;
+            let cert_pem = client.download_certificate(&cert_url).await?;
+            Ok((cert_pem, key_pem))
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+            use crate::hyper_compat::{empty_status, json_response, serve, Router};
+            use hyper::{Method, StatusCode};
+            use std::sync::{Arc, Mutex as StdMutex};
+
+            /// A minimal mock of Cloudflare's DNS REST API shape (create
+            /// returns `{"success":true,"result":{"id":...}}`, delete
+            /// just needs to respond 200) -- enough to exercise
+            /// `CloudflareDnsProvider`'s request/response handling for
+            /// real over HTTP, without needing genuine Cloudflare
+            /// credentials.
+            fn mock_cloudflare_router(created: Arc<StdMutex<Vec<(String, String)>>>, deleted: Arc<StdMutex<Vec<String>>>) -> Router {
+                let create_handler: crate::hyper_compat::Handler = {
+                    let created = Arc::clone(&created);
+                    Arc::new(move |req, _params| {
+                        let created = Arc::clone(&created);
+                        Box::pin(async move {
+                            let body: serde_json::Value = crate::hyper_compat::read_json_body(req).await.unwrap();
+                            let name = body["name"].as_str().unwrap().to_string();
+                            let content = body["content"].as_str().unwrap().to_string();
+                            created.lock().unwrap().push((name, content));
+                            json_response(StatusCode::OK, &serde_json::json!({ "success": true, "result": { "id": "record-1" } }))
+                        })
+                    })
+                };
+                let delete_handler: crate::hyper_compat::Handler = Arc::new(move |_req, params: crate::hyper_compat::Params| {
+                    let deleted = Arc::clone(&deleted);
+                    let id = params.get("id").unwrap().to_string();
+                    Box::pin(async move {
+                        deleted.lock().unwrap().push(id);
+                        empty_status(StatusCode::OK)
+                    })
+                });
+                Router::new()
+                    .route(Method::POST, "/zones/test-zone/dns_records", create_handler)
+                    .route(Method::DELETE, "/zones/test-zone/dns_records/:id", delete_handler)
+            }
+
+            #[tokio::test]
+            async fn cloudflare_provider_creates_and_deletes_a_txt_record_over_real_http() {
+                let created = Arc::new(StdMutex::new(Vec::new()));
+                let deleted = Arc::new(StdMutex::new(Vec::new()));
+                let router = mock_cloudflare_router(Arc::clone(&created), Arc::clone(&deleted));
+                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock cloudflare");
+
+                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{addr}"));
+                provider.create_txt_record("_acme-challenge.example.com", "abc123digest").await.unwrap();
+                assert_eq!(created.lock().unwrap().as_slice(), &[("_acme-challenge.example.com".to_string(), "abc123digest".to_string())]);
+
+                provider.delete_txt_record("_acme-challenge.example.com").await.unwrap();
+                assert_eq!(deleted.lock().unwrap().as_slice(), &["record-1".to_string()]);
+            }
+
+            #[tokio::test]
+            async fn deleting_a_name_that_was_never_created_is_a_harmless_no_op() {
+                let created = Arc::new(StdMutex::new(Vec::new()));
+                let deleted = Arc::new(StdMutex::new(Vec::new()));
+                let router = mock_cloudflare_router(created, Arc::clone(&deleted));
+                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock cloudflare");
+
+                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{addr}"));
+                provider.delete_txt_record("never-published.example.com").await.unwrap();
+                assert!(deleted.lock().unwrap().is_empty(), "no DELETE request should have been made for an unknown name");
+            }
+
+            /// End-to-end verification of the *protocol* side (the same
+            /// mock-CA technique as the HTTP-01 test above), combined with
+            /// a real `CloudflareDnsProvider` talking to the mock DNS
+            /// server -- proving `dns01::obtain_certificate` correctly
+            /// computes the TXT value, publishes it before responding to
+            /// the challenge, and removes it afterward. What this does
+            /// *not* prove (see module docs): interoperability with the
+            /// real Cloudflare API or a real ACME CA's DNS-01 validator.
+            #[tokio::test]
+            async fn full_dns01_flow_against_mock_ca_and_mock_dns_provider() {
+                use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+                const TOKEN: &str = "dns01-test-token";
+                const FAKE_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\nMOCK-DNS01\n-----END CERTIFICATE-----\n";
+
+                let dns_created = Arc::new(StdMutex::new(Vec::new()));
+                let dns_deleted = Arc::new(StdMutex::new(Vec::new()));
+                let dns_router = mock_cloudflare_router(Arc::clone(&dns_created), Arc::clone(&dns_deleted));
+                let (dns_addr, _dns_handle) = serve(dns_router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock dns");
+                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{dns_addr}"));
+
+                let ca_base: Arc<StdMutex<String>> = Arc::new(StdMutex::new(String::new()));
+                let nonce_counter = Arc::new(AtomicU64::new(0));
+                let challenge_validated = Arc::new(AtomicBool::new(false));
+
+                let base_of = {
+                    let ca_base = Arc::clone(&ca_base);
+                    move || ca_base.lock().unwrap().clone()
+                };
+                let next_nonce = {
+                    let nonce_counter = Arc::clone(&nonce_counter);
+                    move || format!("nonce-{}", nonce_counter.fetch_add(1, Ordering::SeqCst))
+                };
+
+                let directory_handler: crate::hyper_compat::Handler = {
+                    let base_of = base_of.clone();
+                    Arc::new(move |_req, _params| {
+                        let base = base_of();
+                        Box::pin(async move {
+                            json_response(
+                                StatusCode::OK,
+                                &serde_json::json!({
+                                    "newNonce": format!("{base}/new-nonce"),
+                                    "newAccount": format!("{base}/new-acct"),
+                                    "newOrder": format!("{base}/new-order"),
+                                }),
+                            )
+                        })
+                    })
+                };
+                let new_nonce_handler: crate::hyper_compat::Handler = {
+                    let next_nonce = next_nonce.clone();
+                    Arc::new(move |_req, _params| {
+                        let nonce = next_nonce();
+                        Box::pin(async move {
+                            let mut resp = empty_status(StatusCode::OK);
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let new_acct_handler: crate::hyper_compat::Handler = {
+                    let base_of = base_of.clone();
+                    let next_nonce = next_nonce.clone();
+                    Arc::new(move |_req, _params| {
+                        let base = base_of();
+                        let nonce = next_nonce();
+                        Box::pin(async move {
+                            let mut resp = json_response(StatusCode::CREATED, &serde_json::json!({ "status": "valid" }));
+                            resp.headers_mut().insert("location", format!("{base}/acct/1").parse().unwrap());
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let new_order_handler: crate::hyper_compat::Handler = {
+                    let base_of = base_of.clone();
+                    let next_nonce = next_nonce.clone();
+                    Arc::new(move |_req, _params| {
+                        let base = base_of();
+                        let nonce = next_nonce();
+                        Box::pin(async move {
+                            let mut resp = json_response(
+                                StatusCode::CREATED,
+                                &serde_json::json!({
+                                    "status": "pending",
+                                    "authorizations": [format!("{base}/authz/1")],
+                                    "finalize": format!("{base}/finalize/1"),
+                                }),
+                            );
+                            resp.headers_mut().insert("location", format!("{base}/order/1").parse().unwrap());
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let authz_handler: crate::hyper_compat::Handler = {
+                    let base_of = base_of.clone();
+                    let next_nonce = next_nonce.clone();
+                    let challenge_validated = Arc::clone(&challenge_validated);
+                    Arc::new(move |_req, _params| {
+                        let base = base_of();
+                        let nonce = next_nonce();
+                        let validated = challenge_validated.load(Ordering::SeqCst);
+                        Box::pin(async move {
+                            let status = if validated { "valid" } else { "pending" };
+                            let mut resp = json_response(
+                                StatusCode::OK,
+                                &serde_json::json!({
+                                    "status": status,
+                                    "challenges": [{
+                                        "type": "dns-01",
+                                        "url": format!("{base}/challenge/1"),
+                                        "token": TOKEN,
+                                        "status": status,
+                                    }],
+                                }),
+                            );
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let challenge_handler: crate::hyper_compat::Handler = {
+                    let next_nonce = next_nonce.clone();
+                    let challenge_validated = Arc::clone(&challenge_validated);
+                    let dns_created = Arc::clone(&dns_created);
+                    Arc::new(move |_req, _params| {
+                        let nonce = next_nonce();
+                        let challenge_validated = Arc::clone(&challenge_validated);
+                        // The real validation step: check that the TXT
+                        // record was actually published (via the mock DNS
+                        // provider above) before marking the challenge
+                        // valid -- proves ordering, not just that some
+                        // HTTP call happened.
+                        let published = !dns_created.lock().unwrap().is_empty();
+                        Box::pin(async move {
+                            if published {
+                                challenge_validated.store(true, Ordering::SeqCst);
+                            }
+                            let mut resp = json_response(StatusCode::OK, &serde_json::json!({ "status": "processing" }));
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let finalize_handler: crate::hyper_compat::Handler = {
+                    let base_of = base_of.clone();
+                    let next_nonce = next_nonce.clone();
+                    Arc::new(move |_req, _params| {
+                        let base = base_of();
+                        let nonce = next_nonce();
+                        Box::pin(async move {
+                            let mut resp = json_response(
+                                StatusCode::OK,
+                                &serde_json::json!({
+                                    "status": "valid",
+                                    "authorizations": [format!("{base}/authz/1")],
+                                    "finalize": format!("{base}/finalize/1"),
+                                    "certificate": format!("{base}/cert/1"),
+                                }),
+                            );
+                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp
+                        })
+                    })
+                };
+                let cert_handler: crate::hyper_compat::Handler = Arc::new(move |_req, _params| {
+                    Box::pin(async move {
+                        hyper::Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "application/pem-certificate-chain")
+                            .body(crate::hyper_compat::fixed_body(bytes::Bytes::from_static(FAKE_CERT_PEM.as_bytes())))
+                            .unwrap()
+                    })
+                });
+
+                let ca_router = Router::new()
+                    .route(Method::GET, "/directory", directory_handler)
+                    .route(Method::HEAD, "/new-nonce", new_nonce_handler)
+                    .route(Method::POST, "/new-acct", new_acct_handler)
+                    .route(Method::POST, "/new-order", new_order_handler)
+                    .route(Method::POST, "/authz/1", authz_handler)
+                    .route(Method::POST, "/challenge/1", challenge_handler)
+                    .route(Method::POST, "/finalize/1", finalize_handler)
+                    .route(Method::POST, "/cert/1", cert_handler);
+                let (ca_addr, _ca_handle) = serve(ca_router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock CA");
+                *ca_base.lock().unwrap() = format!("http://{ca_addr}");
+
+                let directory_url = format!("http://{ca_addr}/directory");
+                let (cert_pem, key_pem) = obtain_certificate(&directory_url, "dns01-test.local", "admin@test.local", &provider)
+                    .await
+                    .expect("full DNS-01 flow should succeed against the mock CA and mock DNS provider");
+
+                assert_eq!(cert_pem, FAKE_CERT_PEM);
+                assert!(key_pem.contains("PRIVATE KEY"));
+                assert!(challenge_validated.load(Ordering::SeqCst));
+                assert_eq!(dns_created.lock().unwrap().len(), 1, "exactly one TXT record should have been published");
+                assert_eq!(
+                    dns_created.lock().unwrap()[0].0,
+                    "_acme-challenge.dns01-test.local",
+                    "TXT record name should follow RFC 8555 §8.4's _acme-challenge.<domain> convention"
+                );
+                assert_eq!(dns_deleted.lock().unwrap().len(), 1, "the TXT record should be cleaned up after validation");
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
