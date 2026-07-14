@@ -9,9 +9,11 @@
 //! added 2026-07-12 to close this module's earlier "no streaming" gap)
 //! and a minimal
 //! [`grpc.reflection.v1.ServerReflection`](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md)
-//! (added 2026-07-12 to close the "no reflection" gap: only the
-//! `list_services` request is handled, which is what service-discovery
-//! tools like `grpcurl <addr> list` actually need) -- proving the
+//! (added 2026-07-12: `list_services` for service discovery, e.g.
+//! `grpcurl <addr> list`; extended 2026-07-14 with `file_containing_symbol`
+//! for schema introspection, e.g. `grpcurl <addr> describe
+//! grpc.health.v1.Health`, backed by a hand-rolled `FileDescriptorProto`
+//! for `grpc/health/v1/health.proto`) -- proving the
 //! transport (HTTP/2 framing, the gRPC length-prefixed message envelope,
 //! trailers-based `grpc-status`) and the wire format (Protocol Buffers)
 //! both work end to end for unary, server-streaming, and
@@ -196,6 +198,164 @@ fn encode_list_services_response(service_names: &[&str]) -> Bytes {
         list_response.extend_from_slice(&encode_embedded_message(1, &service_response));
     }
     let response = encode_embedded_message(6, &list_response);
+    response.freeze()
+}
+
+/// Encode a `bytes` field (wire type 2, length-delimited -- same framing
+/// as `string`, protobuf doesn't distinguish them on the wire).
+fn encode_bytes_field(field_number: u32, value: &[u8]) -> BytesMut {
+    let mut out = BytesMut::new();
+    encode_varint(((field_number as u64) << 3) | 2, &mut out);
+    encode_varint(value.len() as u64, &mut out);
+    out.extend_from_slice(value);
+    out
+}
+
+/// Encode a varint-typed field (wire type 0 -- `int32`/`bool`/enum
+/// values all share this wire representation).
+fn encode_varint_field(field_number: u32, value: u64, out: &mut BytesMut) {
+    encode_varint((field_number as u64) << 3, out);
+    encode_varint(value, out);
+}
+
+/// If `bytes` is a `ServerReflectionRequest` with the
+/// `file_containing_symbol` oneof field (field 4) set, return that
+/// symbol name. Parsing mirrors `request_is_list_services` (field 7)
+/// but extracts the string payload instead of just detecting presence.
+fn extract_file_containing_symbol(bytes: &[u8]) -> Option<String> {
+    let mut buf = bytes;
+    while !buf.is_empty() {
+        let (tag, rest) = decode_varint(buf)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        buf = rest;
+        match wire_type {
+            2 => {
+                let (len, rest) = decode_varint(buf)?;
+                let len = len as usize;
+                if rest.len() < len {
+                    return None;
+                }
+                if field_number == 4 {
+                    return Some(String::from_utf8_lossy(&rest[..len]).into_owned());
+                }
+                buf = &rest[len..];
+            }
+            0 => {
+                let (_, rest) = decode_varint(buf)?;
+                buf = rest;
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// A hand-rolled `FileDescriptorProto` (per
+/// [`descriptor.proto`](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/descriptor.proto))
+/// describing `grpc/health/v1/health.proto`: the `Health` service
+/// (`Check`/`Watch` methods) and its two message types. Built with the
+/// same varint/length-delimited primitives as the rest of this module's
+/// hand-rolled codec -- no `prost`/protoc dependency.
+///
+/// **Simplification, stated plainly**: `HealthCheckResponse.status` is
+/// encoded here as `TYPE_INT32` (wire type 5 in `FieldDescriptorProto`)
+/// rather than the real `ServingStatus` enum type, which would require
+/// also emitting an `EnumDescriptorProto` and a `type_name` cross-
+/// reference. A reflection client decoding this descriptor sees a
+/// structurally valid message with an integer status field instead of a
+/// named enum -- correct on the wire, less self-documenting than the
+/// real `health.proto`. This module's actual `Check`/`Watch` responses
+/// are unaffected (they never go through this descriptor, only through
+/// `encode_health_check_response`).
+fn build_health_file_descriptor_proto() -> Bytes {
+    const TYPE_INT32: u64 = 5;
+    const TYPE_STRING: u64 = 9;
+    const LABEL_OPTIONAL: u64 = 1;
+
+    let field_descriptor = |name: &str, number: u64, proto_type: u64| -> BytesMut {
+        let mut out = BytesMut::new();
+        out.extend_from_slice(&encode_string_field(1, name));
+        encode_varint_field(3, number, &mut out);
+        encode_varint_field(4, LABEL_OPTIONAL, &mut out);
+        encode_varint_field(5, proto_type, &mut out);
+        out
+    };
+    let message_descriptor = |name: &str, fields: &[BytesMut]| -> BytesMut {
+        let mut out = BytesMut::new();
+        out.extend_from_slice(&encode_string_field(1, name));
+        for f in fields {
+            out.extend_from_slice(&encode_embedded_message(2, f));
+        }
+        out
+    };
+    let method_descriptor = |name: &str, input_type: &str, output_type: &str, server_streaming: bool| -> BytesMut {
+        let mut out = BytesMut::new();
+        out.extend_from_slice(&encode_string_field(1, name));
+        out.extend_from_slice(&encode_string_field(2, input_type));
+        out.extend_from_slice(&encode_string_field(3, output_type));
+        if server_streaming {
+            encode_varint_field(6, 1, &mut out);
+        }
+        out
+    };
+
+    let request_msg = message_descriptor("HealthCheckRequest", &[field_descriptor("service", 1, TYPE_STRING)]);
+    let response_msg = message_descriptor("HealthCheckResponse", &[field_descriptor("status", 1, TYPE_INT32)]);
+    let check_method = method_descriptor(
+        "Check",
+        ".grpc.health.v1.HealthCheckRequest",
+        ".grpc.health.v1.HealthCheckResponse",
+        false,
+    );
+    let watch_method = method_descriptor(
+        "Watch",
+        ".grpc.health.v1.HealthCheckRequest",
+        ".grpc.health.v1.HealthCheckResponse",
+        true,
+    );
+    let mut service = BytesMut::new();
+    service.extend_from_slice(&encode_string_field(1, "Health"));
+    service.extend_from_slice(&encode_embedded_message(2, &check_method));
+    service.extend_from_slice(&encode_embedded_message(2, &watch_method));
+
+    let mut file = BytesMut::new();
+    file.extend_from_slice(&encode_string_field(1, "grpc/health/v1/health.proto"));
+    file.extend_from_slice(&encode_string_field(2, "grpc.health.v1"));
+    file.extend_from_slice(&encode_embedded_message(4, &request_msg));
+    file.extend_from_slice(&encode_embedded_message(4, &response_msg));
+    file.extend_from_slice(&encode_embedded_message(6, &service));
+    file.extend_from_slice(&encode_string_field(12, "proto3"));
+    file.freeze()
+}
+
+/// Resolve a `file_containing_symbol` request's symbol name to the
+/// `FileDescriptorProto` bytes of the file that defines it, or `None` if
+/// this server doesn't recognize the symbol (the caller should respond
+/// `NOT_FOUND`, mirroring how `Check`/`Watch` already report `NOT_FOUND`
+/// for a health-check request naming an unknown service).
+fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
+    const HEALTH_SYMBOLS: &[&str] = &[
+        "grpc.health.v1.Health",
+        "grpc.health.v1.Health.Check",
+        "grpc.health.v1.Health.Watch",
+        "grpc.health.v1.HealthCheckRequest",
+        "grpc.health.v1.HealthCheckResponse",
+    ];
+    if HEALTH_SYMBOLS.contains(&symbol) {
+        Some(build_health_file_descriptor_proto())
+    } else {
+        None
+    }
+}
+
+/// Build the `ServerReflectionResponse` bytes for a successful
+/// `file_containing_symbol` request: field 4 (`file_descriptor_response`)
+/// wraps a `FileDescriptorResponse { repeated bytes file_descriptor_proto = 1; }`.
+fn encode_file_descriptor_response(file_descriptor_proto: &[u8]) -> Bytes {
+    let mut fdr = BytesMut::new();
+    fdr.extend_from_slice(&encode_bytes_field(1, file_descriptor_proto));
+    let response = encode_embedded_message(4, &fdr);
     response.freeze()
 }
 
@@ -518,14 +678,18 @@ async fn watch_handler(req: Request) -> Response {
 /// called out. The real spec defines this as a **bidirectional**
 /// streaming RPC (a client can send several requests over one stream --
 /// `list_services`, then `file_containing_symbol`, etc. -- and get a
-/// response for each). This implementation deliberately only handles the
-/// simplest and most common real-world case: exactly one
-/// `list_services` request, answered with exactly one response, then the
-/// stream completes. That's enough for `grpcurl <addr> list` (service
-/// discovery) to work, which is what reflection is used for almost all
-/// of the time in practice; other request kinds
-/// (`file_containing_symbol`, `file_by_filename`, extension queries) are
-/// answered with `UNIMPLEMENTED` rather than silently mishandled.
+/// response for each). This implementation deliberately only handles a
+/// single request per stream (exactly one request, one response, then
+/// the stream completes) rather than the full bidirectional exchange --
+/// but within that constraint, it now answers both `list_services`
+/// (service discovery, e.g. `grpcurl <addr> list`) and
+/// `file_containing_symbol` (schema introspection, e.g.
+/// `grpcurl <addr> describe grpc.health.v1.Health`) for the services this
+/// server actually implements. `file_by_filename` and extension queries
+/// are still answered with `UNIMPLEMENTED` -- no deployment of this
+/// server's `Health` service needs them, and implementing them would mean
+/// hand-rolling a second file-lookup index for no client this codebase
+/// actually exercises.
 async fn reflection_handler(req: Request) -> Response {
     let collected = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
@@ -535,13 +699,24 @@ async fn reflection_handler(req: Request) -> Response {
         Ok(m) => m,
         Err(status) => return grpc_response(status, None),
     };
-    if !request_is_list_services(message) {
-        // A real, recognized-but-unsupported reflection request kind
-        // (file_by_filename, file_containing_symbol, extension queries).
-        return grpc_response(GrpcStatus::Unimplemented, None);
+    if request_is_list_services(message) {
+        let response_bytes = encode_list_services_response(KNOWN_SERVICES);
+        return grpc_streaming_response(GrpcStatus::Ok, &[response_bytes]);
     }
-    let response_bytes = encode_list_services_response(KNOWN_SERVICES);
-    grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
+    if let Some(symbol) = extract_file_containing_symbol(message) {
+        return match resolve_symbol_file_descriptor(&symbol) {
+            Some(file_descriptor_proto) => {
+                let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
+                grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
+            }
+            // Recognized request kind, unknown symbol -- e.g. asking
+            // about a service this server doesn't implement.
+            None => grpc_response(GrpcStatus::NotFound, None),
+        };
+    }
+    // A real, recognized-but-unsupported reflection request kind
+    // (file_by_filename, extension queries).
+    grpc_response(GrpcStatus::Unimplemented, None)
 }
 
 /// Serve the gRPC health-check service over real HTTP/2 (h2c, prior
@@ -942,6 +1117,141 @@ mod tests {
         let resp = client.request(req).await.expect("HTTP/2 request should succeed");
         let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
         assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+    }
+
+    #[test]
+    fn extract_file_containing_symbol_detects_field_4() {
+        // ServerReflectionRequest { file_containing_symbol: "grpc.health.v1.Health" }
+        // -> field 4, tag 0x22, length-delimited string.
+        let symbol = "grpc.health.v1.Health";
+        let mut bytes = vec![0x22, symbol.len() as u8];
+        bytes.extend_from_slice(symbol.as_bytes());
+        assert_eq!(extract_file_containing_symbol(&bytes).as_deref(), Some(symbol));
+    }
+
+    #[test]
+    fn extract_file_containing_symbol_ignores_other_oneof_fields() {
+        // ServerReflectionRequest { list_services: "" } -> field 7, no
+        // file_containing_symbol present.
+        let bytes = [0x3a, 0x00];
+        assert_eq!(extract_file_containing_symbol(&bytes), None);
+    }
+
+    #[test]
+    fn resolve_symbol_file_descriptor_recognizes_health_service_and_its_methods() {
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health").is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check").is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch").is_some());
+        assert!(resolve_symbol_file_descriptor("no.such.Service").is_none());
+    }
+
+    #[test]
+    fn health_file_descriptor_proto_contains_the_real_service_and_method_names() {
+        // Not a full protobuf decode (this module never needs a generic
+        // descriptor.proto decoder), but the same "assert real content
+        // appears in the encoded bytes" technique used for
+        // `encode_list_services_response` above -- proves the hand-rolled
+        // FileDescriptorProto actually carries the service/method/message
+        // names a reflection client would display, not placeholder bytes.
+        let bytes = build_health_file_descriptor_proto();
+        let as_str = String::from_utf8_lossy(&bytes);
+        assert!(as_str.contains("grpc/health/v1/health.proto"));
+        assert!(as_str.contains("grpc.health.v1"));
+        assert!(as_str.contains("Health"));
+        assert!(as_str.contains("Check"));
+        assert!(as_str.contains("Watch"));
+        assert!(as_str.contains("HealthCheckRequest"));
+        assert!(as_str.contains("HealthCheckResponse"));
+    }
+
+    /// End-to-end: `file_containing_symbol` for a symbol this server
+    /// recognizes (`grpc.health.v1.Health`) returns a
+    /// `file_descriptor_response` whose embedded `FileDescriptorProto`
+    /// bytes contain the real service/method names -- proves
+    /// `grpcurl <addr> describe grpc.health.v1.Health` would get a
+    /// genuinely useful answer, not a stub.
+    #[tokio::test]
+    async fn reflection_file_containing_symbol_returns_the_real_descriptor_over_real_http2() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        // ServerReflectionRequest { file_containing_symbol: "grpc.health.v1.Health" } -> field 4.
+        let symbol = "grpc.health.v1.Health";
+        let mut request_message = vec![0x22, symbol.len() as u8];
+        request_message.extend_from_slice(symbol.as_bytes());
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let trailers = collected.trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("0"),
+            "file_containing_symbol for a known symbol should succeed"
+        );
+
+        let body_bytes = collected.to_bytes();
+        let message = decode_grpc_frame(&body_bytes)
+            .expect("reflection response should be a valid gRPC-framed message");
+        let as_str = String::from_utf8_lossy(&message);
+        assert!(as_str.contains("Health"));
+        assert!(as_str.contains("Check"));
+        assert!(as_str.contains("Watch"));
+    }
+
+    /// End-to-end: `file_containing_symbol` for a symbol this server does
+    /// NOT implement must return `NOT_FOUND`, matching how `Check`/`Watch`
+    /// already treat an unknown health-check service name -- a reflection
+    /// client should never be told a nonexistent service's schema exists.
+    #[tokio::test]
+    async fn reflection_file_containing_symbol_returns_not_found_for_unknown_symbol() {
+        use http_body_util::Full;
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        let symbol = "no.such.Service";
+        let mut request_message = vec![0x22, symbol.len() as u8];
+        request_message.extend_from_slice(symbol.as_bytes());
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("5")); // NOT_FOUND
     }
 
     /// End-to-end test of `check_remote_health` -- the "Cosmo Connect"
