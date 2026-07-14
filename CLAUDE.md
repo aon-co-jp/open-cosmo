@@ -309,6 +309,23 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-14 gRPC reflectionの`file_containing_symbol`対応を
+  poem-cosmo-tauriからミラー + 10ヶ国語READMEテスト数再同期**:
+  poem-cosmo-tauri側で新規実装された`grpc.health.v1.Health`用の手書き
+  `FileDescriptorProto`(`extract_file_containing_symbol`・
+  `build_health_file_descriptor_proto`・`resolve_symbol_file_descriptor`・
+  `encode_file_descriptor_response`)を`grpc.rs`ごとそのままコピーして
+  ミラー、`cargo test -p open-runo-router grpc::`で27件全green(修正
+  不要)。`docs/poem-parity.md`も同期。10ヶ国語READMEのテスト数バッジを
+  337/356→343/362に更新(`cargo test --workspace --all-features`が
+  343→362テストに増加したことを確認)。両リポジトリともcommit・push済み
+  (poem-cosmo-tauri`902784f`+`4142559`、open-runo`73f69b2`+`f6e7c53`)。
+  次回パスがすべきこと: 特に緊急の課題は無い。ACME(3チャレンジ型)・
+  MCP Server(Tools/Resources/Prompts)・gRPC(unary/streaming/
+  reflectionのlist_services+file_containing_symbol)はpoem-cosmo-tauriと
+  こちらの両方で同期済み。次に高価値なタスクが必要な場合は
+  `docs/cosmo-parity.md`の残りギャップを検討。
+
 - **2026-07-14 poem-cosmo-tauriから3件ミラー(MCP Prompts・ACME
   TLS-ALPN-01/DNS-01) + `--all-features`ビルド破損の実バグ修正 +
   gRPCストリーミング/reflectionの未ミラーdrift是正 + ドキュメント最終
