@@ -143,16 +143,34 @@ semantics) and were verified there; what remains genuinely unverified
 here is Redis connectivity/the script executing correctly against a real
 server, not the algorithm design.
 
-## Session state: still per-instance (not yet addressed)
+## Session state: shared across instances (2026-07-14)
 
-Session cookies (`open-runo-router::session::SessionStore`) still live in
-each process's own memory — a client's session is only valid against the
-instance that issued it, so a load balancer without session affinity
-(sticky sessions) will intermittently 401 a logged-in client. Unlike rate
-limiting (where "per-instance" degrades gracefully to a looser bound),
-session loss is a harder failure mode for the client. Moving session
-state to a shared store (Redis, matching the rate limiter's pattern) is
-future work; in the meantime, either configure load-balancer session
-affinity (`ip_hash` in nginx, cookie-based affinity in most LBs) or avoid
-Cookie/session auth in multi-instance deployments (the `X-Api-Key` path
-remains stateless and unaffected either way).
+**Resolved.** Session cookies used to live in each process's own memory
+— a client's session was only valid against the instance that issued it,
+so a load balancer without session affinity would intermittently 401 a
+logged-in client.
+
+`session::SessionBackend` is now a trait implemented by both the
+original in-process `SessionStore` (default, `AppState::new()`) and
+`session::redis_backend::RedisSessionStore` (`redis-session` Cargo
+feature): connect it yourself (an async operation) and attach it via
+`AppState::with_sessions(...)` before wrapping the state in an `Arc` for
+`build_hyper_app`. Session data is JSON-encoded and stored with Redis's
+own `EX` TTL doing the expiry work the in-process store's lazy-eviction
+check otherwise does.
+
+Unlike the rate limiter (which connects and falls back automatically
+inside `build_hyper_app`), wiring `RedisSessionStore` in is a manual
+step at the call site — `AppState` construction itself stays fully
+synchronous so the ~150 existing `#[tokio::test]`s that call
+`AppState::new()` don't need to change.
+
+**Honest verification limit**: same as the rate limiter — no
+`redis-server`/Docker in this sandbox, so
+`a_session_created_via_one_store_is_readable_via_a_second_independent_store`
+(`open-runo-router`) is `#[ignore]`d; run it explicitly with
+`cargo test -p open-runo-router --features redis-session -- --ignored
+--nocapture`. As an alternative to Redis-backed sessions, load-balancer
+session affinity (`ip_hash` in nginx, cookie-based affinity in most LBs)
+remains a valid option; the `X-Api-Key` auth path is stateless and
+unaffected either way.
