@@ -363,6 +363,19 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-15 コードヘルス監査(6リポジトリ横断)— audit only, no changes**:
+  `cargo build --workspace`/`cargo test --workspace`を実行し、警告3件
+  (`hyper_compat.rs`の`missing_debug_implementations`、既存の既知警告)
+  のみでビルド成功・全343テストgreen(failed 0)を確認。`git status`は
+  クリーン、修正すべき壊れたビルド・失敗テスト・小規模な欠落は見つから
+  なかったため、コード変更は行っていない。**気づいた点(修正はしていない、
+  次回検討候補)**: このリポジトリのCLAUDE.mdは「Tauri・Poem・WunderGraph
+  Cosmoを外部パッケージとして直接依存させない」方針を明記しているが、
+  実際には`cargo build`のコンパイル出力に`poem`/`async-graphql-poem`
+  クレートが含まれている(依存グラフ上に存在)——ドキュメントの方針と
+  実際の依存関係の間に drift がある可能性があるため、次回パスで
+  `cargo tree`等による依存関係の実態確認を推奨する。
+
 - **2026-07-14 RJSON Phase 2 着手をpoem-cosmo-tauriからミラー(サーバー側
   部分抽出のコア実装完了) — ユーザー指示により本日はここで停止・
   ドキュメント整理してpush**: poem-cosmo-tauri側で実装・テスト済みの
