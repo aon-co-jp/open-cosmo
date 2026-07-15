@@ -21,6 +21,7 @@ open-runo-cache            = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 open-runo-observability     = { workspace = true }
+open-runo-view              = { workspace = true }
 tracing = { workspace = true }
 poem = { workspace = true }
 tokio = { workspace = true }

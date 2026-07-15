@@ -1084,3 +1084,31 @@ production best practice"、"tokio async server 複数プロセス
   修正: (1) web-sys 0.3.69で`Event`/`EventTarget`featureが未有効だった、
   (2) `JsCast`の重複import。wasm32ターゲット自体はsandboxに無く実機
   (ブラウザ)検証は未実施 — PC側で要確認。
+
+## HANDOFF追記(2026-07-15 第4弾) — Poem gateway SSR統合(§0.9.3 Phase 3)
+
+- 新モジュール `crates/open-runo-gateway/src/ssr.rs`: `open-runo-view::ssr::
+  render_page`をPoemハンドラで`text/html`として返す薄い統合層。
+  `GET /ssr/status`が`status_panel`(open-easyweb `view_bridge`と同一定義、
+  §0.5ミラー契約——状態のJSON形状のみ共有し、コンポーネント本体は
+  wasm32専用crateとネイティブPoemサーバで複製)をSSRし、
+  `window.__OPEN_RUNO_STATE__`にhydration用JSONを埋め込み、
+  open-easywebのwasmバンドルを読み込むscriptタグを出力する。
+  `ssr_route()`を`Route::new().nest("/ssr", ssr::ssr_route())`で
+  バイナリ側に組み込む想定。
+  `open-runo-gateway`のCargo.tomlに`open-runo-view`を依存追加。
+- **検証方法・既知の限界**: sandbox cargo 1.75は本crate単体でも
+  `async-graphql-poem`(edition2024要求)でビルド不可という既存制約に加え、
+  poem単体を切り出した独立チェックでもpoem 2.x/3.x双方の推移依存
+  (`indexmap`最新版)がedition2024を要求し**取得ロックファイル生成の
+  時点で**失敗するため、sandboxでは一切コンパイル検証できなかった
+  (workspace全体はもちろん最小限の独立crateとしても不可——従来の
+  「workspace lockfileが作れない」制約が今回は依存取得そのものに
+  まで及んでいる新事実)。
+  ソースコードは (a) 同crate内の既存`graphiql`ハンドラ・
+  `graphql_route`のパターンを踏襲、(b) `poem::test::TestClient`の使用は
+  同ファイル内`tests`モジュールの既存テスト(`health_field_resolves`)の
+  実績あるAPIパターンを参考にしたが、`resp.0.into_body().into_string()`
+  部分は類似実装からの類推であり**未コンパイル検証**。
+  **PC側で`cargo test -p open-runo-gateway ssr::`を最初に実行し、
+  API不一致があれば修正すること**(正直な開示)。

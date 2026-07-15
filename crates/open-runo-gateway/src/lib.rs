@@ -15,6 +15,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 pub mod graphql_hyper;
+pub mod ssr;
 
 use async_graphql::{Context, Object, Schema, SimpleObject, Subscription};
 use async_graphql_poem::{GraphQLRequest, GraphQLResponse};
