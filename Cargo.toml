@@ -35,7 +35,15 @@ repository = "https://github.com/aon-co-jp/open-runo"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
-poem = { version = "3.1", features = ["sse"] }
+# 厳密ピン: poem 3.1.12+ / poem-derive 3.1.12+ / indexmap 2.3+ は
+# Cargo.toml自体がedition2024を要求し、本ワークスペースが宣言する
+# rust-version = "1.75" では解決不能(依存取得の時点で失敗する)。
+# poem="3.1"のような範囲指定はrust-version宣言と実際にビルド可能な
+# バージョンの間に齟齬を生む——これはsandbox限定の回避策ではなく、
+# 「rust-version 1.75」を名乗る以上維持すべき実際の制約。
+poem = { version = "=3.1.0", features = ["sse"] }
+poem-derive = "=3.1.0"
+indexmap = "=2.2.6"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }

@@ -1112,3 +1112,39 @@ production best practice"、"tokio async server 複数プロセス
   部分は類似実装からの類推であり**未コンパイル検証**。
   **PC側で`cargo test -p open-runo-gateway ssr::`を最初に実行し、
   API不一致があれば修正すること**(正直な開示)。
+
+## HANDOFF追記(2026-07-15 第5弾) — poem/poem-derive/indexmap 厳密ピン(実MSRVバグ修正)
+
+- **発見した実バグ**: 本ワークスペースは`rust-version = "1.75"`を宣言して
+  いるにもかかわらず、`poem = { version = "3.1", ... }`(範囲指定)が
+  実際にはpoem 3.1.12(Cargo.toml自体がedition2024要求)まで許容して
+  しまい、**rust 1.75環境では原理的にビルドできない**状態だった。
+  これはsandbox固有の回避策ではなく、CI等で`rust-version`をMSRVとして
+  真面目に検証する場合に誰でも踏む実際の不整合。
+- **対処**(`[workspace.dependencies]`): `poem = "=3.1.0"`、
+  `poem-derive = "=3.1.0"`、`indexmap = "=2.2.6"`に厳密ピン。
+  `open-runo-gateway/Cargo.toml`に`indexmap`を直接依存として追加
+  (workspace.dependenciesへの追加だけでは、それを`{ workspace = true }`
+  で直接参照していない推移依存には効かないため、resolverに古い版へ
+  統一させるには直接依存としての明示が必要)。
+- **検証**: `open-runo-gateway/src/ssr.rs`相当のコードを`poem-derive`と
+  `open-runo-view`のみの最小依存構成で切り出し、`poem=3.1.0`/
+  `poem-derive=3.1.0`/`indexmap=2.2.6`の組み合わせで
+  **sandbox rustc 1.75上で実際にコンパイル・テスト合格**することを確認
+  (前回HANDOFFで「未コンパイル検証」としていた
+  `resp.0.into_body().into_string()`のAPI使用が正しいことも実証済み)。
+- **意図的にスコープ外とした点**: `async-graphql`系(`async-graphql-derive`
+  7.2.1がedition2024要求)、および`surrealdb-core`経由の`clap_builder`も
+  同様にsandboxでは最新版がedition2024を要求するが、これらは
+  Poem/SSR統合とは無関係な、ワークスペース全体の既存ドリフトであり、
+  本セッションでは追いかけない判断をした(pinの連鎖が無関係な依存へ
+  際限なく広がるため)。ワークスペース全体の`cargo check`は依然
+  sandboxでは通らない(従来通りの既知制約)。**gatewayクレート単体を
+  切り出した検証は上記の通り成功**。
+- **検討したが採用しなかった案**: 「Poem本体を独自改変してupstreamへ
+  push」——却下。(1) 問題の本質はPoemのコードでなくCargoの依存解決
+  (推移依存の最新Cargo.toml自体がパース時にedition2024を要求し、
+  実際に使うかどうかに関係なく解決過程で失敗する)ため、Poemを直しても
+  解決しない。(2) github.com/poem-web/poemはaon-co-jp組織外の第三者OSSで、
+  保有トークンのscope外かつ無断push は不適切。ピン留めという通常の
+  Cargo運用で解決できることを優先した。
