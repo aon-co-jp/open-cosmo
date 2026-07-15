@@ -5,4 +5,12 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "React-compatible declarative view layer, reimplemented from scratch in Rust (the 'second React'): VNode tree, component model, keyed diffing, and HTML/SSR rendering. wasm32-ready core with no DOM dependency in Phase 1."
 
+[features]
+default = []
+# ブラウザDOMアプライヤ(wasm32実行用)。native/SSRのみの利用では不要。
+dom = ["dep:wasm-bindgen", "dep:web-sys"]
+
 [dependencies]
+# sandbox toolchain (rustc 1.75) 互換のため厳密ピン。PC側で引き上げ可。
+wasm-bindgen = { version = "=0.2.92", optional = true }
+web-sys = { version = "=0.3.69", optional = true, features = ["Document", "Element", "Node", "Text", "Window"] }

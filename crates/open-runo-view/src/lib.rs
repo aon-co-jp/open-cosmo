@@ -12,6 +12,9 @@
 //! `no-DOM` 設計なので native でも wasm32 でもビルド・テストできる。
 
 pub mod hooks;
+pub mod ssr;
+#[cfg(feature = "dom")]
+pub mod dom;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
