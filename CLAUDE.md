@@ -1010,3 +1010,26 @@ production best practice"、"tokio async server 複数プロセス
   次回パスへの引き継ぎ: 特に緊急の課題は残っていない。次点候補は
   `docs/HANDOFF.md` の「次セッション候補」(Google Drive API 直接統合、
   FederatedBackend の TOML 設定化など)。
+## HANDOFF追記(2026-07-15) — §0.9「第二のApache/Tomcat/React」着手
+
+- `docs/HYBRID_NETWORK_ARCHITECTURE.md` を **v1.0** に格上げ(§0.9新設:
+  ポジショニング宣言と段階的ロードマップ。全6リポジトリに同一コピー配布、
+  open-easyweb をscope追加)。
+- 新クレート2つを追加し open-runo へ§0.5規則でミラー:
+  - `crates/open-runo-appserver`(第二のTomcat骨格): `RuntimeProfile`
+    (Rust+Poem/Python+FastAPI/PHP+Laravel/Ruby+Rails/Dart+Flutter雛形)、
+    `Supervisor`(poll型tick、crash-loop指数backoff+give-up)、
+    `Dispatcher` trait + `StaticDispatcher`(Host→upstream解決)。
+  - `crates/open-runo-view`(第二のReact Phase 1): `VNode`/`h()`ビルダ、
+    関数`Component<P>`、keyed reconciliation付き`diff()`→`Patch`列、
+    SSR `render_html()`(エスケープ・void要素対応)。
+    テストは「パッチ適用で旧→新ツリー一致」を機械検証。
+- **検証方法**: sandbox cargo 1.75(edition2024制約)のため独立クレートとして
+  `cargo test` 実施 — appserver 5/5、view 7/7 合格。workspace全体ビルドは
+  PC側で `cargo build` にて要確認。
+- 検証中に実バグを1件検出・修正: Supervisorのcrash時failureカウントが
+  常に1にリセットされgive-upに到達しない問題 → `Running`状態に
+  `prior_failures` を保持する方式に修正済み。
+- **次ステップ(§0.9.3)**: view Phase 2(hooks相当+DOMアプライヤをopen-easyweb
+  のwasm-bindgen側へ)、appserverのpoem統合Dispatcher、open-web-server
+  TenantRegistry→StaticDispatcherアダプタ。

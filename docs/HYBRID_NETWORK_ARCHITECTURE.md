@@ -1,9 +1,9 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** Draft v0.9 (2026-07-12) — §0.5 updated with the exact user-confirmed phrasing for the Poem/Tauri reproduction mission (including in-browser execution); fixed stale one-directional lead/mirror claims in open-runo/poem-cosmo-tauri READMEs (JP+EN); left-aligned the docs-links lists in open-runo/poem-cosmo-tauri READMEs (JP+EN, were a flowing middot-separated paragraph); merged with §0.8 next-session directive, §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** v1.0 (2026-07-15) — §0.9 added: 第二のApache/Tomcat/React positioning declaration and phased roadmap (universal runtime host + React-compatible view layer); scope extended to open-easyweb. Previous: Draft v0.9 (2026-07-12) — §0.5 updated with the exact user-confirmed phrasing for the Poem/Tauri reproduction mission (including in-browser execution); fixed stale one-directional lead/mirror claims in open-runo/poem-cosmo-tauri READMEs (JP+EN); left-aligned the docs-links lists in open-runo/poem-cosmo-tauri READMEs (JP+EN, were a flowing middot-separated paragraph); merged with §0.8 next-session directive, §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 
 **Tooling honesty note:** this session has no general web-search tool (only `github.com`/`crates.io`/`npmjs.com`-class dev-infra domains are network-reachable). Requests to "Google search in Japanese and English, check GitHub, read blogs/SNS/X, confirm official doc URLs" for unresearched/unverified topics could not be executed literally in this session. Where verification was possible, it was done by reading this repo family's own source code directly (which caught several real stale-doc bugs — see §0.6) rather than external research. §0.8's directive to research before implementing the 4-layer transport stack stands for whichever future session has web-search available; if this constraint hasn't changed, say so explicitly rather than fabricating research findings.
-**Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `aruaru-db`, `open-raid-z`
+**Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `open-easyweb`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
 
@@ -219,6 +219,61 @@ toolchain/CI before treating any of this as fully closed.
    `docs/i18n/hybrid-network/`一式)を最新の実装内容に合わせて更新し、
    関連リポジトリ全て(`open-web-server`・`open-runo`・`poem-cosmo-tauri`・
    `aruaru-db`・`open-raid-z`)へ読み書き・統合・pushすること。
+
+
+## 0.9 v1.0 ポジショニング宣言 — 「第二のApache」「第二のTomcat」「第二のReact」(2026-07-15 ユーザー指示)
+
+本節はユーザーの明示指示により追加された、エコシステム全体の対外的・対内的な
+ポジショニング定義であり、§0の使命(ゼロデータロス)の上位互換の物語である。
+§0を置き換えるものではなく、§0を達成した上で目指す完成形を示す。
+
+### 0.9.1 役割対応表
+
+| 既存世界の役割 | 本エコシステムでの担当 | 意味 |
+|---|---|---|
+| **第二のApache** (HTTPサーバ/リバースプロキシ/vhost) | `open-web-server` (+ 管理UIとして `open-easyweb`) | TenantRegistryマルチドメインルーティング + app_proxy。静的配信・TLS・vhost・テナント分離を担う入口層 |
+| **第二のTomcat** (アプリケーションコンテナ) | `open-runo` / `poem-cosmo-tauri` | ただし**Javaに限定しない汎用ランタイムホスト**。§0.9.2の言語×フレームワーク行列を第一級サポート |
+| **第二のReact** (UIコンポーネント/宣言的ビュー) | `open-runo` / `poem-cosmo-tauri` 内に新設するビュー層クレート | Reactの機能を**完全互換で一から** Rust+Poem 系技術で再実装・完全移植する(§0.5のPoem+Tauri完全互換再現ミッションの一部として遂行) |
+
+### 0.9.2 汎用ランタイムホストの対応行列(第二のTomcat)
+
+「ほとんどの有名言語+フレームワークに汎用対応」の具体定義。優先実装順:
+
+1. **Rust + Poem** (native、最優先。自エコシステムの中心技術)
+2. **Python + FastAPI** (uvicorn/ASGIプロセス管理 + reverse dispatch)
+3. **PHP + Laravel** (PHP-FPM連携 — `open-easyweb-server`が既にPHP-FPM自動設定を持つため知見を共有)
+4. **Ruby + Ruby on Rails** (Puma/Rackプロセス管理)
+5. **Dart + Flutter** (Flutter Web静的ビルド配信 + Dartサーバプロセス)
+6. 以降、Node.js等は同一のプロセス管理抽象(§0.9.3)の追加プロファイルとして拡張
+
+### 0.9.3 実装アーキテクチャ(段階的、§0.8の方針を踏襲)
+
+- **appserverクレート**(`open-runo-appserver`、姉妹リポジトリ間で§0.5同期規則に従いミラー):
+  - `RuntimeProfile` — 言語×フレームワークごとの起動コマンド・ヘルスチェック・
+    環境変数・ポート割当を宣言的に定義
+  - `ProcessSupervisor` — 子プロセスのspawn/監視/再起動(crash-loop backoff付き)
+  - `Dispatcher` — open-web-server の app_proxy から受けたリクエストを
+    プロファイルに応じて upstream へ中継(将来は4層トランスポート§1に載せる)
+- **view層クレート**(第二のReact、名称 `open-runo-view` 予定):
+  - Phase 1: VDOM + 宣言的コンポーネントモデル + イベントハンドラ(Rust、wasm32ターゲット)
+  - Phase 2: hooks相当(state/effect)、差分レンダラ
+  - Phase 3: SSR(Poemハンドラ統合)+ hydration
+  - `open-easyweb`(wasm-bindgen既採用)を最初の実戦投入先とする
+- **DUAL DATABASE**: aruaru-db ⇔ PostgreSQL の二重書き込みは §0.8「四重化」の
+  ①②として既定義。本ポジショニングでは変更なし。
+- **VersionlessAPI / Git管理 / open-raid-z ACID+ZFS互換**: 既存クレート
+  (`open-runo-versionless-api`、`open-runo-history`、open-raid-zチェックサム層)を
+  そのまま土台とし、重複実装しない。
+
+### 0.9.4 拘束条件(変更なし・再確認)
+
+- §0のゼロデータロス保証(課金アイテム・金融・証券・不動産・クレジットカード)を
+  損なう最適化は不可。
+- §0.5の同期規則: 共有クレートは open-runo ⇔ poem-cosmo-tauri でミラーする。
+  poem-cosmo-tauri のミッション(Poem+ブラウザ内実行機能搭載Tauriの完全互換再現)は
+  open-runo より大きく、規模を理由に作業を先送りしない。
+- 日英二言語での事前リサーチ規則は、web検索可能なセッションで実施すること
+  (本セッションはdev-infraドメインのみ到達可能)。
 
 ## 1. Goal (目指すもの)
 

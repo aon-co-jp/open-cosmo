@@ -6,6 +6,8 @@ members = [
     "crates/open-runo-schema-registry",
     "crates/open-runo-ai-routing",
     "crates/open-runo-versionless-api",
+    "crates/open-runo-appserver",
+    "crates/open-runo-view",
     "crates/open-runo-db",
     "crates/open-runo-backup",
     "crates/open-runo-history",
@@ -72,6 +74,8 @@ open-runo-federation = { path = "crates/open-runo-federation" }
 open-runo-schema-registry = { path = "crates/open-runo-schema-registry" }
 open-runo-ai-routing = { path = "crates/open-runo-ai-routing" }
 open-runo-versionless-api = { path = "crates/open-runo-versionless-api" }
+open-runo-appserver = { path = "crates/open-runo-appserver" }
+open-runo-view = { path = "crates/open-runo-view" }
 open-runo-db = { path = "crates/open-runo-db" }
 open-runo-backup = { path = "crates/open-runo-backup" }
 open-runo-history = { path = "crates/open-runo-history" }

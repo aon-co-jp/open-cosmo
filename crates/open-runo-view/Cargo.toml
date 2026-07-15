@@ -1,0 +1,8 @@
+[package]
+name = "open-runo-view"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "React-compatible declarative view layer, reimplemented from scratch in Rust (the 'second React'): VNode tree, component model, keyed diffing, and HTML/SSR rendering. wasm32-ready core with no DOM dependency in Phase 1."
+
+[dependencies]

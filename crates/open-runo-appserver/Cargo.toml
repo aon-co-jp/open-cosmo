@@ -1,0 +1,10 @@
+[package]
+name = "open-runo-appserver"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Universal application-server runtime host (the 'second Tomcat', not limited to Java): declarative RuntimeProfile for Rust+Poem / Python+FastAPI / PHP+Laravel / Ruby+Rails / Dart+Flutter, with ProcessSupervisor and Dispatcher abstractions"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
