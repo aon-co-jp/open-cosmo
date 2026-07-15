@@ -11,6 +11,8 @@
 //! 消費するアプライヤとして `open-easyweb` 側に実装する。本クレート自体は
 //! `no-DOM` 設計なので native でも wasm32 でもビルド・テストできる。
 
+pub mod hooks;
+
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::rc::Rc;

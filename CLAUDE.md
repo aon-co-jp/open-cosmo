@@ -1033,3 +1033,27 @@ production best practice"、"tokio async server 複数プロセス
 - **次ステップ(§0.9.3)**: view Phase 2(hooks相当+DOMアプライヤをopen-easyweb
   のwasm-bindgen側へ)、appserverのpoem統合Dispatcher、open-web-server
   TenantRegistry→StaticDispatcherアダプタ。
+
+## HANDOFF追記(2026-07-15 第2弾) — Phase 2完了(hooks / HTTP転送 / マルチスレッドサーバ)
+
+- **open-runo-view Phase 2**(`src/hooks.rs`): `Ctx::use_state`(型付きスロット+
+  `Setter`のset/update)、`Ctx::use_effect`(depsハッシュ変化時のみ実行)、
+  `Runtime<P>`(rerender→最小Patch列。2回目レンダリングがSetText 1件になる
+  ことをテストで保証)。Reactと異なり暗黙グローバルでなく明示`Ctx`ハンドル方式
+  (フック順序ルール自体はReact互換)。テスト10/10。
+- **open-runo-appserver Phase 2**:
+  - `src/proxy.rs`: std::netのみのHTTP/1.1転送 `proxy_once`(Host書き換え、
+    X-Forwarded-Host/For付与、Content-Lengthボディ中継、Connection: close強制)。
+    セキュリティ上限: ヘッダ16KiB/ボディ16MiB(超過は`ProxyError::TooLarge`)。
+  - `src/server.rs`: `ThreadedProxyServer` — 固定ワーカースレッドプール
+    (既定=論理CPU数)でproxy_onceを並列実行。**マルチCPU/マルチコア要件の
+    直接実装**。キュー満杯時は黙殺せず503応答+統計カウント(§0監査性)。
+    16並列クライアントの実ソケット統合テストで検証(3回連続グリーン)。
+  - `src/tenant_bridge.rs`: open-web-server `TenantRegistry`との型非依存
+    ブリッジ — `(host, backend_addr)`ペア列→`TenantDispatcher`(不変・
+    ロック不要=読み取りスケール)。解析不能エントリは拒否リストで報告。
+  - テスト10/10。flake 2件をテスト側で修正(時間ベース化・統計収束待ち)。
+- **PC側の配線タスク**: open-web-serverのapp_proxy/tenant_routerから
+  `dispatcher_from_tenants(registry.list()由来のペア列)`を呼ぶアダプタを
+  gateway側に追加(クロスリポジトリ依存はCargo git依存 or パス依存を選択)。
+  view Phase 3 = DOMアプライヤ(open-easyweb wasm-bindgen側)+SSR poem統合。

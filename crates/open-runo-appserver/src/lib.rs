@@ -10,6 +10,10 @@
 //! Phase 1 は同期 `std::process` ベース。Poem/4層トランスポート統合は
 //! 後続フェーズで `Dispatcher` 実装として追加する(§0.9.3)。
 
+pub mod proxy;
+pub mod server;
+pub mod tenant_bridge;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
@@ -310,13 +314,17 @@ impl StaticDispatcher {
         Self::default()
     }
     pub fn register(&mut self, host: &str, profile: &RuntimeProfile) {
-        self.routes.insert(
-            host.to_ascii_lowercase(),
+        self.register_addr(
+            host,
             UpstreamAddr {
                 host: "127.0.0.1".into(),
                 port: profile.port,
             },
         );
+    }
+    /// 任意の upstream アドレスを直接登録する(tenant_bridge 用)。
+    pub fn register_addr(&mut self, host: &str, addr: UpstreamAddr) {
+        self.routes.insert(host.to_ascii_lowercase(), addr);
     }
 }
 
@@ -372,14 +380,15 @@ mod tests {
             },
         );
         let mut saw_gave_up = false;
-        for _ in 0..200 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
             match sup.tick() {
                 Health::GaveUp => {
                     saw_gave_up = true;
                     break;
                 }
-                Health::BackingOff => std::thread::sleep(Duration::from_millis(2)),
-                _ => {}
+                // 即死プロセスの exit 待ちで tick を浪費しないよう毎回少し待つ。
+                _ => std::thread::sleep(Duration::from_millis(2)),
             }
         }
         assert!(saw_gave_up, "crash-looping process must eventually give up");
