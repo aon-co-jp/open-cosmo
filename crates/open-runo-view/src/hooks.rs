@@ -24,6 +24,11 @@ struct HookStore {
     slots: Vec<Slot>,
     effect_deps: Vec<Option<u64>>,
     dirty: Rc<RefCell<bool>>,
+    /// Phase 4: `use_handler` で登録されたクロージャ。スロット位置がそのまま
+    /// 安定した `handler_id` になる(同じ呼び出し位置なら毎レンダリングで
+    /// 同じID — Reactの `useCallback` 未使用時の再バインドと同様、実体は
+    /// 毎回最新のクロージャに差し替わる)。
+    handlers: Vec<Rc<dyn Fn()>>,
 }
 
 /// レンダリング1回分のフックコンテキスト。
@@ -31,6 +36,7 @@ pub struct Ctx<'a> {
     store: &'a mut HookStore,
     cursor: usize,
     effect_cursor: usize,
+    handler_cursor: usize,
     /// 今回のレンダリング後に走らせるeffect。
     pending_effects: Vec<Box<dyn FnOnce()>>,
 }
@@ -114,6 +120,22 @@ impl<'a> Ctx<'a> {
             self.pending_effects.push(Box::new(f));
         }
     }
+
+    /// 宣言的イベントハンドラを登録し、安定した `handler_id` を返す(Phase 4)。
+    /// `VElement::on("click", id)` に渡す。呼び出し位置(フック順序)が
+    /// IDの安定性を保証する — 毎レンダリング同じ順序で呼ぶこと。
+    /// クロージャの実体は毎レンダリング最新のものに差し替わるため、
+    /// 直前レンダリングでキャプチャした値(state等)を安全に使える。
+    pub fn use_handler(&mut self, f: impl Fn() + 'static) -> u64 {
+        let idx = self.handler_cursor;
+        self.handler_cursor += 1;
+        if idx == self.store.handlers.len() {
+            self.store.handlers.push(Rc::new(f));
+        } else {
+            self.store.handlers[idx] = Rc::new(f);
+        }
+        idx as u64
+    }
 }
 
 /// deps ハッシュの補助(`use_effect(Some(deps_hash(&(a, b))), ..)`)。
@@ -154,6 +176,7 @@ impl<P> Runtime<P> {
             store: &mut self.store,
             cursor: 0,
             effect_cursor: 0,
+            handler_cursor: 0,
             pending_effects: vec![],
         };
         let new = (self.component)(&mut ctx, props);
@@ -176,12 +199,78 @@ impl<P> Runtime<P> {
     pub fn tree(&self) -> Option<&VNode> {
         self.last.as_ref()
     }
+
+    /// `handler_id`(`Ctx::use_handler` が返したID)に対応するハンドラを呼ぶ
+    /// (Phase 4)。DOM委譲リスナーやテストからのイベント注入から呼ばれる。
+    /// ハンドラ実行が `Setter` を呼べば `is_dirty()` が真になるので、
+    /// 呼び出し側は続けて `rerender` → `apply` する。
+    pub fn dispatch(&self, handler_id: u64) {
+        if let Some(h) = self.store.handlers.get(handler_id as usize) {
+            let h = h.clone();
+            h();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{h, render_html};
+
+    #[test]
+    fn button_click_handler_updates_state_via_dispatch() {
+        // ボタンに onClick で increment ハンドラを宣言的にバインドし、
+        // Runtime::dispatch(id) 経由で「クリックが起きた」ことをシミュレートする。
+        let comp = |ctx: &mut Ctx, _p: &()| {
+            let (n, set_n) = ctx.use_state(|| 0i32);
+            let on_click = ctx.use_handler(move || set_n.update(|v| v + 1));
+            h("button")
+                .on("click", on_click)
+                .child(format!("count={n}"))
+                .build()
+        };
+        let mut rt = Runtime::new(comp);
+        rt.rerender(&());
+        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=0</button>");
+
+        // クリックをシミュレート
+        rt.dispatch(0);
+        assert!(rt.is_dirty());
+        rt.rerender(&());
+        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=1</button>");
+
+        rt.dispatch(0);
+        rt.rerender(&());
+        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=2</button>");
+    }
+
+    #[test]
+    fn handler_id_is_stable_across_renders_at_same_call_site() {
+        let comp = |ctx: &mut Ctx, _p: &()| {
+            let (_n, set_n) = ctx.use_state(|| 0i32);
+            let id = ctx.use_handler(move || set_n.set(1));
+            h("i").attr("data-id", &id.to_string()).build()
+        };
+        let mut rt = Runtime::new(comp);
+        rt.rerender(&());
+        let first = match rt.tree().unwrap() {
+            VNode::Element(e) => e.attrs.iter().find(|(k, _)| k == "data-id").unwrap().1.clone(),
+            _ => unreachable!(),
+        };
+        rt.rerender(&());
+        let second = match rt.tree().unwrap() {
+            VNode::Element(e) => e.attrs.iter().find(|(k, _)| k == "data-id").unwrap().1.clone(),
+            _ => unreachable!(),
+        };
+        assert_eq!(first, second, "handler_id must stay stable across renders");
+    }
+
+    #[test]
+    fn dispatch_on_unknown_id_is_a_harmless_noop() {
+        let comp = |_ctx: &mut Ctx, _p: &()| h("div").build();
+        let rt = Runtime::new(comp);
+        rt.dispatch(999); // マウント前・未登録IDでもpanicしない
+    }
 
     #[test]
     fn counter_component_rerenders_with_state() {

@@ -1057,3 +1057,30 @@ production best practice"、"tokio async server 複数プロセス
   `dispatcher_from_tenants(registry.list()由来のペア列)`を呼ぶアダプタを
   gateway側に追加(クロスリポジトリ依存はCargo git依存 or パス依存を選択)。
   view Phase 3 = DOMアプライヤ(open-easyweb wasm-bindgen側)+SSR poem統合。
+
+## HANDOFF追記(2026-07-15 第3弾) — view Phase 4(宣言的イベントバインド)完了
+
+- **`VElement::events: Vec<(String, u64)>`** + `.on(event, handler_id)` builder。
+  `diff()`が属性と同様に`SetHandler`/`RemoveHandler`パッチを生成(追加/変更/削除
+  を検知するテスト付き)。
+- **`hooks.rs::Ctx::use_handler(f)`**: 呼び出し位置(フック順序)に基づく
+  安定`handler_id`を発行。`Runtime::dispatch(id)`でハンドラを起動
+  (`Setter`経由で状態更新→`is_dirty()`→呼び出し側が`rerender`)。
+  「handler_idはレンダリングを跨いで安定」「未登録IDのdispatchは無害な
+  no-op」をテストで保証。テスト計17件(native、`--features dom`なし)。
+- **`dom.rs`**: `DomMount::attach_with_dispatch(root_id, dispatch_fn)` —
+  `DELEGATED_EVENTS`(click/input/change/submit)それぞれにルート1つの
+  委譲リスナーを設置(Reactの合成イベント方式と同じ設計)。
+  `event.target()`から祖先方向に`data-orv-<event>`属性を探索して
+  `handler_id`を特定 → 呼び出し元の`dispatch_fn(id, event)`へ委譲。
+  `Closure`はDomMountが保持し続ける(dropで失効するため)。
+- **SSRにも`data-orv-<event>`属性を出力**するよう`render_into`を修正
+  (hydration後に委譲リスナーが属性を発見できるようにするため必須。
+  検証中に「SSR出力にイベント属性が漏れていた」実バグとして発見・修正)。
+- **検証**: nativeテスト17/17(sandbox cargo 1.75)。`--features dom`は
+  wasm-bindgen/web-sys を`=0.2.92`/`=0.3.69`に一時ピンしてローカル検証のみ
+  `cargo check`成功を確認(コミットはピン無し版、open-easyweb側の既存API
+  要求と衝突しないようレンジ指定`>=`のまま)。検証中に**実バグ2件**発見・
+  修正: (1) web-sys 0.3.69で`Event`/`EventTarget`featureが未有効だった、
+  (2) `JsCast`の重複import。wasm32ターゲット自体はsandboxに無く実機
+  (ブラウザ)検証は未実施 — PC側で要確認。

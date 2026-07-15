@@ -30,18 +30,26 @@ pub enum VNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct VElement {
     pub tag: String,
-    /// 属性(class, id, href, ...)。イベントはPhase 2でハンドラIDとして拡張。
+    /// 属性(class, id, href, ...)。
     pub attrs: Vec<(String, String)>,
+    /// 宣言的イベントバインド(Phase 4)。(イベント名, ハンドラID)の組。
+    /// ハンドラの実体は [`hooks::Ctx::use_handler`] が発行し `Runtime` が保持する。
+    /// VNode自体はハンドラの中身を知らない(IDのみを運ぶ)。
+    pub events: Vec<(String, u64)>,
     /// 兄弟間の同一性判定に使うkey(Reactの`key`と同義)。
     pub key: Option<String>,
     pub children: Vec<VNode>,
 }
+
+/// サポートするイベント名の定数(委譲リスナーを張る対象、dom.rs と共有)。
+pub const DELEGATED_EVENTS: &[&str] = &["click", "input", "change", "submit"];
 
 /// 要素を作る補助(ReactのcreateElement / JSX相当のビルダ)。
 pub fn h(tag: &str) -> VElement {
     VElement {
         tag: tag.to_string(),
         attrs: vec![],
+        events: vec![],
         key: None,
         children: vec![],
     }
@@ -50,6 +58,13 @@ pub fn h(tag: &str) -> VElement {
 impl VElement {
     pub fn attr(mut self, k: &str, v: &str) -> Self {
         self.attrs.push((k.to_string(), v.to_string()));
+        self
+    }
+    /// 宣言的イベントバインド(Phase 4)。`handler_id` は
+    /// [`hooks::Ctx::use_handler`] の戻り値を渡す。
+    /// 例: `h("button").on("click", on_click_id).child("送信").build()`
+    pub fn on(mut self, event: &str, handler_id: u64) -> Self {
+        self.events.push((event.to_string(), handler_id));
         self
     }
     pub fn key(mut self, k: &str) -> Self {
@@ -114,6 +129,10 @@ pub enum Patch {
     RemoveChild { path: Path, index: usize },
     /// 親 path 内で from → to へ子を移動(keyed reorder)。
     MoveChild { path: Path, from: usize, to: usize },
+    /// イベントハンドラの追加・差し替え(Phase 4)。
+    SetHandler { path: Path, event: String, handler_id: u64 },
+    /// イベントハンドラの解除(Phase 4)。
+    RemoveHandler { path: Path, event: String },
 }
 
 /// 旧ツリーと新ツリーの keyed 差分を計算する(Reactのreconciliation相当)。
@@ -135,6 +154,7 @@ fn diff_node(old: &VNode, new: &VNode, path: &mut Path, out: &mut Vec<Patch>) {
         }
         (VNode::Element(a), VNode::Element(b)) if a.tag == b.tag => {
             diff_attrs(a, b, path, out);
+            diff_events(a, b, path, out);
             diff_children(a, b, path, out);
         }
         _ => out.push(Patch::Replace {
@@ -161,6 +181,28 @@ fn diff_attrs(a: &VElement, b: &VElement, path: &Path, out: &mut Vec<Patch>) {
             out.push(Patch::RemoveAttr {
                 path: path.clone(),
                 name: (*k).to_string(),
+            });
+        }
+    }
+}
+
+fn diff_events(a: &VElement, b: &VElement, path: &Path, out: &mut Vec<Patch>) {
+    let old: HashMap<&str, u64> = a.events.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    let new: HashMap<&str, u64> = b.events.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    for (ev, id) in &new {
+        if old.get(ev) != Some(id) {
+            out.push(Patch::SetHandler {
+                path: path.clone(),
+                event: (*ev).to_string(),
+                handler_id: *id,
+            });
+        }
+    }
+    for ev in old.keys() {
+        if !new.contains_key(ev) {
+            out.push(Patch::RemoveHandler {
+                path: path.clone(),
+                event: (*ev).to_string(),
             });
         }
     }
@@ -304,6 +346,9 @@ fn render_into(node: &VNode, out: &mut String) {
                 escape_attr(v, out);
                 out.push('"');
             }
+            for (event, id) in &e.events {
+                let _ = write!(out, " data-orv-{event}=\"{id}\"");
+            }
             if VOID_ELEMENTS.contains(&e.tag.as_str()) {
                 out.push_str(" />");
             } else {
@@ -430,7 +475,49 @@ mod tests {
                     e.children.insert(*to, n);
                 }
             }
+            Patch::SetHandler { path, event, handler_id } => {
+                if let VNode::Element(e) = at(root, path) {
+                    if let Some(kv) = e.events.iter_mut().find(|(k, _)| k == event) {
+                        kv.1 = *handler_id;
+                    } else {
+                        e.events.push((event.clone(), *handler_id));
+                    }
+                }
+            }
+            Patch::RemoveHandler { path, event } => {
+                if let VNode::Element(e) = at(root, path) {
+                    e.events.retain(|(k, _)| k != event);
+                }
+            }
         }
+    }
+
+    #[test]
+    fn diff_detects_handler_added_changed_and_removed() {
+        let old = h("button").on("click", 1).build();
+        let new = h("button").on("click", 2).on("input", 5).build();
+        let ps = diff(&old, &new);
+        assert!(ps.contains(&Patch::SetHandler {
+            path: vec![],
+            event: "click".into(),
+            handler_id: 2
+        }));
+        assert!(ps.contains(&Patch::SetHandler {
+            path: vec![],
+            event: "input".into(),
+            handler_id: 5
+        }));
+
+        let old2 = h("button").on("click", 2).on("input", 5).build();
+        let new2 = h("button").on("click", 2).build();
+        let ps2 = diff(&old2, &new2);
+        assert_eq!(
+            ps2,
+            vec![Patch::RemoveHandler {
+                path: vec![],
+                event: "input".into()
+            }]
+        );
     }
 
     #[test]
