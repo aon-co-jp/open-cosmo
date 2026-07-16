@@ -1215,3 +1215,20 @@ production best practice"、"tokio async server 複数プロセス
   解決しない。(2) github.com/poem-web/poemはaon-co-jp組織外の第三者OSSで、
   保有トークンのscope外かつ無断push は不適切。ピン留めという通常の
   Cargo運用で解決できることを優先した。
+
+## アプリケーションサーバー層の役割(open-runo / poem-cosmo-tauri、2026-07-16追記)
+
+「配信エンジン(vhost)」に`open-web-server`を選択肢として追加したが、
+open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーとして
+まだ機能していない間は、Tomcatのような互換レイヤーとして機能するのは
+`open-runo`または`poem-cosmo-tauri`である。
+
+これらは`open-raid-z`とVersionlessAPIによって、バージョンレス運用と
+バージョン管理・Git管理を両立しながら、ACID互換性とZFS互換性に対応した
+`aruaru-db`と、PostgreSQLとのDUAL DATABASE構成による「4層4重」の
+最新鋭の通信システムを構築し、仕様変更が容易なデータベース設計により、
+3DオンラインゲームAI課金アイテム、オンライン金融、オンライン証券、
+オンラインクレジットカード決済など、ネット上で紛失してはならない
+ミッションクリティカルな用途向けに、24時間365日ノンストップの
+サーバー対応WEBサイト開発を全面的にバックアップするフレームワーク・
+ミドルウェアとして機能することを目指す。
