@@ -377,6 +377,24 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-16 `open-runo-appserver::SharedDispatcher`をpoem-cosmo-tauri
+  からミラー(「分身の術」マルチテナント化の基盤部分のみ)**: ユーザーの
+  「open-web-server・poem-cosmo-tauri・open-raid-z・aruaru-dbをドメイン
+  ごとに個別インストールしなくて良いようにしてほしい」という指示を受け、
+  今回のアプリケーションサーバー層(Tomcat役)としては
+  **poem-cosmo-tauriの方を使用する**とユーザーが明示したため
+  (詳細・設計判断根拠はpoem-cosmo-tauri側の同日CLAUDE.md HANDOFFが正)、
+  管理API・`ThreadedProxyServer`配線本体はpoem-cosmo-tauri側の
+  `open-runo-gateway`にのみ実装した。このリポジトリへは共通コア部分
+  (`SharedDispatcher`——`std::sync::RwLock`ベースの実行時追加/削除
+  可能・スレッド間共有可能な`Dispatcher`実装、`crates/
+  open-runo-appserver/src/lib.rs`)のみをミラー(将来このリポジトリ側で
+  同種の配線が必要になった際の土台として)。`cargo test -p
+  open-runo-appserver`(14件、新規`SharedDispatcher`関連4件含む、
+  クロススレッド共有を実証する
+  `shared_dispatcher_upsert_from_one_thread_is_visible_from_another`
+  含む)がgreenであることをWSL Ubuntu(rustc/cargo 1.97)で確認。
+
 - **2026-07-16 RJSON → RustJSON へ改称(ユーザー指示・設計方針の再確認込み)
   — WSL Ubuntu(rustc/cargo 1.97)で実際にビルド・テスト検証済み**:
   このセッションのsandbox環境はcargo実行を控える運用だったが、ユーザーの

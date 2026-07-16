@@ -336,9 +336,74 @@ impl Dispatcher for StaticDispatcher {
     }
 }
 
+/// 実行時に動的に追加/削除できる、スレッド間共有可能な`Dispatcher`実装
+/// (2026-07-16、「分身の術」でドメインごとの個別インストールを不要にする
+/// 構想の実装)。`StaticDispatcher`は`&mut self`必須のため`Arc`越しに
+/// 複数ワーカースレッドから直接更新できず、`ThreadedProxyServer::start`
+/// (`Arc<D>`を全ワーカーへ配る設計)へ渡した後にテナントを追加する運用が
+/// 事実上できなかった——本型はopen-web-server-gateway側の
+/// `tenant_router::TenantRegistry`(`tokio::sync::RwLock<HashMap<..>>`)と
+/// 同じ設計思想を、このクレートが同期(std::thread)前提であることに
+/// 合わせて`std::sync::RwLock`で実装したもの。`resolve`(読み取り)は
+/// ロック競合が起きても短時間で解放されるため、ワーカースレッド数が
+/// 増えてもスループットのボトルネックにはなりにくい(既存の
+/// `ThreadedProxyServer`のワーカープール設計そのものが前提とする
+/// 「読み取りは頻繁・書き込みはテナント追加/削除時のみ」という
+/// アクセスパターンに合致する)。
+#[derive(Default)]
+pub struct SharedDispatcher {
+    routes: std::sync::RwLock<HashMap<String, UpstreamAddr>>,
+}
+
+impl SharedDispatcher {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// ホスト(SNI/Hostヘッダ相当、大文字小文字は無視)にupstreamを
+    /// 登録・更新する。既存の登録は上書きされる(冪等、テナント設定変更に
+    /// も使う)。
+    pub fn upsert(&self, host: &str, addr: UpstreamAddr) {
+        self.routes
+            .write()
+            .expect("SharedDispatcher lock poisoned")
+            .insert(host.to_ascii_lowercase(), addr);
+    }
+
+    /// 登録を削除する(未登録でも冪等に成功、Apacheの`a2dissite`相当)。
+    pub fn remove(&self, host: &str) {
+        self.routes.write().expect("SharedDispatcher lock poisoned").remove(&host.to_ascii_lowercase());
+    }
+
+    /// 登録済みの全ホスト一覧(管理API・監査用)。
+    pub fn list(&self) -> Vec<(String, UpstreamAddr)> {
+        self.routes
+            .read()
+            .expect("SharedDispatcher lock poisoned")
+            .iter()
+            .map(|(h, a)| (h.clone(), a.clone()))
+            .collect()
+    }
+
+    pub fn contains(&self, host: &str) -> bool {
+        self.routes
+            .read()
+            .expect("SharedDispatcher lock poisoned")
+            .contains_key(&host.to_ascii_lowercase())
+    }
+}
+
+impl Dispatcher for SharedDispatcher {
+    fn resolve(&self, host: &str) -> Option<UpstreamAddr> {
+        let h = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+        self.routes.read().expect("SharedDispatcher lock poisoned").get(&h).cloned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn templates_cover_priority_matrix() {
@@ -414,5 +479,63 @@ mod tests {
         assert_eq!(d.resolve("shop.example.jp").unwrap().port, 4100);
         assert_eq!(d.resolve("shop.example.jp:443").unwrap().port, 4100);
         assert!(d.resolve("other.example.jp").is_none());
+    }
+
+    #[test]
+    fn shared_dispatcher_resolves_host_with_and_without_port_case_insensitively() {
+        let d = SharedDispatcher::new();
+        d.upsert("Shop.Example.JP", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        assert_eq!(d.resolve("shop.example.jp").unwrap().port, 4100);
+        assert_eq!(d.resolve("SHOP.EXAMPLE.JP:443").unwrap().port, 4100);
+        assert!(d.resolve("other.example.jp").is_none());
+    }
+
+    #[test]
+    fn shared_dispatcher_remove_is_idempotent() {
+        let d = SharedDispatcher::new();
+        d.upsert("shop.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        assert!(d.contains("shop.example.jp"));
+        d.remove("shop.example.jp");
+        assert!(!d.contains("shop.example.jp"));
+        // Removing again (already absent) must not panic -- idempotent,
+        // matching tenant_router::TenantRegistry::remove semantics.
+        d.remove("shop.example.jp");
+    }
+
+    #[test]
+    fn shared_dispatcher_list_reports_all_registered_tenants() {
+        let d = SharedDispatcher::new();
+        d.upsert("a.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        d.upsert("b.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4200 });
+        let mut hosts: Vec<String> = d.list().into_iter().map(|(h, _)| h).collect();
+        hosts.sort();
+        assert_eq!(hosts, vec!["a.example.jp".to_string(), "b.example.jp".to_string()]);
+    }
+
+    /// これが本質的な検証: 「分身の術」構想が実際に成立するかどうかは、
+    /// `Arc<SharedDispatcher>`を複数スレッドで共有し、片方のスレッドで
+    /// 追加したテナントがもう片方のスレッドから即座に解決できることに
+    /// かかっている(`ThreadedProxyServer::start`は`Arc<D>`を全ワーカー
+    /// スレッドへ配る設計——単一スレッド内でのAPIテストだけでは、実際に
+    /// スレッドをまたいで安全に共有できることまでは証明できない)。
+    #[test]
+    fn shared_dispatcher_upsert_from_one_thread_is_visible_from_another() {
+        let dispatcher = Arc::new(SharedDispatcher::new());
+
+        let writer = {
+            let dispatcher = Arc::clone(&dispatcher);
+            std::thread::spawn(move || {
+                dispatcher.upsert("new-tenant.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 5100 });
+            })
+        };
+        writer.join().unwrap();
+
+        let reader = {
+            let dispatcher = Arc::clone(&dispatcher);
+            std::thread::spawn(move || dispatcher.resolve("new-tenant.example.jp"))
+        };
+        let resolved = reader.join().unwrap();
+
+        assert_eq!(resolved.unwrap().port, 5100);
     }
 }
