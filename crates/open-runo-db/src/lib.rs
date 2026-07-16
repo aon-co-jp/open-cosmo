@@ -89,12 +89,12 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
         )))
     }
 
-    /// RJSON server-side partial extraction (Phase 2, 2026-07-14): fetch
-    /// just `path` (see `open_runo_rjson::extract_path`'s doc comment for
+    /// RustJSON server-side partial extraction (Phase 2, 2026-07-14): fetch
+    /// just `path` (see `open_runo_rustjson::extract_path`'s doc comment for
     /// the path language) out of `(table, key)`'s value, instead of the
     /// whole document — the network-bandwidth-savings benefit from the
-    /// original RJSON proposal. Only backends that store values as
-    /// well-formed JSON/RJSON can honor this (`RjsonBackend`); every
+    /// original RustJSON proposal. Only backends that store values as
+    /// well-formed JSON/RustJSON can honor this (`RustJsonBackend`); every
     /// other backend keeps the default, which reports the operation as
     /// unsupported rather than attempting to string-search a value that
     /// might not even be JSON.
@@ -147,21 +147,21 @@ impl DbBackend for InMemoryBackend {
     }
 }
 
-// ── RJSON (Phase 1: in-memory proof, `rjson` feature) ─────────────────────────
+// ── RustJSON (Phase 1: in-memory proof, `rustjson` feature) ─────────────────────────
 
-#[cfg(feature = "rjson")]
-pub mod rjson_backend {
-    //! RJSON-aware `DbBackend`: proves, for real, the first of the three
-    //! benefits described for a DB-level RJSON integration (2026-07-14,
+#[cfg(feature = "rustjson")]
+pub mod rustjson_backend {
+    //! RustJSON-aware `DbBackend`: proves, for real, the first of the three
+    //! benefits described for a DB-level RustJSON integration (2026-07-14,
     //! concept: 石塚正浩・aon CEO) —
-    //! **automatic write-time validation against RJSON's grammar**. `put`
-    //! parses the incoming value with [`open_runo_rjson::parse`] and
-    //! rejects it outright if it isn't valid RJSON (which includes every
-    //! valid strict-JSON document, since RJSON is a superset) — a
+    //! **automatic write-time validation against RustJSON's grammar**. `put`
+    //! parses the incoming value with [`open_runo_rustjson::parse`] and
+    //! rejects it outright if it isn't valid RustJSON (which includes every
+    //! valid strict-JSON document, since RustJSON is a superset) — a
     //! malformed value never reaches storage, no matter which client
     //! sent it or how it was authored (trailing commas, comments, and
-    //! the other RJSON conveniences are silently normalized away, since
-    //! what's actually persisted is [`open_runo_rjson::to_string`]'s
+    //! the other RustJSON conveniences are silently normalized away, since
+    //! what's actually persisted is [`open_runo_rustjson::to_string`]'s
     //! canonical strict-JSON form).
     //!
     //! **Scope of this Phase 1**: storage here is a plain in-memory
@@ -177,7 +177,7 @@ pub mod rjson_backend {
     //! sessions rather than being built in one. This module exists to
     //! prove the write-time-validation benefit end-to-end with a real,
     //! tested parser, and to give `open-runo-db` a concrete extension
-    //! point (`DbBackend`) that a future persistent `RjsonDbBackend`
+    //! point (`DbBackend`) that a future persistent `RustJsonDbBackend`
     //! (backed by its own storage engine, or by extending `aruaru-db`)
     //! can slot into without changing any call site above this trait.
     use super::{AppError, DbBackend, Record, Result};
@@ -186,34 +186,34 @@ pub mod rjson_backend {
     use std::sync::Mutex;
 
     #[derive(Debug, Default)]
-    pub struct RjsonBackend {
+    pub struct RustJsonBackend {
         store: Mutex<HashMap<(String, String), String>>,
     }
 
-    impl RjsonBackend {
+    impl RustJsonBackend {
         pub fn new() -> Self {
             Self::default()
         }
     }
 
     #[async_trait]
-    impl DbBackend for RjsonBackend {
+    impl DbBackend for RustJsonBackend {
         fn backend_name(&self) -> &'static str {
-            "rjson"
+            "rustjson"
         }
 
-        /// Parses `value` as RJSON (accepting strict JSON too, since RJSON
+        /// Parses `value` as RustJSON (accepting strict JSON too, since RustJSON
         /// is a superset) and rejects the write with a validation error
         /// if it doesn't parse — the "DB-level automatic validation"
         /// benefit. What's actually stored is the canonical strict-JSON
-        /// re-serialization (`open_runo_rjson::to_string`), not the raw
+        /// re-serialization (`open_runo_rustjson::to_string`), not the raw
         /// input text, so every later `get` returns unambiguous strict
         /// JSON regardless of how leniently the value was originally
         /// authored.
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            let parsed = open_runo_rjson::parse(value)
-                .map_err(|e| AppError::Validation(format!("invalid RJSON for {table}/{key}: {e}")))?;
-            let canonical = open_runo_rjson::to_string(&parsed);
+            let parsed = open_runo_rustjson::parse(value)
+                .map_err(|e| AppError::Validation(format!("invalid RustJSON for {table}/{key}: {e}")))?;
+            let canonical = open_runo_rustjson::to_string(&parsed);
             self.store
                 .lock()
                 .map_err(|_| AppError::Internal("lock".into()))?
@@ -255,12 +255,12 @@ pub mod rjson_backend {
         use super::*;
 
         #[tokio::test]
-        async fn put_normalizes_lenient_rjson_to_canonical_strict_json() {
-            let backend = RjsonBackend::new();
+        async fn put_normalizes_lenient_rustjson_to_canonical_strict_json() {
+            let backend = RustJsonBackend::new();
             // Trailing comma + comment + unquoted key + single-quoted
-            // string -- all four RJSON extensions in one write.
+            // string -- all four RustJSON extensions in one write.
             let lenient = "{ /* item */ name: 'sword', qty: 3, }";
-            backend.put("items", "sword", lenient).await.expect("valid RJSON should be accepted");
+            backend.put("items", "sword", lenient).await.expect("valid RustJSON should be accepted");
 
             let stored = backend.get("items", "sword").await.unwrap().unwrap();
             assert!(!stored.contains("//"), "stored value must be canonical JSON, not the raw lenient input");
@@ -271,15 +271,15 @@ pub mod rjson_backend {
 
         #[tokio::test]
         async fn put_rejects_genuinely_malformed_input() {
-            let backend = RjsonBackend::new();
+            let backend = RustJsonBackend::new();
             let result = backend.put("items", "broken", "{ this is not json at all").await;
             assert!(result.is_err(), "malformed input must be rejected at write time, never silently stored");
         }
 
         #[tokio::test]
-        async fn strict_json_is_accepted_unchanged_since_rjson_is_a_superset() {
-            let backend = RjsonBackend::new();
-            backend.put("items", "shield", r#"{"name":"shield","qty":1}"#).await.expect("strict JSON is valid RJSON");
+        async fn strict_json_is_accepted_unchanged_since_rustjson_is_a_superset() {
+            let backend = RustJsonBackend::new();
+            backend.put("items", "shield", r#"{"name":"shield","qty":1}"#).await.expect("strict JSON is valid RustJSON");
             let stored = backend.get("items", "shield").await.unwrap().unwrap();
             let value: serde_json::Value = serde_json::from_str(&stored).unwrap();
             assert_eq!(value, serde_json::json!({"name": "shield", "qty": 1}));
@@ -287,7 +287,7 @@ pub mod rjson_backend {
 
         #[tokio::test]
         async fn list_and_delete_behave_like_every_other_backend() {
-            let backend = RjsonBackend::new();
+            let backend = RustJsonBackend::new();
             backend.put("items", "a", "{x: 1}").await.unwrap();
             backend.put("items", "b", "{x: 2}").await.unwrap();
             backend.put("other", "c", "{x: 3}").await.unwrap();

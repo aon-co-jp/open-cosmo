@@ -1,17 +1,17 @@
-//! RJSON — a lenient, human-authorable JSON superset designed for this
+//! RustJSON — a lenient, human-authorable JSON superset designed for this
 //! ecosystem (concept: 石塚正浩, aon CEO; grammar design and this
 //! implementation: Claude, 2026-07-14).
 //!
-//! **Value model**: RJSON does not introduce a new data model — the parsed
+//! **Value model**: RustJSON does not introduce a new data model — the parsed
 //! result is a plain [`serde_json::Value`], the same type every other
-//! JSON-consuming piece of this codebase already uses. RJSON's entire
+//! JSON-consuming piece of this codebase already uses. RustJSON's entire
 //! contribution is a *more lenient input grammar*: it accepts several
 //! common human-authoring conveniences that strict JSON (RFC 8259)
 //! rejects, then normalizes down to the exact same value tree strict JSON
-//! would produce. This keeps RJSON strictly additive — anything that reads
-//! `serde_json::Value` (this entire workspace) can consume RJSON-derived
+//! would produce. This keeps RustJSON strictly additive — anything that reads
+//! `serde_json::Value` (this entire workspace) can consume RustJSON-derived
 //! data with zero changes, and every valid strict-JSON document is also a
-//! valid RJSON document (RJSON's grammar is a superset).
+//! valid RustJSON document (RustJSON's grammar is a superset).
 //!
 //! ## Grammar extensions over strict JSON
 //!
@@ -31,18 +31,18 @@
 //! multi-line strings, `NaN`/`Infinity` numeric literals, YAML-style
 //! anchors/references. Every one of the four extensions above normalizes
 //! to *exactly* what strict JSON would represent — there is no new
-//! semantic value RJSON can express that JSON cannot; the only thing that
+//! semantic value RustJSON can express that JSON cannot; the only thing that
 //! changes is how forgiving the parser is about the source text.
 //!
 //! ## Design lineage
 //!
 //! The extension set (trailing commas, comments, unquoted keys) mirrors
 //! [JSON5](https://json5.org/) and [JSONC](https://code.visualstudio.com/docs/languages/json#_json-with-comments),
-//! two established, widely-implemented conventions — RJSON does not
+//! two established, widely-implemented conventions — RustJSON does not
 //! invent new *kinds* of leniency, it combines an established, minimal
 //! subset of them into a single hand-rolled Rust parser with no external
 //! parsing-crate dependency (`serde_json` is used only for the output
-//! *value model*, not for parsing RJSON's own lenient grammar — matching
+//! *value model*, not for parsing RustJSON's own lenient grammar — matching
 //! this codebase's established "hand-roll the protocol/data-shape layer"
 //! precedent already applied to WebSocket framing, multipart parsing, and
 //! the gRPC Protocol Buffers codec elsewhere in this workspace).
@@ -53,7 +53,7 @@ use serde_json::{Map, Number, Value};
 /// error reporting -- e.g. "line N, column M" -- without this crate
 /// needing to track line/column itself).
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
-pub enum RjsonError {
+pub enum RustJsonError {
     #[error("unexpected end of input at byte {0}")]
     UnexpectedEof(usize),
     #[error("unexpected character '{1}' at byte {0}")]
@@ -70,38 +70,38 @@ pub enum RjsonError {
     TrailingData(usize),
 }
 
-/// Parse an RJSON document into a [`serde_json::Value`]. Accepts the
+/// Parse an RustJSON document into a [`serde_json::Value`]. Accepts the
 /// grammar extensions documented in this crate's module doc; anything
-/// that's valid strict JSON is also accepted (RJSON is a superset).
-pub fn parse(input: &str) -> Result<Value, RjsonError> {
+/// that's valid strict JSON is also accepted (RustJSON is a superset).
+pub fn parse(input: &str) -> Result<Value, RustJsonError> {
     let bytes = input.as_bytes();
     let mut pos = 0;
     skip_whitespace_and_comments(bytes, &mut pos)?;
     let value = parse_value(bytes, &mut pos)?;
     skip_whitespace_and_comments(bytes, &mut pos)?;
     if pos != bytes.len() {
-        return Err(RjsonError::TrailingData(pos));
+        return Err(RustJsonError::TrailingData(pos));
     }
     Ok(value)
 }
 
 /// Serialize `value` as canonical, strict-JSON output (compact form).
-/// RJSON's leniency is an *input*-side convenience only — the canonical
+/// RustJSON's leniency is an *input*-side convenience only — the canonical
 /// stored/transmitted form this crate produces is always plain strict
-/// JSON, so every downstream consumer (including systems with no RJSON
+/// JSON, so every downstream consumer (including systems with no RustJSON
 /// awareness at all) can read it back unambiguously.
 pub fn to_string(value: &Value) -> String {
     // serde_json's own compact serializer already produces strict JSON;
     // reusing it here (rather than hand-rolling a serializer) is the
     // correct side of this crate's "hand-roll parsing, not the value
-    // model" boundary -- there is no RJSON-specific *output* grammar to
+    // model" boundary -- there is no RustJSON-specific *output* grammar to
     // hand-roll, since the whole point is that the output is exactly
     // standard JSON.
     serde_json::to_string(value).expect("serde_json::Value serialization is infallible")
 }
 
 /// Server-side partial extraction (Phase 2, 2026-07-14) — the network-
-/// bandwidth-savings benefit from the original RJSON proposal: pull just
+/// bandwidth-savings benefit from the original RustJSON proposal: pull just
 /// the field(s) a caller actually needs out of a stored value, instead of
 /// transmitting the whole document and making the client discard the
 /// rest.
@@ -170,7 +170,7 @@ fn parse_path_segments(path: &str) -> Vec<PathSegment<'_>> {
     segments
 }
 
-fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), RjsonError> {
+fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), RustJsonError> {
     loop {
         while *pos < bytes.len() && bytes[*pos].is_ascii_whitespace() {
             *pos += 1;
@@ -191,7 +191,7 @@ fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), Rjs
                         *pos += 2;
                         break;
                     }
-                    return Err(RjsonError::UnterminatedComment(start));
+                    return Err(RustJsonError::UnterminatedComment(start));
                 }
                 if bytes[*pos] == b'*' && bytes[*pos + 1] == b'/' {
                     *pos += 2;
@@ -206,11 +206,11 @@ fn skip_whitespace_and_comments(bytes: &[u8], pos: &mut usize) -> Result<(), Rjs
     Ok(())
 }
 
-fn peek(bytes: &[u8], pos: usize) -> Result<u8, RjsonError> {
-    bytes.get(pos).copied().ok_or(RjsonError::UnexpectedEof(pos))
+fn peek(bytes: &[u8], pos: usize) -> Result<u8, RustJsonError> {
+    bytes.get(pos).copied().ok_or(RustJsonError::UnexpectedEof(pos))
 }
 
-fn parse_value(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
+fn parse_value(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
     skip_whitespace_and_comments(bytes, pos)?;
     match peek(bytes, *pos)? {
         b'{' => parse_object(bytes, pos),
@@ -221,21 +221,21 @@ fn parse_value(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
         b'f' => parse_literal(bytes, pos, "false", Value::Bool(false)),
         b'n' => parse_literal(bytes, pos, "null", Value::Null),
         b'-' | b'0'..=b'9' => parse_number(bytes, pos),
-        c => Err(RjsonError::UnexpectedChar(*pos, c as char)),
+        c => Err(RustJsonError::UnexpectedChar(*pos, c as char)),
     }
 }
 
-fn parse_literal(bytes: &[u8], pos: &mut usize, literal: &str, value: Value) -> Result<Value, RjsonError> {
+fn parse_literal(bytes: &[u8], pos: &mut usize, literal: &str, value: Value) -> Result<Value, RustJsonError> {
     let end = *pos + literal.len();
     if bytes.get(*pos..end) == Some(literal.as_bytes()) {
         *pos = end;
         Ok(value)
     } else {
-        Err(RjsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char))
+        Err(RustJsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char))
     }
 }
 
-fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
+fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
     debug_assert_eq!(bytes[*pos], b'{');
     *pos += 1;
     let mut map = Map::new();
@@ -248,7 +248,7 @@ fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
         let key = parse_key(bytes, pos)?;
         skip_whitespace_and_comments(bytes, pos)?;
         if peek(bytes, *pos)? != b':' {
-            return Err(RjsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char));
+            return Err(RustJsonError::UnexpectedChar(*pos, peek(bytes, *pos)? as char));
         }
         *pos += 1;
         let value = parse_value(bytes, pos)?;
@@ -269,16 +269,16 @@ fn parse_object(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
                 *pos += 1;
                 break;
             }
-            c => return Err(RjsonError::UnexpectedChar(*pos, c as char)),
+            c => return Err(RustJsonError::UnexpectedChar(*pos, c as char)),
         }
     }
     Ok(Value::Object(map))
 }
 
 /// An object key: either a quoted string (double or single) or, as
-/// RJSON's unquoted-key extension, a bare identifier
+/// RustJSON's unquoted-key extension, a bare identifier
 /// (`[A-Za-z_][A-Za-z0-9_]*`).
-fn parse_key(bytes: &[u8], pos: &mut usize) -> Result<String, RjsonError> {
+fn parse_key(bytes: &[u8], pos: &mut usize) -> Result<String, RustJsonError> {
     match peek(bytes, *pos)? {
         b'"' => parse_quoted_string(bytes, pos, b'"'),
         b'\'' => parse_quoted_string(bytes, pos, b'\''),
@@ -290,11 +290,11 @@ fn parse_key(bytes: &[u8], pos: &mut usize) -> Result<String, RjsonError> {
             }
             Ok(String::from_utf8_lossy(&bytes[start..*pos]).into_owned())
         }
-        c => Err(RjsonError::UnexpectedChar(*pos, c as char)),
+        c => Err(RustJsonError::UnexpectedChar(*pos, c as char)),
     }
 }
 
-fn parse_array(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
+fn parse_array(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
     debug_assert_eq!(bytes[*pos], b'[');
     *pos += 1;
     let mut items = Vec::new();
@@ -321,26 +321,26 @@ fn parse_array(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
                 *pos += 1;
                 break;
             }
-            c => return Err(RjsonError::UnexpectedChar(*pos, c as char)),
+            c => return Err(RustJsonError::UnexpectedChar(*pos, c as char)),
         }
     }
     Ok(Value::Array(items))
 }
 
-fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<String, RjsonError> {
+fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<String, RustJsonError> {
     let start = *pos;
     debug_assert_eq!(bytes[*pos], quote);
     *pos += 1;
     let mut out = String::new();
     loop {
-        let c = *bytes.get(*pos).ok_or(RjsonError::UnterminatedString(start))?;
+        let c = *bytes.get(*pos).ok_or(RustJsonError::UnterminatedString(start))?;
         if c == quote {
             *pos += 1;
             return Ok(out);
         }
         if c == b'\\' {
             *pos += 1;
-            let escaped = *bytes.get(*pos).ok_or(RjsonError::UnterminatedString(start))?;
+            let escaped = *bytes.get(*pos).ok_or(RustJsonError::UnterminatedString(start))?;
             match escaped {
                 b'"' => out.push('"'),
                 b'\'' => out.push('\''),
@@ -356,13 +356,13 @@ fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<Strin
                     let hex = bytes
                         .get(hex_start..hex_start + 4)
                         .and_then(|h| std::str::from_utf8(h).ok())
-                        .ok_or(RjsonError::InvalidEscape(*pos))?;
-                    let code = u32::from_str_radix(hex, 16).map_err(|_| RjsonError::InvalidEscape(*pos))?;
-                    let ch = char::from_u32(code).ok_or(RjsonError::InvalidEscape(*pos))?;
+                        .ok_or(RustJsonError::InvalidEscape(*pos))?;
+                    let code = u32::from_str_radix(hex, 16).map_err(|_| RustJsonError::InvalidEscape(*pos))?;
+                    let ch = char::from_u32(code).ok_or(RustJsonError::InvalidEscape(*pos))?;
                     out.push(ch);
                     *pos += 4;
                 }
-                _ => return Err(RjsonError::InvalidEscape(*pos)),
+                _ => return Err(RustJsonError::InvalidEscape(*pos)),
             }
             *pos += 1;
             continue;
@@ -373,8 +373,8 @@ fn parse_quoted_string(bytes: &[u8], pos: &mut usize, quote: u8) -> Result<Strin
         let ch_len = utf8_char_len(c);
         let ch_bytes = bytes
             .get(*pos..*pos + ch_len)
-            .ok_or(RjsonError::UnterminatedString(start))?;
-        let ch_str = std::str::from_utf8(ch_bytes).map_err(|_| RjsonError::UnterminatedString(start))?;
+            .ok_or(RustJsonError::UnterminatedString(start))?;
+        let ch_str = std::str::from_utf8(ch_bytes).map_err(|_| RustJsonError::UnterminatedString(start))?;
         out.push_str(ch_str);
         *pos += ch_len;
     }
@@ -392,7 +392,7 @@ fn utf8_char_len(first_byte: u8) -> usize {
     }
 }
 
-fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
+fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RustJsonError> {
     let start = *pos;
     if peek(bytes, *pos)? == b'-' {
         *pos += 1;
@@ -402,7 +402,7 @@ fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
         *pos += 1;
     }
     if *pos == digits_start {
-        return Err(RjsonError::InvalidNumber(start));
+        return Err(RustJsonError::InvalidNumber(start));
     }
     // Track whether this literal has a fractional/exponent part -- an
     // integer literal like `3` must round-trip as an integer `Number`
@@ -419,7 +419,7 @@ fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
             *pos += 1;
         }
         if *pos == frac_start {
-            return Err(RjsonError::InvalidNumber(start));
+            return Err(RustJsonError::InvalidNumber(start));
         }
     }
     if *pos < bytes.len() && (bytes[*pos] == b'e' || bytes[*pos] == b'E') {
@@ -433,20 +433,20 @@ fn parse_number(bytes: &[u8], pos: &mut usize) -> Result<Value, RjsonError> {
             *pos += 1;
         }
         if *pos == exp_start {
-            return Err(RjsonError::InvalidNumber(start));
+            return Err(RustJsonError::InvalidNumber(start));
         }
     }
-    let text = std::str::from_utf8(&bytes[start..*pos]).map_err(|_| RjsonError::InvalidNumber(start))?;
+    let text = std::str::from_utf8(&bytes[start..*pos]).map_err(|_| RustJsonError::InvalidNumber(start))?;
     let number: Number = if is_integer {
         if let Ok(i) = text.parse::<i64>() {
             Number::from(i)
         } else if let Ok(u) = text.parse::<u64>() {
             Number::from(u)
         } else {
-            text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RjsonError::InvalidNumber(start))?
+            text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RustJsonError::InvalidNumber(start))?
         }
     } else {
-        text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RjsonError::InvalidNumber(start))?
+        text.parse::<f64>().ok().and_then(Number::from_f64).ok_or(RustJsonError::InvalidNumber(start))?
     };
     Ok(Value::Number(number))
 }
@@ -529,12 +529,12 @@ mod tests {
 
     #[test]
     fn unterminated_string_is_an_error() {
-        assert!(matches!(parse(r#""unterminated"#), Err(RjsonError::UnterminatedString(_))));
+        assert!(matches!(parse(r#""unterminated"#), Err(RustJsonError::UnterminatedString(_))));
     }
 
     #[test]
     fn unterminated_block_comment_is_an_error() {
-        assert!(matches!(parse("{ /* never closed"), Err(RjsonError::UnterminatedComment(_))));
+        assert!(matches!(parse("{ /* never closed"), Err(RustJsonError::UnterminatedComment(_))));
     }
 
     #[test]
@@ -544,14 +544,14 @@ mod tests {
 
     #[test]
     fn trailing_data_after_top_level_value_is_an_error() {
-        assert!(matches!(parse("{} garbage"), Err(RjsonError::TrailingData(_))));
+        assert!(matches!(parse("{} garbage"), Err(RustJsonError::TrailingData(_))));
     }
 
     #[test]
     fn to_string_produces_strict_json_regardless_of_how_lenient_the_source_was() {
         let value = parse("{name: 'sword', qty: 3,}").unwrap();
         let canonical = to_string(&value);
-        // Round-trips through strict serde_json parsing (no RJSON leniency
+        // Round-trips through strict serde_json parsing (no RustJSON leniency
         // needed to read it back) -- proving the *output* is always plain
         // strict JSON.
         let reparsed: Value = serde_json::from_str(&canonical).unwrap();

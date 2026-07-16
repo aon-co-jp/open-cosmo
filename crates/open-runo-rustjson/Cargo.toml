@@ -1,6 +1,6 @@
 [package]
-name = "open-runo-rjson"
-description = "RJSON: a lenient, human-authorable JSON superset (trailing commas, comments, unquoted keys, single-quoted strings), parsed into the standard serde_json::Value model"
+name = "open-runo-rustjson"
+description = "RustJSON: a lenient, human-authorable JSON superset (trailing commas, comments, unquoted keys, single-quoted strings), parsed into the standard serde_json::Value model"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

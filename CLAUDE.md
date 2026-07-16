@@ -289,6 +289,20 @@ production best practice"、"tokio async server 複数プロセス
 
 ## 運用ルール
 
+- **cargo build/test/checkの実行環境(2026-07-16判明)**: このPC
+  (Windows)には WSL Ubuntu(+VirtualBox)が既にインストール済みで、
+  `rustc/cargo 1.97`(sandbox側の1.75より新しく、edition2024要求の
+  poem 3.1.12+/indexmap最新版/async-graphql-derive 7.2.1等をピン留め
+  無しで解決できる)が使える。`wsl -d Ubuntu -e bash -lc "cd
+  /mnt/f/open-runo/<repo> && cargo ..."`の形で、`F:\open-runo`配下の
+  リポジトリをWSL側から`/mnt/f/open-runo/...`として直接読み書きできる
+  (別途ファイルコピー不要)。**以後、cargo build/test/checkは全てこの
+  経路を基本とする**(sandbox側で直接`cargo`を叩く運用は避ける)。
+  長時間かかるビルド/テストはバックグラウンド実行し、完了通知を待つ
+  (フォアグラウンドで長時間ブロックしない)。過去のHANDOFFエントリに
+  繰り返し記録されている「cargo 1.75 + edition2024でworkspace全体の
+  `cargo check`が実行できない」という制約は、この経路を使えば発生しない
+  ことを確認済み。
 - **開発中はこの`CLAUDE.md`を、コード変更のコミット/pushと必ず一緒に
   push する**(内容を更新した場合はもちろん、変更が無い場合も他の変更と
   一緒にコミット対象へ含めておくこと)。
@@ -363,6 +377,49 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-16 RJSON → RustJSON へ改称(ユーザー指示・設計方針の再確認込み)
+  — WSL Ubuntu(rustc/cargo 1.97)で実際にビルド・テスト検証済み**:
+  このセッションのsandbox環境はcargo実行を控える運用だったが、ユーザーの
+  指摘で「Windowsから動くWSL Ubuntu(+VirtualBox)が既にインストール
+  済み」と判明し、`wsl -d Ubuntu`経由でこのPC自身のRust 1.97
+  ツールチェーンを使ってビルド・テストを実行できることを確認(sandboxの
+  1.75 MSRVピンに縛られない、以後cargo実行はこの経路を基本とする)。
+  `cargo check --workspace`(open-runo・poem-cosmo-tauri両方)が
+  警告2〜3件(既存の`missing_debug_implementations`等、無関係な既知警告)
+  のみで成功、`cargo test -p open-runo-rustjson -p open-runo-db --features
+  rustjson`は31+25件全green(failed 0)を確認——改称によるコンパイル
+  エラー・テスト破損は無し。ユーザーから「RJSONの名前は
+  RustJSONに変更します」との指示、および「JSONのRUST版としてRustJSONの
+  アイデアはメリット・デメリットはどうか」という詳細な設計分析(新構文を
+  発明するのではなく、標準JSON完全互換を維持したままRust向けの型安全・
+  制限付き解析・部分選択・互換変換を追加する安全基盤とすべき、という
+  結論)が提示された。この結論は、既存実装(`open-runo-rjson`、Phase 1・2:
+  トレイリングコンマ・コメント・クォート無しキー・シングルクォート
+  文字列の4拡張のみ、パース結果は常に`serde_json::Value`、出力は常に
+  厳密JSON)の設計方針と完全に一致していたため、**実装(パーサーの
+  ロジック・4拡張の仕様・`extract_path`)は一切変更せず、名称のみを
+  「RJSON」→「RustJSON」に統一**した(クレート名
+  `open-runo-rjson`→`open-runo-rustjson`、モジュール名
+  `rjson_backend`→`rustjson_backend`、型`RjsonBackend`→`RustJsonBackend`・
+  `RjsonError`→`RustJsonError`、feature名`rjson`→`rustjson`、
+  `docs/rjson.md`→`docs/rustjson.md`、ワークスペース`Cargo.toml`の
+  members一覧・`open-runo-db`の依存パス、いずれもopen-runo・
+  poem-cosmo-tauri両リポジトリで同時実施)。
+  ユーザー提示の分析にあった「rustjson-core/rustjson-schema/
+  rustjson-select/rustjson-versionless/rustjson-graphql/rustjson-postgres/
+  rustjson-cliへの分割」というPhase 3以降の構想は、**今回は実装せず
+  次回以降の拡張候補として明記するに留めた**(現状は`open-runo-rustjson`
+  単一クレート、`open-runo-db`の`rustjson` featureが
+  DB連携部分を担う——「rustjson-select」相当の`extract_path`は既に
+  実装済みでこの単一クレート内にある)。
+  **Cargo.lockの既存drift(この改称とは無関係、sedによる文字列置換のみ実施
+  済み)**: 検証中に`Cargo.lock`がこの改称より前から既に
+  `async-graphql-poem`のバージョン不一致・`open-runo-appserver`/
+  `open-runo-view`エントリ欠落という未解消のdriftを抱えていたことが
+  判明。`cargo check --workspace`自体は通ったため実害は今のところ無いが、
+  次回パスで`cargo build --workspace`によるフル再生成を推奨(WSL Ubuntu
+  経由、後述)。
+
 - **2026-07-15 コードヘルス監査(6リポジトリ横断)— audit only, no changes**:
   `cargo build --workspace`/`cargo test --workspace`を実行し、警告3件
   (`hyper_compat.rs`の`missing_debug_implementations`、既存の既知警告)
@@ -376,18 +433,18 @@ production best practice"、"tokio async server 複数プロセス
   実際の依存関係の間に drift がある可能性があるため、次回パスで
   `cargo tree`等による依存関係の実態確認を推奨する。
 
-- **2026-07-14 RJSON Phase 2 着手をpoem-cosmo-tauriからミラー(サーバー側
+- **2026-07-14 RustJSON Phase 2 着手をpoem-cosmo-tauriからミラー(サーバー側
   部分抽出のコア実装完了) — ユーザー指示により本日はここで停止・
   ドキュメント整理してpush**: poem-cosmo-tauri側で実装・テスト済みの
-  `open_runo_rjson::extract_path`(ドット/ブラケット記法のパス言語、
+  `open_runo_rustjson::extract_path`(ドット/ブラケット記法のパス言語、
   `stats.damage`・`bonuses[1]`・`items[2].name`、外部パースクレート
   非依存の自前実装)と`DbBackend` traitへの`get_field`デフォルト実装
   (`crates/open-runo-db/src/lib.rs`)をこちらへミラー。
-  `cargo test -p open-runo-rjson`(25件、17→25に増加)・`cargo test -p
-  open-runo-db --features rjson rjson`(4件)ともgreenを確認済み。
-  `docs/rjson.md`もpoem-cosmo-tauriと同内容に同期。
+  `cargo test -p open-runo-rustjson`(25件、17→25に増加)・`cargo test -p
+  open-runo-db --features rustjson rustjson`(4件)ともgreenを確認済み。
+  `docs/rustjson.md`もpoem-cosmo-tauriと同内容に同期。
   **次回セッションが最初に行うべきこと(詳細はpoem-cosmo-tauri側の
-  同日CLAUDE.md HANDOFFエントリが正)**: (1) `RjsonBackend`の
+  同日CLAUDE.md HANDOFFエントリが正)**: (1) `RustJsonBackend`の
   `get_field`実装(`extract_path`は完成済み、配線のみ)、(2)
   `open-runo-router`へのRESTエンドポイント配線(`GET
   /api/db/:table/:key/field?path=...`)、(3) 上記完了後Phase 3

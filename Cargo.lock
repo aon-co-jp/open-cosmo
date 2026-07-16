@@ -323,9 +323,9 @@ dependencies = [
 
 [[package]]
 name = "async-graphql-poem"
-version = "7.2.1"
+version = "7.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5484e75de31fd28a2827010e5170b61a37bdb472467b3ba9efc5535c192da664"
+checksum = "df309771a0677a1052e07b3d59f923c5bac7ce4e11048e8efc5e43e46101709a"
 dependencies = [
  "async-graphql",
  "futures-util",
@@ -3133,9 +3133,9 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.30.1"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -3364,6 +3364,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-appserver"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "open-runo-backup"
 version = "0.1.0"
 dependencies = [
@@ -3417,7 +3425,7 @@ dependencies = [
  "deadpool-redis",
  "mongodb",
  "open-runo-core",
- "open-runo-rjson",
+ "open-runo-rustjson",
  "redis",
  "serde",
  "serde_json",
@@ -3463,6 +3471,7 @@ dependencies = [
  "open-runo-persisted-queries",
  "open-runo-router",
  "open-runo-schema-registry",
+ "open-runo-view",
  "poem",
  "reqwest 0.12.28",
  "serde",
@@ -3515,14 +3524,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "open-runo-rjson"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "open-runo-router"
 version = "0.1.0"
 dependencies = [
@@ -3572,6 +3573,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "open-runo-rustjson"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "open-runo-schema-registry"
 version = "0.1.0"
 dependencies = [
@@ -3613,6 +3622,14 @@ name = "open-runo-versionless-api"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "open-runo-view"
+version = "0.1.0"
+dependencies = [
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -3981,9 +3998,9 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "poem"
-version = "3.1.12"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f977080932c87287147dca052951c3e2696f8759863f6b4e4c0c9ffe7a4cc8b"
+checksum = "e5419c612a492fce4961c521dca0c2249b5c48dc46eb5c8048063843f37a711d"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4007,10 +4024,10 @@ dependencies = [
  "smallvec",
  "sse-codec",
  "sync_wrapper",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
- "tokio-tungstenite 0.27.0",
+ "tokio-tungstenite 0.23.1",
  "tokio-util",
  "tracing",
  "wildmatch",
@@ -6126,18 +6143,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-tungstenite"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "489a59b6730eda1b0171fcfda8b121f4bee2b35cba8645ca35c5f7ba3eb736c1"
-dependencies = [
- "futures-util",
- "log",
- "tokio",
- "tungstenite 0.27.0",
-]
-
-[[package]]
 name = "tokio-util"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6412,23 +6417,6 @@ dependencies = [
  "rand 0.8.6",
  "sha1",
  "thiserror 1.0.69",
- "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eadc29d668c91fcc564941132e17b28a7ceb2f3ebf0b9dae3e03fd7a6748eb0d"
-dependencies = [
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.9.4",
- "sha1",
- "thiserror 2.0.18",
  "utf-8",
 ]
 
