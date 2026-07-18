@@ -41,7 +41,7 @@ tokio = { version = "1.40", features = ["full"] }
 # poem="3.1"のような範囲指定はrust-version宣言と実際にビルド可能な
 # バージョンの間に齟齬を生む——これはsandbox限定の回避策ではなく、
 # 「rust-version 1.75」を名乗る以上維持すべき実際の制約。
-poem = { version = "=3.1.0", features = ["sse"] }
+poem = { version = "=3.1.12", features = ["sse"] }
 poem-derive = "=3.1.0"
 indexmap = "=2.2.6"
 serde = { version = "1.0", features = ["derive"] }
