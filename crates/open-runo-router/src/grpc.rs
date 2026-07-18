@@ -12,8 +12,10 @@
 //! (added 2026-07-12: `list_services` for service discovery, e.g.
 //! `grpcurl <addr> list`; extended 2026-07-14 with `file_containing_symbol`
 //! for schema introspection, e.g. `grpcurl <addr> describe
-//! grpc.health.v1.Health`, backed by a hand-rolled `FileDescriptorProto`
-//! for `grpc/health/v1/health.proto`) -- proving the
+//! grpc.health.v1.Health`, and 2026-07-18 with `file_by_filename`, e.g.
+//! `grpcurl <addr> descriptor grpc/health/v1/health.proto`, both backed by
+//! the same hand-rolled `FileDescriptorProto` for
+//! `grpc/health/v1/health.proto`) -- proving the
 //! transport (HTTP/2 framing, the gRPC length-prefixed message envelope,
 //! trailers-based `grpc-status`) and the wire format (Protocol Buffers)
 //! both work end to end for unary, server-streaming, and
@@ -251,6 +253,40 @@ fn extract_file_containing_symbol(bytes: &[u8]) -> Option<String> {
     None
 }
 
+/// If `bytes` is a `ServerReflectionRequest` with the `file_by_filename`
+/// oneof field (field 3) set, return that filename. Parsing mirrors
+/// [`extract_file_containing_symbol`] (field 4) but reads field 3
+/// instead -- these two oneof variants share the same wire type
+/// (length-delimited string), only the field number differs.
+fn extract_file_by_filename(bytes: &[u8]) -> Option<String> {
+    let mut buf = bytes;
+    while !buf.is_empty() {
+        let (tag, rest) = decode_varint(buf)?;
+        let field_number = tag >> 3;
+        let wire_type = tag & 0x7;
+        buf = rest;
+        match wire_type {
+            2 => {
+                let (len, rest) = decode_varint(buf)?;
+                let len = len as usize;
+                if rest.len() < len {
+                    return None;
+                }
+                if field_number == 3 {
+                    return Some(String::from_utf8_lossy(&rest[..len]).into_owned());
+                }
+                buf = &rest[len..];
+            }
+            0 => {
+                let (_, rest) = decode_varint(buf)?;
+                buf = rest;
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
 /// A hand-rolled `FileDescriptorProto` (per
 /// [`descriptor.proto`](https://github.com/protocolbuffers/protobuf/blob/main/src/google/protobuf/descriptor.proto))
 /// describing `grpc/health/v1/health.proto`: the `Health` service
@@ -343,6 +379,22 @@ fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
         "grpc.health.v1.HealthCheckResponse",
     ];
     if HEALTH_SYMBOLS.contains(&symbol) {
+        Some(build_health_file_descriptor_proto())
+    } else {
+        None
+    }
+}
+
+/// Resolve a `file_by_filename` request's proto filename to the
+/// `FileDescriptorProto` bytes of that file, or `None` if this server
+/// doesn't recognize the filename. Unlike [`resolve_symbol_file_descriptor`]
+/// (which resolves *symbols* -- service/method/message names), this
+/// resolves the file path itself -- `grpcurl <addr> descriptor
+/// grpc/health/v1/health.proto` (as opposed to `describe
+/// grpc.health.v1.Health`) is the client-facing use case this closes.
+fn resolve_filename_file_descriptor(filename: &str) -> Option<Bytes> {
+    const HEALTH_PROTO_FILENAME: &str = "grpc/health/v1/health.proto";
+    if filename == HEALTH_PROTO_FILENAME {
         Some(build_health_file_descriptor_proto())
     } else {
         None
@@ -681,15 +733,16 @@ async fn watch_handler(req: Request) -> Response {
 /// response for each). This implementation deliberately only handles a
 /// single request per stream (exactly one request, one response, then
 /// the stream completes) rather than the full bidirectional exchange --
-/// but within that constraint, it now answers both `list_services`
-/// (service discovery, e.g. `grpcurl <addr> list`) and
-/// `file_containing_symbol` (schema introspection, e.g.
-/// `grpcurl <addr> describe grpc.health.v1.Health`) for the services this
-/// server actually implements. `file_by_filename` and extension queries
-/// are still answered with `UNIMPLEMENTED` -- no deployment of this
-/// server's `Health` service needs them, and implementing them would mean
-/// hand-rolling a second file-lookup index for no client this codebase
-/// actually exercises.
+/// but within that constraint, it now answers `list_services` (service
+/// discovery, e.g. `grpcurl <addr> list`), `file_containing_symbol`
+/// (schema introspection, e.g. `grpcurl <addr> describe
+/// grpc.health.v1.Health`), and -- added 2026-07-18 -- `file_by_filename`
+/// (e.g. `grpcurl <addr> descriptor grpc/health/v1/health.proto`) for the
+/// services this server actually implements. Extension queries
+/// (`file_containing_extension`, `all_extension_numbers_of_type`) are
+/// still answered with `UNIMPLEMENTED` -- protobuf extensions aren't a
+/// concept this server's hand-rolled messages use at all, so there is no
+/// meaningful answer to give.
 async fn reflection_handler(req: Request) -> Response {
     let collected = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
@@ -714,8 +767,19 @@ async fn reflection_handler(req: Request) -> Response {
             None => grpc_response(GrpcStatus::NotFound, None),
         };
     }
+    if let Some(filename) = extract_file_by_filename(message) {
+        return match resolve_filename_file_descriptor(&filename) {
+            Some(file_descriptor_proto) => {
+                let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
+                grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
+            }
+            // Recognized request kind, unknown filename -- e.g. asking
+            // about a .proto file this server doesn't serve.
+            None => grpc_response(GrpcStatus::NotFound, None),
+        };
+    }
     // A real, recognized-but-unsupported reflection request kind
-    // (file_by_filename, extension queries).
+    // (extension queries).
     grpc_response(GrpcStatus::Unimplemented, None)
 }
 
@@ -1084,8 +1148,12 @@ mod tests {
     }
 
     /// End-to-end: a reflection request kind this implementation doesn't
-    /// support (`file_by_filename`) must return `UNIMPLEMENTED`, not be
-    /// silently mishandled as if it were `list_services`.
+    /// support (`file_containing_extension`) must return `UNIMPLEMENTED`,
+    /// not be silently mishandled as if it were `list_services`. (Prior to
+    /// 2026-07-18 this test used `file_by_filename` as the "unsupported"
+    /// example -- that request kind is now implemented, see
+    /// `reflection_file_by_filename_*` below, so this test moved to a
+    /// genuinely still-unsupported oneof field.)
     #[tokio::test]
     async fn reflection_returns_unimplemented_for_unsupported_request_kind() {
         use http_body_util::{BodyExt, Full};
@@ -1100,8 +1168,8 @@ mod tests {
         let client: Client<_, Full<Bytes>> =
             Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
 
-        // ServerReflectionRequest { file_by_filename: "x.proto" } -> field 3.
-        let mut request_message = vec![0x1a, 7]; // tag(field 3, wire 2), len 7
+        // ServerReflectionRequest { file_containing_extension: ... } -> field 5.
+        let mut request_message = vec![0x2a, 7]; // tag(field 5, wire 2), len 7
         request_message.extend_from_slice(b"x.proto");
         let request_body = encode_grpc_frame(&request_message);
 
@@ -1117,6 +1185,101 @@ mod tests {
         let resp = client.request(req).await.expect("HTTP/2 request should succeed");
         let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
         assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+    }
+
+    /// End-to-end: `file_by_filename` for a filename this server actually
+    /// serves (`grpc/health/v1/health.proto`) returns `OK` with a
+    /// `file_descriptor_response` carrying the same descriptor bytes as
+    /// `file_containing_symbol` -- both are just different lookup keys
+    /// (filename vs. symbol name) into the same descriptor.
+    #[tokio::test]
+    async fn reflection_file_by_filename_returns_the_real_descriptor_over_real_http2() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        // ServerReflectionRequest { file_by_filename: "grpc/health/v1/health.proto" } -> field 3.
+        let filename = "grpc/health/v1/health.proto";
+        let mut request_message = vec![0x1a, filename.len() as u8];
+        request_message.extend_from_slice(filename.as_bytes());
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let trailers = collected.trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("0"),
+            "file_by_filename for a known filename should succeed"
+        );
+
+        let body_bytes = collected.to_bytes();
+        let message = decode_grpc_frame(&body_bytes)
+            .expect("reflection response should be a valid gRPC-framed message");
+        let as_str = String::from_utf8_lossy(&message);
+        assert!(
+            as_str.contains("grpc.health.v1.Health"),
+            "file descriptor response should embed the real FileDescriptorProto"
+        );
+    }
+
+    /// End-to-end: `file_by_filename` for an unknown filename returns
+    /// `NOT_FOUND`, mirroring `file_containing_symbol`'s unknown-symbol
+    /// behavior.
+    #[tokio::test]
+    async fn reflection_file_by_filename_returns_not_found_for_unknown_filename() {
+        use http_body_util::{BodyExt, Full};
+        use hyper_util::client::legacy::connect::HttpConnector;
+        use hyper_util::client::legacy::Client;
+        use hyper_util::rt::TokioExecutor;
+
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+
+        let mut connector = HttpConnector::new();
+        connector.enforce_http(false);
+        let client: Client<_, Full<Bytes>> =
+            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+
+        let filename = "no/such/file.proto";
+        let mut request_message = vec![0x1a, filename.len() as u8];
+        request_message.extend_from_slice(filename.as_bytes());
+        let request_body = encode_grpc_frame(&request_message);
+
+        let req = HyperRequest::builder()
+            .method("POST")
+            .uri(format!(
+                "http://{addr}/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
+            ))
+            .header("content-type", "application/grpc+proto")
+            .body(Full::new(request_body))
+            .unwrap();
+
+        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("5"), // NOT_FOUND
+            "file_by_filename for an unknown filename should return NOT_FOUND"
+        );
     }
 
     #[test]
@@ -1143,6 +1306,32 @@ mod tests {
         assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check").is_some());
         assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch").is_some());
         assert!(resolve_symbol_file_descriptor("no.such.Service").is_none());
+    }
+
+    #[test]
+    fn extract_file_by_filename_detects_field_3() {
+        // ServerReflectionRequest { file_by_filename: "grpc/health/v1/health.proto" }
+        // -> field 3, tag 0x1a, length-delimited string.
+        let filename = "grpc/health/v1/health.proto";
+        let mut bytes = vec![0x1a, filename.len() as u8];
+        bytes.extend_from_slice(filename.as_bytes());
+        assert_eq!(extract_file_by_filename(&bytes).as_deref(), Some(filename));
+    }
+
+    #[test]
+    fn extract_file_by_filename_ignores_other_oneof_fields() {
+        // ServerReflectionRequest { file_containing_symbol: "grpc.health.v1.Health" }
+        // -> field 4, no file_by_filename present.
+        let symbol = "grpc.health.v1.Health";
+        let mut bytes = vec![0x22, symbol.len() as u8];
+        bytes.extend_from_slice(symbol.as_bytes());
+        assert_eq!(extract_file_by_filename(&bytes), None);
+    }
+
+    #[test]
+    fn resolve_filename_file_descriptor_recognizes_the_health_proto_file() {
+        assert!(resolve_filename_file_descriptor("grpc/health/v1/health.proto").is_some());
+        assert!(resolve_filename_file_descriptor("no/such/file.proto").is_none());
     }
 
     #[test]
