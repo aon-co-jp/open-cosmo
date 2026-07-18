@@ -112,7 +112,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # server-side RFC 6455 implementation in `hyper_compat` (see
 # `handlers_hyper::tests::websocket_echo_round_trip_over_real_tcp`). Not used
 # by any production code path -- the server side is hand-rolled.
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.30"
 # Test-only: generates a throwaway self-signed cert/key pair so
 # `hyper_compat::tls` can be verified end-to-end over a real TLS handshake
 # without checking a certificate into the repo. Not used by production code.
