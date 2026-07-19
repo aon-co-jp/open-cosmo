@@ -221,9 +221,9 @@ AI機能が必要になった場合は、`open-cuda` + `aruaru-llm` のSET構成
   と同時並行で開発): https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
 - **aruaru-db**: https://github.com/aon-co-jp/aruaru-db
-- **open-easyweb**(第二のKUSANAGI、ドメイン/サブドメイン簡単登録+HTTPS
+- **open-easy-web**(第二のKUSANAGI、ドメイン/サブドメイン簡単登録+HTTPS
   自動監視/発行/更新の易操作ツール。高速化機能は含まない、2026-07-13に
-  aruaru-webから分離): https://github.com/aon-co-jp/open-easyweb
+  aruaru-webから分離): https://github.com/aon-co-jp/open-easy-web
 - **aruaru-web**(2026-07-13廃止。易操作機能はopen-easyweb、高速化機能は
   このリポジトリ/poem-cosmo-tauriへ分割継承済み): https://github.com/aon-co-jp/aruaru-web
 - **open-raid-z**(開発ルールの正本): https://github.com/aon-co-jp/open-raid-z
