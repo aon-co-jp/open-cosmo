@@ -55,7 +55,7 @@ Claude Code / Claude Desktopは、ローカルドライブを直接指定して�
 # 技術スタック・開発ルール(open-runo)
 
 **このリポジトリは廃止されていません。** 2026-07-10にユーザー指示により、
-[`poem-cosmo-tauri`](https://github.com/aon-co-jp/poem-cosmo-tauri) と
+[`RPoem`](https://github.com/aon-co-jp/RPoem)(旧`poem-cosmo-tauri`) と
 **同時並行で開発**する方針に変更されました。両リポジトリとも
 **Tauri・Poem を含めない**構成で進めます(open-runoはさらに厳密に
 Tauri/Poemを一切含まない方針。poem-cosmo-tauri側は互換性維持のため
@@ -214,9 +214,9 @@ AI機能が必要になった場合は、`open-cuda` + `aruaru-llm` のSET構成
 
 ## 関連プロジェクト
 
-- **poem-cosmo-tauri**(姉妹リポジトリ・同時並行開発。GraphQL Federation /
+- **RPoem**(旧poem-cosmo-tauri)(姉妹リポジトリ・同時並行開発。GraphQL Federation /
   API Gateway / AI-native routing platform。実装の先行地点):
-  https://github.com/aon-co-jp/poem-cosmo-tauri
+  https://github.com/aon-co-jp/RPoem
 - **open-runo**(このリポジトリ。2026-07-10付けで開発再開・poem-cosmo-tauri
   と同時並行で開発): https://github.com/aon-co-jp/open-runo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
