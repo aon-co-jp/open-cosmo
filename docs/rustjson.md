@@ -1,6 +1,6 @@
 # RustJSON
 
-**Concept**: 石塚正浩(aon CEO)。**文法設計・実装**: Claude(2026-07-14)。
+**Concept**: user/aon。**文法設計・実装**: Claude(2026-07-14)。
 
 ## これは何か
 

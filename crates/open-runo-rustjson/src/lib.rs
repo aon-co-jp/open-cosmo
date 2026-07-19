@@ -1,5 +1,5 @@
 //! RustJSON — a lenient, human-authorable JSON superset designed for this
-//! ecosystem (concept: 石塚正浩, aon CEO; grammar design and this
+//! ecosystem (concept: user; grammar design and this
 //! implementation: Claude, 2026-07-14).
 //!
 //! **Value model**: RustJSON does not introduce a new data model — the parsed

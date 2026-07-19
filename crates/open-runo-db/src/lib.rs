@@ -153,7 +153,7 @@ impl DbBackend for InMemoryBackend {
 pub mod rustjson_backend {
     //! RustJSON-aware `DbBackend`: proves, for real, the first of the three
     //! benefits described for a DB-level RustJSON integration (2026-07-14,
-    //! concept: 石塚正浩・aon CEO) —
+    //! concept: user) —
     //! **automatic write-time validation against RustJSON's grammar**. `put`
     //! parses the incoming value with [`open_runo_rustjson::parse`] and
     //! rejects it outright if it isn't valid RustJSON (which includes every
