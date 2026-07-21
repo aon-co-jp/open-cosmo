@@ -1,16 +1,16 @@
-# open-runo
+# open-runo (RCosmo)
 
-**Rust 製 GraphQL Federation プラットフォーム(Poem/Tauri/Cosmoは非依存・互換自前実装)**
-— WunderGraph Cosmo の有料版機能を OSS・Pure Rust で(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載(外部 LLM 契約不要)。
+**Rust 製 GraphQL Federation プラットフォーム — WunderGraph Cosmo の有料版とWEB高速化技術が基本**
+(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載(外部 LLM 契約不要)。
+**Tauriや、Poem機能はありません**——それらの機能を実装するのは姉妹リポジトリ
+[RPoem](https://github.com/aon-co-jp/RPoem)(旧poem-cosmo-tauri)。
 
-> [poem-cosmo-tauri](https://github.com/aon-co-jp/poem-cosmo-tauri)(姉妹リポジトリ)
-> と同時並行で開発しています。どちらが先行してもよく、乖離に気づいた側がもう
-> 一方へミラーする運用です(詳細は共有の `docs/HYBRID_NETWORK_ARCHITECTURE.md`
-> §0.5)。両リポジトリとも Poem・Tauri・WunderGraph Cosmo のいずれにもパッケージ
-> として直接依存せず、それぞれの機能・API 形状には互換性を保ちつつ Rust 標準
-> ライブラリ + tokio/hyper + WebAssembly で自前実装しています。
-> **Poemとブラウザ内実行機能搭載も含めたTauri両方共に、一から開発して完全互換で
-> 再現する。**
+> RPoemと同時並行で開発しています。どちらが先行してもよく、乖離に気づいた側が
+> もう一方へミラーする運用です(詳細は共有の `docs/HYBRID_NETWORK_ARCHITECTURE.md`
+> §0.5)。共通コア(WunderGraph Cosmoの有料版機能+WEB高速化)はパッケージとして
+> 直接依存せず、Rust 標準ライブラリ + tokio/hyper で自前実装しています。
+> **このリポジトリ(RCosmo)にはTauri・Poemの再現実装は含まれません**——それらを
+> 含む版はRPoemを参照してください。
 
 [![CI](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
