@@ -117,7 +117,7 @@ Cache & Backup/Analytics(月間リクエスト数・オペレーション別レ�
 AI HTML キャッシュを有効化して自分のアプリに載せる例・全環境変数・
 全エンドポイントは **[PORTING.md](PORTING.md)** を参照してください。
 
-## ワークスペース構成（18 クレート）
+## ワークスペース構成（21 クレート）
 
 | クレート | 役割 |
 |----------|------|
@@ -136,6 +136,9 @@ AI HTML キャッシュを有効化して自分のアプリに載せる例・全
 | `open-runo-cli` | wgc 相当の CLI（schema register/get/history・federation status・openapi・login） |
 | `open-runo-api-types` | REST/CLI 共有の型定義 |
 | `open-runo-feature-flags` | Feature Flags（決定的バケッティングによる canary ロールアウト） |
+| `open-runo-rustjson` | 標準JSON完全互換の拡張パーサー（トレイリングコンマ等4拡張・`extract_path`） |
+| `open-runo-appserver` | 第二のTomcat骨格（Supervisor・Dispatcher・ThreadedProxyServer） |
+| `open-runo-view` | 第二のReact骨格（VNode diff/patch・hooks・SSR） |
 | `open-runo-history` / `-backup` / `-observability` | 変更履歴 / バックアップ / 監視(OTLP export 対応) |
 
 ## デプロイ

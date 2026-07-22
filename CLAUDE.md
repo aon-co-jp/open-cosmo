@@ -457,6 +457,63 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-22 バックグラウンドエージェント異常終了後の状態確認 + 実ビルド・
+  テスト検証 + ドキュメントdrift1件修正**: 前セッションでこのリポジトリを
+  含む複数リポジトリへ並列起動していたバックグラウンドエージェントが
+  Claude Codeプロセスの異常終了で中断した可能性を受け、セッション開始時に
+  `git status`/`git diff`を確認したところ**このリポジトリは未コミット
+  差分ゼロでクリーン**(直前コミット`ddeb5ec`がorigin/mainと一致)——
+  失われた作業は無かった。`git log`直近15件とこのCLAUDE.mdのHANDOFF記載
+  (RPoem/open-easy-web改称・README修正等)も実コミット履歴と一致することを
+  確認、齟齬なし。
+  - **実ビルド・テスト検証**: `cargo build --workspace`(ネイティブ
+    Windows cargo 1.96)が3分43秒で成功(エラーゼロ)。`cargo test
+    --workspace`は同環境で`open-runo-appserver`の2テストが失敗した
+    (`supervisor_reports_up_for_long_running_process_and_stops_it`:
+    テストが`current_dir("/tmp")`+コマンド`sleep`を使用しWindowsネイティブ
+    環境では起動自体が失敗、`Crashed(None)`が返る原因を特定;
+    `server::tests::serves_concurrent_requests_across_worker_threads`:
+    ローカルループバックTCPの一時的な`ConnectionAborted (10053)`)。
+    いずれも**コードの実バグではなくWindowsネイティブ環境特有のテスト
+    非互換/一過性の問題**と判断——後者は同一テストを単体で3回連続実行し
+    全て成功(flaky)することを確認、前者はこのプロジェクトの運用ルール
+    (「cargo build/test/checkは全てWSL Ubuntu経由が基本」)が指す
+    正規の検証経路ではない環境で実行したことによる既知の想定内差異
+    (`/tmp`・`sleep`はUnix専用)。**運用ルール通りWSL Ubuntu
+    (`wsl -d Ubuntu -e bash -lc "cd /mnt/f/runo/RCosmo && cargo test
+    --workspace"`)で改めて全体実行し、exit code 0(失敗ゼロ)を確認**——
+    こちらが正規の検証結果。
+  - **発見したドキュメントdrift(修正済み)**: `docs/poem-parity.md`の
+    gRPC対応行が、2026-07-18に実装済み(コミット`442bc54`)の
+    `file_by_filename`サポート(`crates/open-runo-router/src/grpc.rs`の
+    `extract_file_by_filename`/`resolve_file_by_filename`、実HTTP/2経由の
+    E2Eテスト2本含む)を依然「未対応」と記載したままだった——実装コード
+    (コメント・テスト名に明記)とドキュメントを突き合わせて発見、
+    ✅完了へ修正。
+  - **README多言語版のクレート数drift(修正済み)**: `README.md`・
+    README-Japan.md`・`README-English.md`が「18クレート」と記載していたが
+    `ls crates/`の実クレート数は**21**(`open-runo-rustjson`・
+    `open-runo-appserver`・`open-runo-view`の3件が2026-07-14〜16のパスで
+    追加されて以降、この3ファイルの表に反映されていなかった)——3件を
+    表に追加し21クレートへ修正。他8言語版(中/韓/西/仏/独/伊/露/アラビア語)
+    は今回未着手(次回パス候補)。
+  - **個人情報ハードコードの確認**: `norukia`/実gmailアドレス・実電話番号
+    パターンでリポジトリ全体を検索、該当ゼロ(`.env.example`はプレース
+    ホルダのみ)。
+  - **既知の未解消issue(今回は変更せず、次回検討候補として再確認)**:
+    2026-07-15コードヘルス監査で指摘された「`open-runo-gateway`が
+    `poem`/`async-graphql-poem`へ直接依存している(CLAUDE.mdの
+    『Tauri・Poemを直接依存させない』方針と矛盾)」というdriftを
+    `cargo tree -i poem`で再確認、依然として解消されていないことを確認
+    (`open-runo-gateway/Cargo.toml`の26/33/34/38行目に直接依存記載、
+    GraphQL/SSRハンドラの実装がpoemの`Route`/`Handler`APIに強く依存して
+    いるため、依存を外すには`open-runo-gateway`crateの大規模書き換えが
+    必要——本パスの「大規模リファクタリングはしない」制約により見送り。
+    対応するにはPoem依存部分を独自HTTPレイヤーへ移行する専用パスとして
+    切り出すべき)。
+  - コミット・push: README×3・docs/poem-parity.md・このCLAUDE.mdの
+    HANDOFF追記(コミットハッシュは次回`git log`参照)。
+
 - **2026-07-16 `open-runo-appserver::SharedDispatcher`をpoem-cosmo-tauri
   からミラー(「分身の術」マルチテナント化の基盤部分のみ)**: ユーザーの
   「open-web-server・poem-cosmo-tauri・open-raid-z・aruaru-dbをドメイン

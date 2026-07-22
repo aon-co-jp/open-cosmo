@@ -57,7 +57,7 @@
 | ~~Multipart/ファイルアップロード~~ | ★☆☆ | ✅ 完了(2026-07-11)。`POST /api/schemas/upload`でSDLファイルの直接アップロードに対応 |
 | ~~Cookie/セッション + CSRF~~ | ★☆☆ | ✅ 完了(2026-07-12)。X-Api-Key認証への追加経路として実装(置き換えではない) |
 | ~~ACME(自動証明書発行)~~ | ★★☆ | ✅ 完了。HTTP-01(2026-07-12)・TLS-ALPN-01(2026-07-12)・DNS-01(2026-07-14)の3チャレンジ型すべてに対応 |
-| ~~gRPC対応~~ | ★☆☆ | ✅ 完了。`grpc.health.v1.Health/Check`(unary)・`/Watch`(streaming、2026-07-12)・`grpc.reflection.v1.ServerReflection`の`list_services`(2026-07-12)+`file_containing_symbol`(2026-07-14、`grpc.health.v1.Health`用の手書き`FileDescriptorProto`を実際に返す——`grpcurl <addr> describe grpc.health.v1.Health`が動く程度のスキーマ内省に対応)。`file_by_filename`・extension query・Health以外のサービスへの内省は未対応(このサーバーが実装するのはHealth serviceのみのため、現実に使われる範囲を超える) |
+| ~~gRPC対応~~ | ★☆☆ | ✅ 完了。`grpc.health.v1.Health/Check`(unary)・`/Watch`(streaming、2026-07-12)・`grpc.reflection.v1.ServerReflection`の`list_services`(2026-07-12)+`file_containing_symbol`(2026-07-14)+`file_by_filename`(2026-07-18、`grpcurl <addr> descriptor grpc/health/v1/health.proto`が動く程度のスキーマ内省に対応、`grpc.health.v1.Health`用の手書き`FileDescriptorProto`を実際に返す)。extension query・Health以外のサービスへの内省は未対応(このサーバーが実装するのはHealth serviceのみのため、現実に使われる範囲を超える) |
 | ~~Multipart以外のファイル添付~~ | ★☆☆ | ✅ 完了(2026-07-12)。`POST /api/schemas/upload-raw`で生バイト列(`Content-Type: application/octet-stream`等)+クエリパラメータ(`service_name`必須、`stage`/`namespace`任意)による登録に対応。JSON・Multipartと同じ`register_schema_and_respond`に集約しているため3経路とも同一の登録結果に収束する |
 | ~~MCP Server対応~~ | ★☆☆ | ✅ 完了(2026-07-12) |
 

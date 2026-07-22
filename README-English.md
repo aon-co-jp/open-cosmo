@@ -135,7 +135,7 @@ cargo run -p open-runo-cli -- federation status
 If you don't pass `--api-key`, one is auto self-issued, so local development
 works with no extra setup.
 
-## Workspace structure (18 crates)
+## Workspace structure (21 crates)
 
 Composed of `open-runo-router` (REST gateway / auth / audit / AI HTML cache /
 self-maintenance), `open-runo-gateway` (GraphQL endpoint: Federation /
@@ -147,7 +147,11 @@ limiting), `open-runo-scim` (SCIM 2.0), `open-runo-cache`,
 `open-runo-persisted-queries`, `open-runo-ai-routing`,
 `open-runo-versionless-api`, `open-runo-cli` (a `wgc`-equivalent CLI),
 `open-runo-api-types` (shared REST/CLI types), `open-runo-feature-flags`
-(deterministic-bucketing canary rollouts), and `open-runo-history` /
+(deterministic-bucketing canary rollouts), `open-runo-rustjson` (a
+standard-JSON-compatible extended parser: trailing commas etc. plus
+`extract_path`), `open-runo-appserver` (a second-Tomcat skeleton: Supervisor
+/ Dispatcher / ThreadedProxyServer), `open-runo-view` (a second-React
+skeleton: VNode diff/patch, hooks, SSR), and `open-runo-history` /
 `-backup` / `-observability` (the latter with OTLP trace export). See
 [docs/architecture.md](docs/architecture.md) for details.
 
