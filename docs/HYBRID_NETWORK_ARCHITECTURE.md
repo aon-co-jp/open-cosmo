@@ -1,9 +1,9 @@
 # Hybrid Network Architecture — Technical Rules / 技術ルールファイル
 
-**Status:** v1.0 (2026-07-15) — §0.9 added: 第二のApache/Tomcat/React positioning declaration and phased roadmap (universal runtime host + React-compatible view layer); scope extended to open-easyweb. Previous: Draft v0.9 (2026-07-12) — §0.5 updated with the exact user-confirmed phrasing for the Poem/Tauri reproduction mission (including in-browser execution); fixed stale one-directional lead/mirror claims in open-runo/poem-cosmo-tauri READMEs (JP+EN); left-aligned the docs-links lists in open-runo/poem-cosmo-tauri READMEs (JP+EN, were a flowing middot-separated paragraph); merged with §0.8 next-session directive, §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
+**Status:** v1.0 (2026-07-15) — §0.9 added: 第二のApache/Tomcat/React positioning declaration and phased roadmap (universal runtime host + React-compatible view layer); scope extended to open-easyweb. Previous: Draft v0.9 (2026-07-12) — §0.5 updated with the exact user-confirmed phrasing for the Poem/Tauri reproduction mission (including in-browser execution); fixed stale one-directional lead/mirror claims in open-cosmo/poem-cosmo-tauri READMEs (JP+EN); left-aligned the docs-links lists in open-cosmo/poem-cosmo-tauri READMEs (JP+EN, were a flowing middot-separated paragraph); merged with §0.8 next-session directive, §0.7 concrete ZFS+ACID implementation, §0.6 postponed-item closure log, §0.5 relationship correction, zero-data-loss mission, open-web-server audit findings, aruaru-db UPSERT fix, and JP+EN research rule
 
 **Tooling honesty note:** this session has no general web-search tool (only `github.com`/`crates.io`/`npmjs.com`-class dev-infra domains are network-reachable). Requests to "Google search in Japanese and English, check GitHub, read blogs/SNS/X, confirm official doc URLs" for unresearched/unverified topics could not be executed literally in this session. Where verification was possible, it was done by reading this repo family's own source code directly (which caught several real stale-doc bugs — see §0.6) rather than external research. §0.8's directive to research before implementing the 4-layer transport stack stands for whichever future session has web-search available; if this constraint hasn't changed, say so explicitly rather than fabricating research findings.
-**Scope:** `open-runo`, `poem-cosmo-tauri`, `open-web-server`, `open-easyweb`, `aruaru-db`, `open-raid-z`
+**Scope:** `open-cosmo`, `poem-cosmo-tauri`, `open-web-server`, `open-easyweb`, `aruaru-db`, `open-raid-z`
 **Mission:** Guaranteed delivery + guaranteed read/write for data that must never be lost — 3D online game paid items, online finance, online securities/brokerage. See §0.
 **Portability:** This file is written to be dependency-free of any single repo. Copy it as-is into any project in the `aon-co-jp` family; only the "Per-Project Status" table needs updating.
 
@@ -29,7 +29,7 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
 3. **Layer-switch transparency** — if a session migrates from QUIC (L2) to TCP (L3) mid-transaction (see §1 table), the in-flight transaction must survive the switch or be safely retried, never silently dropped.
 4. **Auditability** — every asset/financial write must be traceable end-to-end across the transport and storage layers for reconciliation and dispute resolution.
 
-## 0.5 `open-runo` ⇔ `poem-cosmo-tauri` の関係と同期ルール(2026-07-12 確認、同日中に訂正)
+## 0.5 `open-cosmo` ⇔ `poem-cosmo-tauri` の関係と同期ルール(2026-07-12 確認、同日中に訂正)
 
 > ⚠️ **訂正(同日中)**: 本節の初版は「共有クレートが完全一致 = 2プロジェクトの
 > 規模・機能・役割はほぼ同じ」と誤って結論づけていた。これは誤り。
@@ -50,7 +50,7 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
 
 ### 規模・機能・役割は全く別物(重要、混同厳禁)
 
-- **`open-runo` = GraphQL Federation プラットフォームという「製品」そのもの。**
+- **`open-cosmo` = GraphQL Federation プラットフォームという「製品」そのもの。**
   WunderGraph Cosmo の有料版機能(Federation・Schema Registry・SCIM・
   Persisted Queries・Cache/Backup・AI Routing・DUAL DATABASE・
   Versionless API 等)を OSS で提供することが役割。スコープは
@@ -60,7 +60,7 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
   いう、全く別次元の役割を追加で背負っている。** これは「Federation
   プラットフォームの一機能」ではなく、「他社製フレームワーク2つを
   ゼロから作り直すR&Dプロジェクト」という、スケール感も目的も異なる
-  仕事である。`open-runo` にはこの役割は無い。**Poemとブラウザ内実行
+  仕事である。`open-cosmo` にはこの役割は無い。**Poemとブラウザ内実行
   機能搭載も含めたTauri両方共に、一から開発して完全互換で再現する。**
   (2026-07-12、ユーザー確定の表現として本文にそのまま記録)
 - **現状、共有クレート(`crates/`・`apps/`)が両リポジトリで完全一致して
@@ -68,7 +68,7 @@ This mission subsumes and reorganizes the goals in §1 — treat §1–§4 as *h
   「これまでの実装がその都度ミラーされてきたため、役割の違いがまだ
   実コードの分岐として表面化していないだけ」である。** 将来、
   `poem-cosmo-tauri` 側で Poem/Tauri 再現の作業が本格的に進めば、
-  `open-runo` には無い独自コードが大量に増える見込みであり、それは
+  `open-cosmo` には無い独自コードが大量に増える見込みであり、それは
   正常な乖離であって「同期漏れ」ではない。
 - **今後この2リポジトリを扱う際は、「共有クレートの中心技術部分だけを
   見比べて同期する」作業と、「それぞれのプロジェクトが本来目指す規模・
@@ -133,7 +133,7 @@ toolchain/CI before treating any of this as fully closed.
 
 ## 0.7 ZFS互換 × ACID互換ハイブリッド — 具体的実装(2026-07-12, `aruaru-db`)
 
-`open-web-server`/`open-runo`/`poem-cosmo-tauri`/`aruaru-db`/`open-raid-z`
+`open-web-server`/`open-cosmo`/`poem-cosmo-tauri`/`aruaru-db`/`open-raid-z`
 の5リポジトリ全体で目指す「ZFS互換とACID互換のハイブリッド」を、まず
 `aruaru-db`で具体的なコードとして実装した(§1の目標アーキテクチャの一部を
 前倒しで着手)。
@@ -170,7 +170,7 @@ toolchain/CI before treating any of this as fully closed.
 
 - `open-web-server-ledger`のWAL書き込みステップに同じチェックサム層を
   接続する(§1の優先順位6番)。
-- `open-runo`/`poem-cosmo-tauri`側の`open-runo-db`クレート(federated
+- `open-cosmo`/`poem-cosmo-tauri`側の`open-runo-db`クレート(federated
   バックエンド)にも同様のチェックサム検証を追加できるか検討する。
 - `open-raid-z`側は逆に、`aruaru-db`のGit-on-SQLコミットIDをZFS
   スナップショットのタグとして扱えないか(README-Japan.mdで「次回新規
@@ -217,7 +217,7 @@ toolchain/CI before treating any of this as fully closed.
 4. 実装後は、本ドキュメント(開発方針＆開発環境ルールファイル)・
    10ケ国語README・他プロジェクトへのお引越し可能ファイル(本ドキュメントと
    `docs/i18n/hybrid-network/`一式)を最新の実装内容に合わせて更新し、
-   関連リポジトリ全て(`open-web-server`・`open-runo`・`poem-cosmo-tauri`・
+   関連リポジトリ全て(`open-web-server`・`open-cosmo`・`poem-cosmo-tauri`・
    `aruaru-db`・`open-raid-z`)へ読み書き・統合・pushすること。
 
 
@@ -232,8 +232,8 @@ toolchain/CI before treating any of this as fully closed.
 | 既存世界の役割 | 本エコシステムでの担当 | 意味 |
 |---|---|---|
 | **第二のApache** (HTTPサーバ/リバースプロキシ/vhost) | `open-web-server` (+ 管理UIとして `open-easyweb`) | TenantRegistryマルチドメインルーティング + app_proxy。静的配信・TLS・vhost・テナント分離を担う入口層 |
-| **第二のTomcat** (アプリケーションコンテナ) | `open-runo` / `poem-cosmo-tauri` | ただし**Javaに限定しない汎用ランタイムホスト**。§0.9.2の言語×フレームワーク行列を第一級サポート |
-| **第二のReact** (UIコンポーネント/宣言的ビュー) | `open-runo` / `poem-cosmo-tauri` 内に新設するビュー層クレート | Reactの機能を**完全互換で一から** Rust+Poem 系技術で再実装・完全移植する(§0.5のPoem+Tauri完全互換再現ミッションの一部として遂行) |
+| **第二のTomcat** (アプリケーションコンテナ) | `open-cosmo` / `poem-cosmo-tauri` | ただし**Javaに限定しない汎用ランタイムホスト**。§0.9.2の言語×フレームワーク行列を第一級サポート |
+| **第二のReact** (UIコンポーネント/宣言的ビュー) | `open-cosmo` / `poem-cosmo-tauri` 内に新設するビュー層クレート | Reactの機能を**完全互換で一から** Rust+Poem 系技術で再実装・完全移植する(§0.5のPoem+Tauri完全互換再現ミッションの一部として遂行) |
 
 ### 0.9.2 汎用ランタイムホストの対応行列(第二のTomcat)
 
@@ -269,15 +269,15 @@ toolchain/CI before treating any of this as fully closed.
 
 - §0のゼロデータロス保証(課金アイテム・金融・証券・不動産・クレジットカード)を
   損なう最適化は不可。
-- §0.5の同期規則: 共有クレートは open-runo ⇔ poem-cosmo-tauri でミラーする。
+- §0.5の同期規則: 共有クレートは open-cosmo ⇔ poem-cosmo-tauri でミラーする。
   poem-cosmo-tauri のミッション(Poem+ブラウザ内実行機能搭載Tauriの完全互換再現)は
-  open-runo より大きく、規模を理由に作業を先送りしない。
+  open-cosmo より大きく、規模を理由に作業を先送りしない。
 - 日英二言語での事前リサーチ規則は、web検索可能なセッションで実施すること
   (本セッションはdev-infraドメインのみ到達可能)。
 
 ## 1. Goal (目指すもの)
 
-Build a **hybrid transport + storage stack** across the five projects so that a single logical request (e.g. a GraphQL federation query landing on `open-runo`) can, end-to-end:
+Build a **hybrid transport + storage stack** across the five projects so that a single logical request (e.g. a GraphQL federation query landing on `open-cosmo`) can, end-to-end:
 
 1. Arrive over the fastest available transport for the client/network conditions (multi-layer transport negotiation).
 2. Be served from `aruaru-db` with full ACID guarantees even when the underlying storage is distributed.
@@ -299,15 +299,15 @@ The "4層4重" framing means: don't pick one transport. Run a layered fallback/n
 
 This section must be kept honest and specific — do not let it become aspirational. Update per project:
 
-- **`open-runo`**: GraphQL federation gateway. Has `poem-parity.md`, `cosmo-parity.md`, `tauri-parity.md` tracking feature parity with Poem/Cosmo/Tauri references — meaning transport-layer work is already being scoped, but (as of last working session) UPSERT/SQL compatibility with `aruaru-db` is an open gap, and some crates were not yet pushed (non-compilable state flagged in earlier sessions).
+- **`open-cosmo`**: GraphQL federation gateway. Has `poem-parity.md`, `cosmo-parity.md`, `tauri-parity.md` tracking feature parity with Poem/Cosmo/Tauri references — meaning transport-layer work is already being scoped, but (as of last working session) UPSERT/SQL compatibility with `aruaru-db` is an open gap, and some crates were not yet pushed (non-compilable state flagged in earlier sessions).
 - **`aruaru-db`**: Hybrid distributed DB with Git-on-SQL. Poem web framework integration confirmed well-optimized, minimal middleware overhead — this is a real, verified data point, not aspirational. **UPSERT gap closed (2026-07-12)**: parser now handles `INSERT ... ON CONFLICT (col) DO UPDATE SET ... / DO NOTHING`, including `EXCLUDED.col` references, wired into a new `upsert()` executor. Verified via an isolated 16-test suite (parser layer, since this sandbox's toolchain cannot compile the full crate — see rule on toolchain limitations below); 4 additional engine-level tests were written but not yet run in a real toolchain/CI — confirm those before treating this as fully closed.
 - **`open-raid-z`**: Experimental Windows filesystem with ZFS-style features. `Pool::read_unaligned`/`write_unaligned` implemented. `orzctl migrate` subcommand exists with integration tests. FAT32 test coverage exists. Known constraint: `windows` crate v0.58 is `#![cfg(windows)]`-gated, so Windows-native types are unavailable when developing/testing on Linux — any hybrid-network code touching `open-raid-z` internals must account for this at CI time (feature-gate or mock).
-- **`poem-cosmo-tauri`**: Referenced as a Tauri-based desktop counterpart; parity doc exists in `open-runo` (`tauri-parity.md`) but this repo's own transport work is new as of this session per the user.
+- **`poem-cosmo-tauri`**: Referenced as a Tauri-based desktop counterpart; parity doc exists in `open-cosmo` (`tauri-parity.md`) but this repo's own transport work is new as of this session per the user.
 - **`open-web-server`**: **Audited 2026-07-12.** Far more mature than the earlier "unaudited" placeholder suggested. Already implements:
   - A 4-layer defense-in-depth wire protocol (`open-web-server-wire`): L1 TLS 1.3 (rustls) → L2 mutual auth → L3 ChaCha20-Poly1305 AEAD application-layer payload encryption → L4 replay-guard (monotonic seq + timestamp bound into AEAD associated data, rejecting replayed ciphertext that AEAD alone wouldn't catch).
   - A parallel, orthogonal `udp_channel` module (added 2026-07-11) for **transport-path redundancy** — the same `MutationRequest` is fire-and-forth sent over UDP alongside the authoritative TCP path; UDP failure/timeout never affects the TCP-path commit. This is exactly the §1 L1/L2 relationship, already implemented, not just designed.
   - `open-web-server-core`: `IdempotencyKey`, `MutationRequest`/`MutationReceipt` domain types — every write requires an idempotency key by construction (a `CoreError::DuplicateKey` variant exists specifically to reject re-application).
-  - `open-web-server-ledger`: the documented 3-hop commit pipeline — open-web-server (local WAL, fsync) → open-runo (Federation routing + audit log) → aruaru-db (Raft consensus, Git-on-SQL commit id). Client only gets "confirmed" after step 3's commit id returns.
+  - `open-web-server-ledger`: the documented 3-hop commit pipeline — open-web-server (local WAL, fsync) → open-cosmo (Federation routing + audit log) → aruaru-db (Raft consensus, Git-on-SQL commit id). Client only gets "confirmed" after step 3's commit id returns.
   - `open-web-server-gateway`: hyper/tokio-based HTTP entrypoint (explicitly *not* Poem-dependent as of a 2026-07-10 stack pivot, while keeping API-shape compatibility with the earlier Poem implementation), with `/api/v1/items/grant` and `/api/v1/transactions/charge` handlers and an idempotency-key-required middleware gate.
   - **Conclusion: §0's mission is already substantially implemented here**, ahead of the other four repos. The remaining gap is wiring `aruaru-db`'s new UPSERT support (this session) into the ledger's aruaru-db-facing write path, and connecting `open-raid-z` checksums into the WAL step.
 
@@ -319,7 +319,7 @@ Priority order, reasoning included so it can be re-argued later:
 2. ~~Audit `open-web-server`.~~ **Done (2026-07-12)** — turned out to be the most mission-complete of the five repos; see §2.
 3. **Confirm the two items above actually compile/pass in a real toolchain.** This session's sandbox could not build the full `aruaru-query` crate (edition2024 transitive-dependency issue, same class as `open-raid-z`'s documented constraint) — the parser fix was verified in isolation, and the engine-level tests are unverified. Do this before building anything on top.
 4. **Wire `aruaru-db`'s new UPSERT support into `open-web-server-ledger`'s aruaru-db write path**, replacing whatever placeholder/plain-INSERT logic it currently uses for the final Raft-consensus commit step.
-5. **Define the L1–L4 negotiation contract as a shared crate/interface**, consumed by `open-runo`'s gateway and `open-web-server` — `open-web-server-wire`'s 4-layer defense-in-depth stack and `udp_channel` are a strong starting reference implementation; don't reinvent it, extract/generalize it.
+5. **Define the L1–L4 negotiation contract as a shared crate/interface**, consumed by `open-cosmo`'s gateway and `open-web-server` — `open-web-server-wire`'s 4-layer defense-in-depth stack and `udp_channel` are a strong starting reference implementation; don't reinvent it, extract/generalize it.
 6. **Wire `open-raid-z` scrub/checksum hooks into `open-web-server-ledger`'s WAL step and `aruaru-db`'s write path** as an opt-in durability layer.
 7. **Only then** build further QUIC/UDP fast-path work — `open-web-server` already has a working UDP redundant path; evaluate whether it needs QUIC specifically or whether the existing design already satisfies §0.
 
@@ -343,4 +343,4 @@ Priority order, reasoning included so it can be re-argued later:
 - Do we have real benchmark numbers for QUIC vs TCP in this stack, or only from general literature (which should not be cited as fact per §1 disclosure)?
 - Which project owns the idempotency-key / transaction-ID scheme for §0 zero-loss guarantees — `aruaru-db`, or a new shared crate? **Partially answered**: `open-web-server-core::IdempotencyKey` already exists and propagates through the 3-hop pipeline; `aruaru-db::execute_idempotent` also already exists independently. These two schemes need to be reconciled/unified rather than left as two parallel idempotency systems.
 - Has the `aruaru-db` UPSERT fix and its engine-level tests actually been compiled and run in a real toolchain (not this session's sandbox)?
-- Should `open-runo`'s federation layer generate the `EXCLUDED.col`-style UPSERT SQL that `aruaru-db` now understands, or does it already, making this fix immediately usable end-to-end?
+- Should `open-cosmo`'s federation layer generate the `EXCLUDED.col`-style UPSERT SQL that `aruaru-db` now understands, or does it already, making this fix immediately usable end-to-end?

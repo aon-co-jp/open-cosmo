@@ -217,8 +217,13 @@ AI機能が必要になった場合は、`open-cuda` + `aruaru-llm` のSET構成
 - **RPoem**(旧poem-cosmo-tauri)(姉妹リポジトリ・同時並行開発。GraphQL Federation /
   API Gateway / AI-native routing platform。実装の先行地点):
   https://github.com/aon-co-jp/RPoem
-- **open-runo**(このリポジトリ。2026-07-10付けで開発再開・poem-cosmo-tauri
-  と同時並行で開発): https://github.com/aon-co-jp/open-runo
+- **RCosmo**(このリポジトリ。2026-07-10付けで開発再開・poem-cosmo-tauri/RPoem
+  と同時並行で開発): https://github.com/aon-co-jp/RCosmo
+- **open-cosmo**(旧`open-runo`、GitHub上で改称。RPoemの姉妹リポジトリとして
+  別途開発されている独立した第三のプロジェクト。このリポジトリ自身では
+  ない——過去のドキュメントで「open-runo(このリポジトリ)」と誤って
+  自己言及していた箇所が残っている可能性があるため注意):
+  https://github.com/aon-co-jp/open-cosmo
 - **open-web-server**: https://github.com/aon-co-jp/open-web-server
 - **aruaru-db**: https://github.com/aon-co-jp/aruaru-db
 - **open-easy-web**(第二のKUSANAGI、ドメイン/サブドメイン簡単登録+HTTPS

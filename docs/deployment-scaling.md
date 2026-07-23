@@ -4,7 +4,7 @@
 
 This ecosystem's `CLAUDE.md` previously concluded that Nginx-style
 FastCGI-buffer tuning and named-upstream keepalive pooling had "no
-equivalent need" here, reasoning that `open-runo`/`poem-cosmo-tauri` *is*
+equivalent need" here, reasoning that `open-cosmo`/`poem-cosmo-tauri` *is*
 the Rust server, not a proxy in front of one. A user pushed back with a
 concrete analogy: Apache HTTPD commonly sits in front of Tomcat
 (`mod_proxy_http`/`mod_proxy_ajp`), providing TLS termination, static-asset
