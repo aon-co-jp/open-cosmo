@@ -1,15 +1,29 @@
 name: Release
 
+# タグ(例: v0.1.0)をpushすると、Linux(x86_64/aarch64)・Windows(x86_64、
+# Windows Serverも同じバイナリで動作)向けにビルドし、GitHub Releasesへ
+# 添付する(RPoem/open-web-server側の release.yml と同じ構成、
+# 2026-07-23、エコシステム全体インストーラー整備計画の一環)。
+#
+# sibling path依存の確認: open-runo-router自身、および依存する
+# workspace crateはすべてこのリポジトリ内のpath依存のみ(../open-runo-*
+# 等リポジトリ内相対パス)であり、他リポジトリへのpath依存は無い
+# (2026-07-23確認済み、RPoemのようなsibling checkoutは不要)。
+
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  build-release:
+  build-linux:
     name: build release binaries (${{ matrix.target }})
     strategy:
       fail-fast: false
@@ -25,9 +39,58 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - name: Install aarch64 cross-compiler (ring crate needs a C toolchain)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p open-runo-router --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/open-runo-router dist/open-runo-router
+          cp install.sh dist/install.sh
+          tar -czf open-runo-router-${{ matrix.target }}.tar.gz -C dist open-runo-router install.sh
       - uses: actions/upload-artifact@v4
         with:
           name: open-runo-router-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/open-runo-router
+          path: open-runo-router-${{ matrix.target }}.tar.gz
+
+  build-windows:
+    name: build release binary (Windows x86_64、Windows Server含む)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p open-runo-router --target x86_64-pc-windows-msvc
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/x86_64-pc-windows-msvc/release/open-runo-router.exe dist/
+          Copy-Item install.ps1 dist/
+          Compress-Archive -Path dist/* -DestinationPath open-runo-router-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-runo-router-windows-x86_64
+          path: open-runo-router-windows-x86_64.zip
+
+  release:
+    name: GitHub Releaseへ添付
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            open-runo-router-x86_64-unknown-linux-gnu/open-runo-router-x86_64-unknown-linux-gnu.tar.gz
+            open-runo-router-aarch64-unknown-linux-gnu/open-runo-router-aarch64-unknown-linux-gnu.tar.gz
+            open-runo-router-windows-x86_64/open-runo-router-windows-x86_64.zip
