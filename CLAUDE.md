@@ -52,12 +52,12 @@ Claude Code / Claude Desktopは、ローカルドライブを直接指定して�
 
 ---
 
-# 技術スタック・開発ルール(open-runo)
+# 技術スタック・開発ルール(RCosmo)
 
 **このリポジトリは廃止されていません。** 2026-07-10にユーザー指示により、
 [`RPoem`](https://github.com/aon-co-jp/RPoem)(旧`poem-cosmo-tauri`) と
 **同時並行で開発**する方針に変更されました。両リポジトリとも
-**Tauri・Poem を含めない**構成で進めます(open-runoはさらに厳密に
+**Tauri・Poem を含めない**構成で進めます(RCosmoはさらに厳密に
 Tauri/Poemを一切含まない方針。poem-cosmo-tauri側は互換性維持のため
 名称にPoem/Tauriを残しつつ実体はTauri/Poem非依存)。共通点: どちらも
 WunderGraph Cosmo(有料版含む)をパッケージとして直接依存させず、
@@ -66,7 +66,7 @@ Rust標準ライブラリ + tokio/hyperで機能を自前実装する。
 poem-cosmo-tauri側で先行し、動作確認が取れたファイルをこちらにも
 ミラーしていく運用とする。
 
-## poem-cosmo-tauri と open-runo の違い(2026-07-11、ユーザー確認済み)
+## poem-cosmo-tauri と RCosmo の違い(2026-07-11、ユーザー確認済み)
 
 両リポジトリは共通コアを持つが、**スコープが異なる別々のリポジトリ
 プロジェクト**であり、統合・一本化すべき対象ではない。
@@ -80,7 +80,7 @@ poem-cosmo-tauri側で先行し、動作確認が取れたファイルをこち�
   の**全機能を、AI駆動開発によって一から自作・再現する**ことを目指す
   ——単にAPI形状・体験の互換性を保つだけでなく、両フレームワークの
   機能そのものを自前実装として再現する、という上乗せの目標を持つ。
-  **このリポジトリ(open-runo)にはこの上乗せ目標はない**——Cosmo
+  **このリポジトリ(RCosmo)にはこの上乗せ目標はない**——Cosmo
   パリティの共通コアが中心。
 - 両リポジトリは共通コアを持つが**全く違うリポジトリのプロジェクト**であり、
   「ミラー」作業は必ずしも「同一スコープの複製」を意味しない——
@@ -97,7 +97,7 @@ WEBアプリ開発を効率的に行えるようにするための**フレーム
 ウェア**である。3要素いずれも「連携」ではなく、そのフレームワーク自体の
 完全互換な自前再実装を指す点に注意(2026-07-11、ユーザーによる訂正)。
 
-1. **cosmo部分(= このリポジトリ open-runo と共通のコア)**: WunderGraph
+1. **cosmo部分(= このリポジトリ RCosmo と共通のコア)**: WunderGraph
    Cosmo 有料版(Launch/Scale/Enterprise)の機能を、Cosmo自体には依存
    せず Rust + tokio/hyper で自前再実装した OSS 版。具体的には (a)
    Tauri互換のフロントエンド体験、(b) **REST API不要**(VersionlessAPI/
@@ -106,7 +106,7 @@ WEBアプリ開発を効率的に行えるようにするための**フレーム
    同等機能をOSSとして提供)、(d) **独自AI搭載のWeb高速化機能**
    (自己学習型HTMLキャッシュ予測=`CachePredictor`によるコールドスタート
    予測・コスト学習・適応TTL等、外部LLM/有料契約は一切不要な純Rust
-   統計学習)を含む。**このリポジトリ(open-runo)はこのcosmo部分が中心**。
+   統計学習)を含む。**このリポジトリ(RCosmo)はこのcosmo部分が中心**。
 2. **poem部分(= バックエンド、poem-cosmo-tauri固有)**: Rust の Poem
    フレームワークの**全機能を完全互換で一から自作・再現**したバック
    エンド(`poem`パッケージへの直接依存は持たない)。
@@ -114,9 +114,9 @@ WEBアプリ開発を効率的に行えるようにするための**フレーム
    フロントエンドフレームワーク Tauri の**全機能を完全互換で一から自作・
    再現**したフロントエンド(`tauri`パッケージへの直接依存は持たない)。
 
-**この3つ(Tauri再現フロントエンド + open-runo/cosmoコア + Poem再現
+**この3つ(Tauri再現フロントエンド + RCosmo/cosmoコア + Poem再現
 バックエンド)がスムーズに連携し合うこと自体が poem-cosmo-tauri の価値**
-であり、**このリポジトリ(open-runo)にはpoem/tauri部分の統合という上乗せ
+であり、**このリポジトリ(RCosmo)にはpoem/tauri部分の統合という上乗せ
 目標はない**——cosmo部分(共通コア)の完成度・利便性・使いやすさ・実用性
 向上が中心。新機能・改善タスクを検討する際は上記4特性を軸とする。
 
@@ -205,7 +205,7 @@ AI機能が必要になった場合は、`open-cuda` + `aruaru-llm` のSET構成
 
 `open-web-server`の「分身の術」(共有バックエンドインスタンスへの動的
 テナント登録、個別インストール不要)を、`open-cuda`・`aruaru-llm`・
-`RPoem`・**このリポジトリ(`RCosmo`/open-runo)**・`open-raid-z`・
+`RPoem`・**このリポジトリ(`RCosmo`)**・`open-raid-z`・
 `aruaru-db`にも適用する。マルチCPU/マルチコア/マルチスレッド非同期処理
 対応、`POST /admin/tenants`系APIでの動的テナント登録、管理は
 `open-easy-web`側から行う。現状`aruaru-llm`にのみ`src/tenants.rs`
@@ -462,6 +462,64 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-24 「open-runo」自称の経緯調査・「RCosmo」への統一置換**:
+  前回セッション(4e4d0f1)で、CLAUDE.mdの関連プロジェクト節にあった
+  「open-runo(このリポジトリ)」という誤記(実際は外部の独立リポジトリ
+  `open-cosmo`〈旧`open-runo`〉との混同)は修正済みだったが、README.md・
+  CONTRIBUTING.md・DEVELOPMENT.md・CHANGELOG.md・PORTING.md・SECURITY.md・
+  10ヶ国語README・docs/配下の多数のファイルに、**このリポジトリ自身を
+  指して「open-runo」と自称する**箇所が広範に残っていることが発覚。
+  調査結果:
+  1. `git log --oneline --all | tail`で確認したところ、このリポジトリの
+     ローカルgit履歴は`5d9a4b2 first commit`(2026-07-01)に続き、
+     `0c618da open-runo v0.1.0 — GraphQL Federation platform`(2026-07-04)
+     という、**リポジトリ自身の立ち上げコミットの時点で既に「open-runo」を
+     名乗っていた**ことを確認。
+  2. `gh api repos/aon-co-jp/RCosmo`は`created_at: 2026-07-18`
+     ・`full_name: RCosmo`(リダイレクト無し)を返す一方、
+     `gh api repos/aon-co-jp/open-runo`は実体が`aon-co-jp/open-cosmo`
+     (`created_at: 2026-07-04`、`open-runo`からGitHub上で改称済み)に
+     リダイレクトされることを確認。ローカル履歴の2026-07-04時点の
+     コミットと、GitHub側`open-runo`(→`open-cosmo`)リポジトリの
+     作成日時が一致することから、**このリポジトリはもともと
+     `aon-co-jp/open-runo`として開発が始まったコードベースのコピー
+     (または直接の分岐)であり、その後2026-07-18に新規作成された
+     `aon-co-jp/RCosmo`へ切り離されて独立の開発対象になった**、という
+     経緯が最も整合的と判断した(元の`open-runo`側はその後も別途開発が
+     続き、2026-07-04時点で改称されて現在の`open-cosmo`になっている)。
+  3. `RPoem/CLAUDE.md`・`open-raid-z/CLAUDE.md`側にもこの経緯を裏付ける
+     独立の記述は見当たらなかったため、上記2点の直接証拠(git履歴+GitHub
+     API)を判断根拠とした。
+  4. どちらの経緯であっても、このリポジトリの現在の実際のGitHubリモート
+     が`aon-co-jp/RCosmo`である以上、自分自身を指す一人称的な文脈は
+     「RCosmo」に統一するのが最も妥当と判断し、実施した。
+  - 置換内容: 上記ファイル群で、**このリポジトリ自身を指す**「open-runo」
+    の自称箇所(タイトル行・「このリポジトリ(open-runo)」等の一人称
+    表現・自己参照するclone URL `github.com/aon-co-jp/open-runo`→
+    `github.com/aon-co-jp/RCosmo`・READMEタイトル`# open-runo (RCosmo)`→
+    `# RCosmo`等)を「RCosmo」へ置換(概算60箇所超)。
+  - **対象外として意図的に残した箇所**:
+    (a) crate名`open-runo-*`(命名規則として維持、変更不要)、
+    (b) 作業ドライブパス`F:\open-runo`(別種のstale-path問題であり
+    本パスの対象外、次回以降の課題)、
+    (c) `docs/i18n/hybrid-network/`配下の10言語READMEおよびINDEX.mdが
+    5プロジェクトの一覧として挙げる「open-runo」(これは既に修正済みの
+    `docs/HYBRID_NETWORK_ARCHITECTURE.md`の同種箇所が`open-cosmo`
+    〈外部の独立リポジトリ〉へ修正された前例があり、自己言及ではなく
+    姉妹プロジェクトの旧称を指している可能性が高いため、今回のスコープ
+    〈自己言及の是正〉には該当しないと判断し未着手。将来的には
+    `open-cosmo`への置換を検討すべき別issue)、
+    (d) `docs/cosmo-parity.md`の「open-runo側で先行実装、こちらへ
+    逆方向ミラー」という1件の履歴ログ(方向性から見て自己言及ではなく
+    他リポジトリ側を指している可能性があり、誤訂正を避けるため保留)、
+    (e) `CLAUDE.md`内`api/ws-echo`テストで実際に送信した文字列
+    `"open-runo echo check"`(過去に実行したテストの記録そのものであり、
+    書き換えると履歴の正確性を損なうため保持)。
+  - 検証: `grep -rn "open-runo" . --include=*.md | grep -v "\.git" |
+    grep -v "open-runo-"`を修正前後で実行し、上記(a)〜(e)の意図的除外
+    分を除いて自己言及が解消されたことを確認。`cargo check --workspace`
+    はドキュメントのみの変更のため影響なし(実行は次回ビルド確認時)。
+
 - **2026-07-23(続き) 3点セット(`install.sh`/`install.ps1`/
   `.github/workflows/release.yml`)を新規追加、v0.1.0タグでCI成功・
   GitHub Release実在確認まで完了**: エコシステム全体インストーラー
@@ -609,7 +667,7 @@ production best practice"、"tokio async server 複数プロセス
   済み」と判明し、`wsl -d Ubuntu`経由でこのPC自身のRust 1.97
   ツールチェーンを使ってビルド・テストを実行できることを確認(sandboxの
   1.75 MSRVピンに縛られない、以後cargo実行はこの経路を基本とする)。
-  `cargo check --workspace`(open-runo・poem-cosmo-tauri両方)が
+  `cargo check --workspace`(RCosmo・poem-cosmo-tauri両方)が
   警告2〜3件(既存の`missing_debug_implementations`等、無関係な既知警告)
   のみで成功、`cargo test -p open-runo-rustjson -p open-runo-db --features
   rustjson`は31+25件全green(failed 0)を確認——改称によるコンパイル
@@ -687,7 +745,7 @@ production best practice"、"tokio async server 複数プロセス
   不要)。`docs/poem-parity.md`も同期。10ヶ国語READMEのテスト数バッジを
   337/356→343/362に更新(`cargo test --workspace --all-features`が
   343→362テストに増加したことを確認)。両リポジトリともcommit・push済み
-  (poem-cosmo-tauri`902784f`+`4142559`、open-runo`73f69b2`+`f6e7c53`)。
+  (poem-cosmo-tauri`902784f`+`4142559`、RCosmo`73f69b2`+`f6e7c53`)。
   次回パスがすべきこと: 特に緊急の課題は無い。ACME(3チャレンジ型)・
   MCP Server(Tools/Resources/Prompts)・gRPC(unary/streaming/
   reflectionのlist_services+file_containing_symbol)はpoem-cosmo-tauriと
@@ -823,7 +881,7 @@ production best practice"、"tokio async server 複数プロセス
   aruaru-db側は同日別セッションで既に「AS OF COMMIT」SQL自体
   (`SELECT ... FROM t WHERE pk='v' AS OF COMMIT '<commit_id>'`)を実装
   済み(単一行のみ、詳細はaruaru-db側CLAUDE.md参照)だったが、
-  open-runo/open-web-server側の配線が「未着手」と明記されていたため、
+  RCosmo/open-web-server側の配線が「未着手」と明記されていたため、
   このパスで着手・完成させた。
   - `crates/open-runo-db/src/lib.rs`: `DbBackend`トレイトに
     `get_at_commit(table, key, commit_id) -> Result<Option<String>>`を
@@ -1061,7 +1119,7 @@ production best practice"、"tokio async server 複数プロセス
   poem-cosmo-tauriで先行実装した上でこちらへミラーを継続(ユーザー
   指示により確認不要で自動継続)。
 
-- **2026-07-11 gzip応答圧縮ミドルウェア実装をopen-runoへミラー完了
+- **2026-07-11 gzip応答圧縮ミドルウェア実装をRCosmoへミラー完了
   (docs/poem-parity.md 3節、★★☆ギャップを解消 — 実装自体は
   poem-cosmo-tauri側で既に完了・push済みだったコミット
   `9a2e209`だったが、このリポジトリへのミラーが未完了のまま残っていた)**:
@@ -1250,7 +1308,7 @@ production best practice"、"tokio async server 複数プロセス
   過去のミラー作業で poem-cosmo-tauri 自身のREADMEをそのまま上書き
   コピーされてしまっており、タイトルが「poem-cosmo-tauri」・
   `git clone`先が誤って`poem-cosmo-tauri`リポジトリを指す、という実害の
-  ある誤りだったため修正(タイトル/clone先をopen-runo自身に戻し、
+  ある誤りだったため修正(タイトル/clone先をRCosmo自身に戻し、
   poem-cosmo-tauriへは姉妹リポジトリとして正しく言及する形に変更)。
   さらに全10言語で共通して古い情報だったクレート数(15→**17**、
   `open-runo-cli`/`open-runo-api-types`を含む)・テスト数(192→**210**、
@@ -1353,7 +1411,7 @@ production best practice"、"tokio async server 複数プロセス
   「License TBD」「外部LLMプロバイダへのルーティング」と記載)ため、
   ルートの `README.md`(正しい最新情報)を基準に両ファイルを修正した:
   README-Japan.md はルート README.md の内容をそのまま反映、
-  README-English.md は他8言語版と同じ構成(機能比較表・open-runo限定機能・
+  README-English.md は他8言語版と同じ構成(機能比較表・RCosmo限定機能・
   クイックスタート・15クレート構成)の正確な英語版に書き換えた。
   他8言語版(中/韓/西/仏/独/伊/露/アラビア語)は内容確認済みで正確、変更不要。
   次回パスへの引き継ぎ: 特に緊急の課題は残っていない。次点候補は
@@ -1364,7 +1422,7 @@ production best practice"、"tokio async server 複数プロセス
 - `docs/HYBRID_NETWORK_ARCHITECTURE.md` を **v1.0** に格上げ(§0.9新設:
   ポジショニング宣言と段階的ロードマップ。全6リポジトリに同一コピー配布、
   open-easyweb をscope追加)。
-- 新クレート2つを追加し open-runo へ§0.5規則でミラー:
+- 新クレート2つを追加し RCosmo へ§0.5規則でミラー:
   - `crates/open-runo-appserver`(第二のTomcat骨格): `RuntimeProfile`
     (Rust+Poem/Python+FastAPI/PHP+Laravel/Ruby+Rails/Dart+Flutter雛形)、
     `Supervisor`(poll型tick、crash-loop指数backoff+give-up)、
@@ -1498,12 +1556,12 @@ production best practice"、"tokio async server 複数プロセス
   保有トークンのscope外かつ無断push は不適切。ピン留めという通常の
   Cargo運用で解決できることを優先した。
 
-## アプリケーションサーバー層の役割(open-runo / poem-cosmo-tauri、2026-07-16追記)
+## アプリケーションサーバー層の役割(RCosmo / poem-cosmo-tauri、2026-07-16追記)
 
 「配信エンジン(vhost)」に`open-web-server`を選択肢として追加したが、
 open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーとして
 まだ機能していない間は、Tomcatのような互換レイヤーとして機能するのは
-`open-runo`または`poem-cosmo-tauri`である。
+`RCosmo`または`poem-cosmo-tauri`である。
 
 これらは`open-raid-z`とVersionlessAPIによって、バージョンレス運用と
 バージョン管理・Git管理を両立しながら、ACID互換性とZFS互換性に対応した

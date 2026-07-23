@@ -1,6 +1,6 @@
 # Quality Gates
 
-open-runo's stated goal is "BUGを少なく、品質ゲートを強く" (fewer bugs, strong
+RCosmo's stated goal is "BUGを少なく、品質ゲートを強く" (fewer bugs, strong
 quality gates). This document is the single source of truth for what that
 means mechanically — see `Makefile`, `.github/workflows/ci.yml`,
 `Cargo.toml`'s `[workspace.lints]`, `rustfmt.toml`, `clippy.toml`, and
@@ -28,7 +28,7 @@ network access).
 Configured once in the workspace root (`Cargo.toml`'s `[workspace.lints]`)
 and inherited via `[lints] workspace = true` in every crate's `Cargo.toml`:
 
-- `unsafe_code = "deny"` — open-runo should never need `unsafe`; if a future
+- `unsafe_code = "deny"` — RCosmo should never need `unsafe`; if a future
   crate genuinely does, that crate should locally override this with a
   documented justification rather than removing the workspace default.
 - `missing_debug_implementations = "warn"` — every public type should be

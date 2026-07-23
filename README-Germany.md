@@ -1,4 +1,4 @@
-# open-runo
+# RCosmo
 
 **GraphQL-Federation-Plattform, gebaut in purem Rust** (Poem/Tauri/Cosmo sind
 nie direkte Abhängigkeiten — ihre Funktionalität ist für Kompatibilität auf
@@ -9,18 +9,18 @@ Mit eigener selbstlernender KI (kein externer LLM-Vertrag nötig).
 📖 Weitere Sprachen: [日本語](README-Japan.md) / [English](README-English.md) ·
 Integration in andere Projekte siehe **[PORTING.md](PORTING.md)**.
 
-## Was ist open-runo?
+## Was ist RCosmo?
 
 Mit wachsender Microservice-Landschaft wuchern REST-APIs (BFF-Hölle,
 Versionsexplosion `/v1 /v2`, unkontrollierbares Endpoint-Management).
-open-runo löst dies grundlegend mit **GraphQL Federation + VersionlessAPI**.
+RCosmo löst dies grundlegend mit **GraphQL Federation + VersionlessAPI**.
 Funktionen, die das in Go geschriebene WunderGraph Cosmo nur in
 Bezahlplänen (Launch/Scale/Enterprise) bietet, sind hier **vollständig in
 purem Rust, kostenlos und als OSS** implementiert.
 
 ## Funktionsvergleich
 
-| Funktion | Cosmo Free | Cosmo Paid | **open-runo** |
+| Funktion | Cosmo Free | Cosmo Paid | **RCosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **kostenlos** |
@@ -30,7 +30,7 @@ purem Rust, kostenlos und als OSS** implementiert.
 | Audit-Log | — | ✅ | ✅ **kostenlos** |
 | Limits für Requests/Team/Aufbewahrung | Ja | Gelockert | **Keine** |
 
-### Nur bei open-runo
+### Nur bei RCosmo
 
 - 🧠 Selbstlernende KI (keine externen LLM-Kosten) — adaptiver HTML-Cache, dynamisches TTL
 - 🔑 KeyGuardian — vollautomatische API-Key-Verwaltung (Ausgabe/Widerruf via SCIM)
@@ -45,8 +45,8 @@ purem Rust, kostenlos und als OSS** implementiert.
 ## Schnellstart
 
 ```bash
-git clone https://github.com/aon-co-jp/open-runo
-cd open-runo
+git clone https://github.com/aon-co-jp/RCosmo
+cd RCosmo
 cargo test --workspace          # 343 Tests (362 mit --all-features)
 cargo run -p open-runo-gateway  # REST + GraphQL Server
 ```

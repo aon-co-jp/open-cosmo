@@ -1,4 +1,4 @@
-# open-runo Architecture
+# RCosmo Architecture
 
 This document maps the conceptual architecture described in `README-Japan.md` /
 `README-English.md` onto the concrete `crates/` and `apps/` layout.
@@ -31,9 +31,9 @@ Bootstrap 5 for styling. No React/Vue/Angular. Vite handles bundling.
 
 ## Ecosystem position — open-aruaru central middleware
 
-open-runo is the **backbone of the entire open-aruaru project family**.
+RCosmo is the **backbone of the entire open-aruaru project family**.
 Every product-level subproject talks to its subgraph services *through*
-open-runo — never directly.
+RCosmo — never directly.
 
 ```text
    open-e-gov        OpenRedmine       OpenWordPress       aruaru-llm
@@ -45,7 +45,7 @@ open-runo — never directly.
                     │              │
                     ▼              ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                    open-runo （本リポジトリ）                  │
+│                    RCosmo （本リポジトリ）                  │
 │                                                              │
 │  open-runo-gateway     — 単一 GraphQL エンドポイント           │
 │  open-runo-router      — REST ゲートウェイ · SSE (/api/events) │
@@ -62,7 +62,7 @@ open-runo — never directly.
 Design consequences:
 
 - Subprojects (open-e-gov, OpenRedmine, OpenWordPress) publish their schemas
-  to the Schema Registry; open-runo composes them into one federated graph.
+  to the Schema Registry; RCosmo composes them into one federated graph.
 - A single `X-Api-Key` / JWT auth layer, one rate limiter, and one
   observability pipeline cover every subproject — none of them re-implement
   cross-cutting concerns.
@@ -106,8 +106,8 @@ open-runo-core
 ```
 
 `open-runo-router` is the only crate that depends on multiple other
-`open-runo-*` crates. All other crates are independently testable with no
-cross-crate `open-runo-*` dependencies.
+`RCosmo-*` crates. All other crates are independently testable with no
+cross-crate `RCosmo-*` dependencies.
 
 ## Router internal structure
 

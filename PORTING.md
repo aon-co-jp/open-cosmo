@@ -1,6 +1,6 @@
-# PORTING.md — open-runo お引越しファイル
+# PORTING.md — RCosmo お引越しファイル
 
-> このファイル 1 枚で、**どのプロジェクトでも open-runo を導入・移設**できます。
+> このファイル 1 枚で、**どのプロジェクトでも RCosmo を導入・移設**できます。
 > open-e-gov / OpenRedmine / OpenWordPress など新プロジェクトのリポジトリに
 > このファイルをコピーして、上から順に進めてください。
 >
@@ -10,9 +10,9 @@
 
 ---
 
-## 0. open-runo と poem-cosmo-tauri の違い(2026-07-11、ユーザーによる最終定義)
+## 0. RCosmo と poem-cosmo-tauri の違い(2026-07-11、ユーザーによる最終定義)
 
-このリポジトリ `open-runo` は、姉妹リポジトリ `poem-cosmo-tauri`
+このリポジトリ `RCosmo` は、姉妹リポジトリ `poem-cosmo-tauri`
 (https://github.com/aon-co-jp/poem-cosmo-tauri) と共通コア(下記「cosmo
 部分」)を持つが、**全く違うリポジトリのプロジェクト**であり統合対象では
 ない。poem-cosmo-tauri はこの共通コアに加えて、(1) Rust の Poem
@@ -20,11 +20,11 @@
 (2) Tauri の全機能を完全互換で一から自作・再現したフロントエンド、を
 持ち、その2つとcosmoコアの3者をスムーズに連携させることで効率的な
 WEB開発を実現するフレームワーク/ミドルウェアという、より広いスコープを
-持つ。**このリポジトリ(open-runo)にその上乗せスコープはなく、以下の
+持つ。**このリポジトリ(RCosmo)にその上乗せスコープはなく、以下の
 cosmo部分が中心**。詳細は `CLAUDE.md` の該当節、または open-raid-z の
 `CLAUDE.md`(正本)を参照。
 
-## 1. open-runo とは（cosmo部分、30 秒版）
+## 1. RCosmo とは（cosmo部分、30 秒版）
 
 Rust + tokio/hyper 製（`poem`パッケージには依存しない）の
 **GraphQL Federation プラットフォーム / Web フレームワーク**。
@@ -42,7 +42,7 @@ WunderGraph Cosmo の有料版（Launch / Scale / Enterprise）機能を OSS で
 ## 2. 持っていくもの（ファイル一覧）
 
 ```
-open-runo/
+RCosmo/
 ├── Cargo.toml / Cargo.lock      ← workspace 定義（バージョン固定）
 ├── crates/                      ← 18 クレート（本体）
 ├── apps/desktop-wasm/            ← Rust→WebAssembly 管理アプリ（任意、open-runo-routerが自前配信）
@@ -60,12 +60,12 @@ open-runo/
 ```toml
 [dependencies]
 # 同一マシンにある場合（path 依存）
-open-runo-core     = { path = "../open-runo/crates/open-runo-core" }
-open-runo-router   = { path = "../open-runo/crates/open-runo-router" }
-open-runo-gateway  = { path = "../open-runo/crates/open-runo-gateway" }
-open-runo-db       = { path = "../open-runo/crates/open-runo-db" }
-open-runo-cache    = { path = "../open-runo/crates/open-runo-cache" }
-open-runo-security = { path = "../open-runo/crates/open-runo-security" }
+open-runo-core     = { path = "../RCosmo/crates/open-runo-core" }
+open-runo-router   = { path = "../RCosmo/crates/open-runo-router" }
+open-runo-gateway  = { path = "../RCosmo/crates/open-runo-gateway" }
+open-runo-db       = { path = "../RCosmo/crates/open-runo-db" }
+open-runo-cache    = { path = "../RCosmo/crates/open-runo-cache" }
+open-runo-security = { path = "../RCosmo/crates/open-runo-security" }
 
 # GitHub 公開後は git 依存でも可
 # open-runo-router = { git = "https://github.com/aon-co-jp/poem-cosmo-tauri" }
@@ -278,14 +278,14 @@ OSネイティブ通知・Windows インストーラーが必要な場合は `ap
 ## 8. 動作確認
 
 ```bash
-cd open-runo
+cd RCosmo
 cargo test --workspace     # 302 テスト（--all-features で311）+ doctest が全部通れば OK
 cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 ```
 
 ## 9. 命名規約（お引越し先でも守ること）
 
-- クレート/ディレクトリ: `open-runo-*`　- Rust パス: `open_runo_*`
+- クレート/ディレクトリ: `RCosmo-*`　- Rust パス: `open_runo_*`
 - 環境変数: `OPEN_RUNO_*`　- 型名のみ CamelCase: `OpenRuno*`（Rust 言語制約）
 
 ## 10. 詳細ドキュメント

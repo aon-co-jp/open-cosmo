@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to open-runo are documented in this file.
+All notable changes to RCosmo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/) once a
@@ -32,6 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/) once a
 
 This is pre-`0.1.0` scaffolding work (Development Roadmap Phase 1, see
 README). APIs, crate boundaries, and the compatibility guarantees implied by
-`open-runo-versionless-api` do not yet apply to open-runo's own crates.
+`open-runo-versionless-api` do not yet apply to RCosmo's own crates.
 
-[Unreleased]: https://github.com/aon-co-jp/open-runo/compare/main...HEAD
+[Unreleased]: https://github.com/aon-co-jp/RCosmo/compare/main...HEAD

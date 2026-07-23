@@ -15,7 +15,7 @@ Implemented in [`crates/open-runo-db`](../crates/open-runo-db).
 | **用途** | セッション・APIキー・OLTP hot-path | スキーマ履歴・監査ログ・分析ワークロード |
 
 aruaru-db は PostgreSQL wire protocol（pgwire）を実装しているため、
-`sqlx::PgPool` を使って同じドライバで接続できます。open-runo の観点からは
+`sqlx::PgPool` を使って同じドライバで接続できます。RCosmo の観点からは
 「接続先 URL が違うだけで同じインターフェイス」です。
 
 ---
@@ -96,7 +96,7 @@ let state = AppState { db: Arc::new(db), .. };
 
 ## aruaru-db について
 
-aruaru-db は open-runo と同じ `open-aruaru` プロジェクト内で開発している
+aruaru-db は RCosmo と同じ `open-aruaru` プロジェクト内で開発している
 Pure Rust 製の分散データベースです。
 
 主な特徴：

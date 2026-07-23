@@ -1,6 +1,6 @@
 # 簡単お引越し・簡単復活ガイド
 
-open-runo の全データ（12 テーブル + AI 学習記録）は `DbBackend` 抽象の上に
+RCosmo の全データ（12 テーブル + AI 学習記録）は `DbBackend` 抽象の上に
 あるため、**どのデータベース間でも同じ手順で引っ越し**できます。
 
 ---
@@ -32,7 +32,7 @@ curl -X POST -H "x-api-key: $KEY" http://host:8080/api/backup/restore-latest
 
 ## 3. データベースエンジンの変換
 
-### 3.1 open-runo 対応エンジン間（MySQL → PostgreSQL → CockroachDB 等）
+### 3.1 RCosmo 対応エンジン間（MySQL → PostgreSQL → CockroachDB 等）
 
 対応エンジン（PostgreSQL / MySQL / SQLite / aruaru-db / CockroachDB /
 YugabyteDB / MongoDB / Redis / ClickHouse）はすべて同じ `DbBackend` なので、

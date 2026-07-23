@@ -1,4 +1,4 @@
-# open-runo — 新セッション引き継ぎ文書
+# RCosmo — 新セッション引き継ぎ文書
 
 > **作成日**: 2026-07-03  
 > **目的**: 新しい Cowork / Claude セッションへのプロジェクト状態の完全引き継ぎ
@@ -72,7 +72,7 @@ Cosmo の Launch/Scale/Enterprise 限定機能（SSO・SCIM・RBAC・永続ク�
 5. **検証**: `cargo check --workspace` 成功、`cargo test --workspace --lib` **13 スイート全成功**
    （**open-runo-gateway 2 テスト含む — Windows 側での再確認は不要になった**が、
    `cargo test --workspace`（doctest 含むフル）を一度回しておくと安心）。
-6. Cargo.lock を open-runo 直下に生成（バージョン固定）。
+6. Cargo.lock を RCosmo 直下に生成（バージョン固定）。
 
 ### Phase B 実装完了
 
@@ -153,7 +153,7 @@ Cosmo の Launch/Scale/Enterprise 限定機能（SSO・SCIM・RBAC・永続ク�
 
 1. **KeyGuardian（API キー完全自動運用）**（`router::keyring`）:
    人手による鍵管理は不要。SCIM でユーザー登録 → ロール付き鍵を**自動発行**
-   （応答の `urn:open-runo:params:scim:api-key` に一度だけ平文表示、保存は SHA-256）。
+   （応答の `urn:RCosmo:params:scim:api-key` に一度だけ平文表示、保存は SHA-256）。
    無効化・削除 → **自動失効**。期限切れ → 参照時に**自動掃除**。
    鍵ごとの利用レートを EWMA 学習し、盗難鍵の暴走のような異常は**自動隔離**
    → 冷却後**自動復帰**（env: `OPEN_RUNO_KEY_ANOMALY_FACTOR` 等）。
@@ -238,12 +238,12 @@ featureでは無関係だったため今まで見逃されていた）。手動 
 
 ## 1. プロジェクト概要
 
-**open-runo**（旧称: OpenCosmo）は `F:\open-aruaru\open-runo\` に存在する  
+**RCosmo**（旧称: OpenCosmo）は `F:\open-aruaru\RCosmo\` に存在する  
 Rust + Poem 製の **GraphQL Federation プラットフォーム / Web フレームワーク**であり、
 open-aruaru エコシステムの中心基盤。
 
 > **呼称について（2026-07-04 決定）**: 単体の部品（認証・キャッシュ等）は
-> poem の「ミドルウェア」だが、open-runo 全体は 15 クレートの上に
+> poem の「ミドルウェア」だが、RCosmo 全体は 15 クレートの上に
 > サブプロジェクト（open-e-gov / OpenRedmine / OpenWordPress）を構築する
 > 基盤なので、対外的には **「フレームワーク」または「プラットフォーム」**
 > と表記する（Cosmo も "GraphQL federation platform" を自称）。
@@ -255,7 +255,7 @@ Pure Rust で 0 から再実装した次世代 Web ミドルウェア。
 
 ```
 F:\open-aruaru\
-├── open-runo\          ← 本プロジェクト（中心ミドルウェア）
+├── RCosmo\          ← 本プロジェクト（中心ミドルウェア）
 ├── aruaru-db\          ← Pure Rust Git-on-SQL 分散 DB（pgwire :5433）
 ├── aruaru-ai\          ← AI モデル選択・エージェント基盤
 ├── aruaru-web\         ← aruaru-web ダッシュボード（Poem + TypeScript）
@@ -263,7 +263,7 @@ F:\open-aruaru\
 └── docs\               ← プロジェクト横断ドキュメント
 ```
 
-open-runo は以下の全サブプロジェクトのバックボーンとして機能する:
+RCosmo は以下の全サブプロジェクトのバックボーンとして機能する:
 - **open-e-gov** (電子政府)
 - **OpenRedmine** (Rust+Poem 版 Redmine)
 - **OpenWordPress** (Rust+Poem 版 WordPress 互換)
@@ -292,7 +292,7 @@ open-runo は以下の全サブプロジェクトのバックボーンとして�
 ## 3. ワークスペース構造
 
 ```
-open-runo/
+RCosmo/
 ├── Cargo.toml                   ← workspace root（11 クレート）
 ├── crates/
 │   ├── open-runo-core/           ← 共通型（AppError, Config, Result）
@@ -315,7 +315,7 @@ open-runo/
     ├── api-spec.md              ← 全エンドポイント仕様
     ├── architecture.md          ← アーキテクチャ図
     ├── database.md              ← DUAL DATABASE 設計
-    ├── why-open-runo.md          ← REST API との比較表
+    ├── why-RCosmo.md          ← REST API との比較表
     └── HANDOFF.md               ← 本ファイル
 ```
 
@@ -425,8 +425,8 @@ TypeScript SPA: Bootstrap 5 ダークテーマ、4 ページ（Dashboard / Schem
 
 ### 中優先度
 
-6. **open-runo を中心ミドルウェア化するアーキテクチャ更新**  
-   `docs/architecture.md` に open-runo が open-e-gov / OpenRedmine / OpenWordPress の  
+6. **RCosmo を中心ミドルウェア化するアーキテクチャ更新**  
+   `docs/architecture.md` に RCosmo が open-e-gov / OpenRedmine / OpenWordPress の  
    共通バックボーンとして機能する全体図を追加
 
 7. **DUAL DATABASE のシングル対応を AppState に統合**  
@@ -449,7 +449,7 @@ TypeScript SPA: Bootstrap 5 ダークテーマ、4 ページ（Dashboard / Schem
 
 | 判断 | 理由 |
 |------|------|
-| 名称を OpenCosmo → open-runo に変更 | 商標問題の懸念 |
+| 名称を OpenCosmo → RCosmo に変更 | 商標問題の懸念 |
 | aruaru-db を pgwire で接続 | sqlx::PgPool 1 種で PostgreSQL と共通ドライバが使える |
 | TypeScript + Tauri を採用（最初は否定後に変更） | ユーザーが仕様変更を決定 |
 | VersionlessAPI（/v1 /v2 なし） | バージョン爆発問題の根本解決 |
@@ -482,12 +482,12 @@ cd apps/desktop && npm install && npm run tauri dev
 
 ---
 
-## 11. 関連ドキュメント（open-runo 内）
+## 11. 関連ドキュメント（RCosmo 内）
 
 - `docs/api-spec.md` — 全エンドポイントの Request/Response 詳細
 - `docs/architecture.md` — システム構成図
 - `docs/database.md` — DUAL DATABASE ルーティング詳細
-- `docs/why-open-runo.md` — REST API vs Cosmo vs open-runo 比較表
+- `docs/why-RCosmo.md` — REST API vs Cosmo vs RCosmo 比較表
 - `docs/federation.md` — GraphQL Federation 設計
 - `docs/versionless-api.md` — VersionlessAPI 仕様
 - `docs/security.md` — 認証・レートリミット設計

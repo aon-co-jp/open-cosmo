@@ -1,4 +1,4 @@
-# open-runo
+# RCosmo
 
 **Plateforme GraphQL Federation en Rust pur** (Poem/Tauri/Cosmo ne sont jamais
 des dépendances directes — leurs fonctionnalités sont réimplémentées à la main
@@ -9,17 +9,17 @@ IA auto-apprenante intégrée (aucun contrat LLM externe requis).
 📖 Autres langues : [日本語](README-Japan.md) / [English](README-English.md) ·
 Pour l'intégration dans d'autres projets, voir **[PORTING.md](PORTING.md)**.
 
-## Qu'est-ce que open-runo ?
+## Qu'est-ce que RCosmo ?
 
 La multiplication des microservices entraîne une prolifération des API REST
 (enfer BFF, explosion des versions `/v1 /v2`, gestion des endpoints hors de contrôle).
-open-runo règle ce problème à la racine grâce à **GraphQL Federation + VersionlessAPI**.
+RCosmo règle ce problème à la racine grâce à **GraphQL Federation + VersionlessAPI**.
 Les fonctionnalités que WunderGraph Cosmo (Go) réserve à ses offres payantes
 (Launch/Scale/Enterprise) sont ici **entièrement implémentées en Rust pur, gratuitement, en OSS**.
 
 ## Comparatif des fonctionnalités
 
-| Fonctionnalité | Cosmo gratuit | Cosmo payant | **open-runo** |
+| Fonctionnalité | Cosmo gratuit | Cosmo payant | **RCosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **gratuit** |
@@ -29,7 +29,7 @@ Les fonctionnalités que WunderGraph Cosmo (Go) réserve à ses offres payantes
 | Journal d'audit | — | ✅ | ✅ **gratuit** |
 | Limites requêtes/équipe/rétention | Oui | Assouplies | **Aucune** |
 
-### Fonctionnalités exclusives à open-runo
+### Fonctionnalités exclusives à RCosmo
 
 - 🧠 IA auto-apprenante (aucun coût de LLM externe) — cache HTML adaptatif, TTL dynamique
 - 🔑 KeyGuardian — gestion entièrement automatisée des clés API (émission/révocation via SCIM)
@@ -44,8 +44,8 @@ Les fonctionnalités que WunderGraph Cosmo (Go) réserve à ses offres payantes
 ## Démarrage rapide
 
 ```bash
-git clone https://github.com/aon-co-jp/open-runo
-cd open-runo
+git clone https://github.com/aon-co-jp/RCosmo
+cd RCosmo
 cargo test --workspace          # 343 tests (362 with --all-features)
 cargo run -p open-runo-gateway  # serveur REST + GraphQL
 ```

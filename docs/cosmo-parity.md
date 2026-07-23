@@ -1,4 +1,4 @@
-# Cosmo 互換ロードマップ — open-runo を GraphQL ファーストへ
+# Cosmo 互換ロードマップ — RCosmo を GraphQL ファーストへ
 
 > **仕様変更日**: 2026-07-03
 > **方針**: WunderGraph Cosmo（Apache 2.0 / Go 製）の無償版 + **有料版（Launch / Scale / Enterprise）機能**を
@@ -17,18 +17,18 @@
 | API の主軸 | REST (VersionlessAPI) が主、GraphQL は追加 | **GraphQL (Federation) が主軸**。REST は管理・互換 API として維持 |
 | 互換ターゲット | Cosmo OSS 相当 | **Cosmo 有料版（Launch/Scale/Enterprise）機能まで互換** |
 | 提供形態 | 未定 | GitHub で全機能 OSS 公開（機能制限なし・Apache 2.0 OR MIT） |
-| 収益版との差 | — | open-runo では**全機能を無償開放**（リクエスト数制限・チーム人数制限・データ保持制限を設けない） |
+| 収益版との差 | — | RCosmo では**全機能を無償開放**（リクエスト数制限・チーム人数制限・データ保持制限を設けない） |
 
-Cosmo が有料プランでのみ解放している機能を、open-runo はすべて OSS で提供する。
-これが open-runo の最大の差別化ポイントとなる。
+Cosmo が有料プランでのみ解放している機能を、RCosmo はすべて OSS で提供する。
+これが RCosmo の最大の差別化ポイントとなる。
 
 ---
 
-## 2. Cosmo 機能 → open-runo クレート対応表
+## 2. Cosmo 機能 → RCosmo クレート対応表
 
 ### 2.1 無償版 (Developer/OSS) 相当 — 既存実装
 
-| Cosmo 機能 | open-runo 対応 | 状態 |
+| Cosmo 機能 | RCosmo 対応 | 状態 |
 |-----------|----------------|------|
 | Cosmo Router（クエリエンジン） | `open-runo-router` + `open-runo-gateway` (POST /graphql) | ✅ 実装済み |
 | Schema Registry | `open-runo-schema-registry` (+ REST /api/schemas) | ✅ 実装済み |
@@ -38,7 +38,7 @@ Cosmo が有料プランでのみ解放している機能を、open-runo はす�
 
 ### 2.2 有料版 (Launch / Scale) 相当 — 次の実装ターゲット
 
-| Cosmo 有料機能 | open-runo 実装先 | 優先度 | 内容 |
+| Cosmo 有料機能 | RCosmo 実装先 | 優先度 | 内容 |
 |---------------|-----------------|--------|------|
 | **Persisted Queries / Trusted Documents** | `open-runo-persisted-queries` + gateway 統合 | ✅ 実装済み | SHA-256 登録・APQ 互換。`/graphql` が `OPEN_RUNO_PQ_MODE=disabled\|allow\|enforce` で動作。REST: `/api/persisted-queries` |
 | **細粒度レートリミット** | `open-runo-security::TokenBucketLimiter` | ✅ 実装済み | per-key トークンバケット + `with_override`。ルート単位のミドルウェア化は今後 |
@@ -48,7 +48,7 @@ Cosmo が有料プランでのみ解放している機能を、open-runo はす�
 
 ### 2.3 Enterprise 相当 — 中期実装ターゲット
 
-| Cosmo Enterprise 機能 | open-runo 実装先 | 優先度 | 内容 |
+| Cosmo Enterprise 機能 | RCosmo 実装先 | 優先度 | 内容 |
 |----------------------|-----------------|--------|------|
 | **SSO (OIDC)** | `open-runo-security::oidc` + `ApiKeyAuth::with_oidc` | ✅ 実装済み | JWKS/RS256 検証（kid・iss・aud・exp）。env: `OPEN_RUNO_OIDC_ISSUER` / `OPEN_RUNO_OIDC_JWKS_FILE`。Discovery 自動フェッチは今後 |
 | **厳密な RBAC** | `open-runo-security::rbac` + `ApiKeyAuth::with_rbac` | ✅ 実装済み | `OPEN_RUNO_RBAC=enforce` で JWT roles をルート単位に認可（403）。admin/developer/viewer 組み込み |
@@ -76,11 +76,11 @@ Cosmo が有料プランでのみ解放している機能を、open-runo はす�
 ## 4a. 未実装・要検討ギャップ（2026-07-11、公式ドキュメント調査）
 
 <https://wundergraph.com/cosmo> と <https://cosmo-docs.wundergraph.com/enterprise>
-を実際にWeb調査し、上記の対応表と照合した結果、open-runoに**まだ存在しない**
+を実際にWeb調査し、上記の対応表と照合した結果、RCosmoに**まだ存在しない**
 Cosmoの機能を洗い出した。優先度は「REST APIを不要にする」という本プロジェクトの
 目的への寄与度で判断。
 
-| Cosmo機能 | 内容 | open-runoの状況 | 優先度 |
+| Cosmo機能 | 内容 | RCosmoの状況 | 優先度 |
 |-----------|------|-----------------|--------|
 | **Event-Driven Federated Subscriptions (EDFS) / Cosmo Streams** | Kafka/NATS/Redis をGraphQL Subscriptionsのイベント源として統合 | 未実装(現状はin-processブロードキャストのみ) | ★★☆ 分散環境では必要 |
 | **gRPC対応 (Cosmo Connect)** | 既存gRPCサービスをGraphQLスキーマとして federation に取り込む | 未実装 | ★★☆ 社内マイクロサービス統合に有用 |
@@ -95,7 +95,7 @@ REST APIの乱立を根本解決する)自体は、Cosmo有料版と同一方針
 (Schema Registry・Federation合成・Persisted Queries・RBAC・OIDC・SCIM・
 監査ログ・マルチグラフ・レートリミット・レスポンスキャッシュ・
 Subscriptions、いずれも2.1〜2.3節の通り実装済み)。上表のギャップは
-「Cosmoにあってopen-runoにまだない付加機能」であり、コア仕様の欠落ではない。
+「CosmoにあってRCosmoにまだない付加機能」であり、コア仕様の欠落ではない。
 
 ---
 

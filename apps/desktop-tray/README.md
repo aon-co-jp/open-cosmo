@@ -6,7 +6,7 @@ structurally cannot: a system tray icon and genuine native OS
 notifications. The actual admin UI stays exactly what it already is — a
 browser-based WASM app served by `open-runo-router`/`open-runo-gateway` —
 this binary has no UI of its own beyond the tray icon; clicking it (or
-"Open open-runo" in its menu) opens the real app in the default browser.
+"Open RCosmo" in its menu) opens the real app in the default browser.
 
 **Does not depend on the `tauri` package.** Built from `tray-icon` (tray
 icon abstraction) + `tao` (event loop / native message pump) + `notify-rust`
@@ -32,7 +32,7 @@ cargo run --release
 OPEN_RUNO_TRAY_URL=http://localhost:9090/ cargo run --release
 ```
 
-Left-click the tray icon (or the "Open open-runo" menu item) to open the
+Left-click the tray icon (or the "Open RCosmo" menu item) to open the
 admin UI in the default browser. Right-click for the menu (Open / Quit).
 
 ## Build a Windows installer

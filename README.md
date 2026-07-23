@@ -1,4 +1,4 @@
-# open-runo (RCosmo)
+# RCosmo
 
 **Rust 製 GraphQL Federation プラットフォーム — WunderGraph Cosmo の有料版とWEB高速化技術が基本**
 (Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載(外部 LLM 契約不要)。
@@ -12,7 +12,7 @@
 > **このリポジトリ(RCosmo)にはTauri・Poemの再現実装は含まれません**——それらを
 > 含む版はRPoemを参照してください。
 
-[![CI](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-runo/actions/workflows/ci.yml)
+[![CI](https://github.com/aon-co-jp/RCosmo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/RCosmo/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
 ![Tests](https://img.shields.io/badge/tests-362%20passed-brightgreen)
@@ -25,7 +25,7 @@
 
 ---
 
-## open-runo とは
+## RCosmo とは
 
 REST API の乱立(BFF 地獄・`/v1 /v2` のバージョン爆発・エンドポイント管理の崩壊)を
 **GraphQL Federation + VersionlessAPI** で根本解決するプラットフォームです。
@@ -41,14 +41,14 @@ tokio/hyper で自前実装しています。
        └───────GraphQL (POST /graphql) + REST───────────┘
                            │
                  ┌───────────────────┐        PostgreSQL :5432
-                 │     open-runo     │──DUAL──┤
+                 │     RCosmo     │──DUAL──┤
                  │  (このリポジトリ)  │        aruaru-db  :5433
                  └───────────────────┘        Redis / ClickHouse
 ```
 
 ## 機能マトリクス
 
-| 機能 | Cosmo 無料版 | Cosmo 有料版 | **open-runo** |
+| 機能 | Cosmo 無料版 | Cosmo 有料版 | **RCosmo** |
 |------|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | GraphQL Subscriptions (WebSocket) | ✅ | ✅ | ✅ |
@@ -62,7 +62,7 @@ tokio/hyper で自前実装しています。
 | マルチグラフ / namespace | — | ✅ | ✅ **無料** |
 | リクエスト数・チーム人数・保持期間の制限 | あり | 緩和 | **一切なし** |
 
-### open-runo だけの機能
+### RCosmo だけの機能
 
 - 🧠 **自己学習 AI**（外部 LLM・有料契約ゼロ）— HTML ページキャッシュの
   自動判定（URL パターン汎化によるコールドスタート予測）、レンダリング
@@ -97,8 +97,8 @@ tokio/hyper で自前実装しています。
 ## クイックスタート
 
 ```bash
-git clone https://github.com/aon-co-jp/open-runo
-cd open-runo
+git clone https://github.com/aon-co-jp/RCosmo
+cd RCosmo
 cargo test --workspace          # 343 テスト(--all-features で362)
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
@@ -240,7 +240,7 @@ sudo ./install.sh
 PostgreSQL・`aruaru-db`・`open-raid-z` を組み合わせ、3Dオンラインゲームの
 課金アイテム・金融/証券データをネットワーク上で紛失させないための
 目標アーキテクチャ(通信層四重化・DB書き込み四重化、2026-07-11改訂)が
-ある。open-runo は Federation Gateway/バックエンド側として関与しうる
+ある。RCosmo は Federation Gateway/バックエンド側として関与しうる
 (詳細は [open-web-server](https://github.com/aon-co-jp/open-web-server) の
 `README.md`/`CLAUDE.md` を参照)。
 

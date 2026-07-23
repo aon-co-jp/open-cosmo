@@ -1,4 +1,4 @@
-# open-runo API Specification
+# RCosmo API Specification
 
 All API routes require the `X-Api-Key: <key>` request header.  
 Health routes (`/health`, `/healthz`) are public and exempt.
