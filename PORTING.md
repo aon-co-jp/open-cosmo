@@ -309,3 +309,35 @@ cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 I/O・CPU 負荷処理を直接呼んでいないか（`tokio::task::spawn_blocking`
 へ退避すべき）、CPU 律速な処理は `rayon` 等でのデータ並列化を検討する
 価値があるか、を移植時にも確認するとよい。
+
+## 12. RPoem ⇔ RCosmo の「Cosmo共通コア」重複整理(2026-07-23)
+
+RPoemは`docs/HANDOFF.md`の通りRCosmoと共通のCosmoコア(Federation・
+VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実際に
+両リポジトリの`crates/`配下をファイル単位で`diff`した結果を記録する
+(詳細な調査過程はRPoem側`PORTING.md`同節に記録、本節は要点のみ)。
+
+- **調査結果**: 共通20クレートのうち **18クレートが両リポジトリで
+  byte-for-byte完全一致**(共通コア全体)。残る`open-runo-db`/
+  `open-runo-gateway`/`open-runo-router`の3クレートは、RPoem固有の
+  追加(`appserver_tenants.rs`・`udp_notice.rs`・gRPC/ACME/MCP拡張等)
+  により意図的に分岐している——これは正常(RPoem固有スコープの範囲)。
+- **既存パターンの踏襲**: 「別リポジトリのcrateへ直接のCargo依存は
+  しない、小さなモジュールとして直接コピーする」という既存方針
+  (RustJSON移植等)を継続する判断。ワークスペース統合はスコープが
+  異なる別プロジェクトという既存方針に反するため不採用。
+- **新規: `scripts/sync-cosmo-core.sh`**(RPoem/RCosmo両方に同一ファイル
+  配置)。従来手作業だった「ミラー」を機械的に検証・実行できるように
+  した(`check`/`diff <crate>`/`push <crate>`/`pull <crate>`のサブ
+  コマンド、詳細はスクリプト自体のコメントを参照)。今回、RPoem側で
+  発見・修正した`open-runo-appserver`のWindows非互換テストバグ
+  (`supervisor_reports_up_for_long_running_process_and_stops_it`が
+  `sleep`コマンドをハードコードしておりWindows環境で常に失敗していた
+  実バグ、`cfg!(windows)`で`ping -n 30 127.0.0.1`へ分岐して修正)を
+  このスクリプトの`push`でRCosmo側へ同期し、`check`で0件drift
+  (18/18 in sync)を確認済み——このリポジトリ側の`CLAUDE.md`
+  「2026-07-22」エントリが「ネイティブWindows cargoでこの2テストが
+  失敗する」と記録していた既知issueのうち1件を、RPoem側の修正が
+  そのまま解消した形になる(もう1件の並行アクセステストの不安定性は
+  環境依存の一過性issueと判断され、コード変更は行っていない——
+  詳細はRPoem側`CLAUDE.md`のHANDOFF追記を参照)。

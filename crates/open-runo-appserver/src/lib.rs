@@ -461,9 +461,20 @@ mod tests {
 
     #[test]
     fn supervisor_reports_up_for_long_running_process_and_stops_it() {
-        let mut prof = RuntimeProfile::template(Stack::Custom("sleep".into()), "s", "/tmp", 1);
-        prof.command = "sleep".into();
-        prof.args = vec!["30".into()];
+        // 実バグ修正(2026-07-20発見、2026-07-23修正): `sleep`はUnix専用
+        // コマンドで、Windows環境ではプロセスとしてspawnできず
+        // `Health::Crashed(None)`を返してしまい、このテストが必ず失敗
+        // していた。クロスプラットフォームで確実に長時間起動し続ける
+        // コマンドへ`cfg!(windows)`で分岐する。
+        let (command, args): (String, Vec<String>) = if cfg!(windows) {
+            // `ping -n 30 127.0.0.1`はWindows標準コマンドで約30秒かかる。
+            ("ping".into(), vec!["-n".into(), "30".into(), "127.0.0.1".into()])
+        } else {
+            ("sleep".into(), vec!["30".into()])
+        };
+        let mut prof = RuntimeProfile::template(Stack::Custom(command.clone()), "s", "/tmp", 1);
+        prof.command = command;
+        prof.args = args;
         let mut sup = Supervisor::new(prof, RestartPolicy::default());
         assert_eq!(sup.tick(), Health::Starting);
         std::thread::sleep(Duration::from_millis(50));

@@ -190,6 +190,16 @@ APIキーを `--api-key` で明示しない場合は自動で self-issue され�
 | `open-runo-view` | 第二のReact骨格（VNode diff/patch・hooks・SSR） |
 | `open-runo-history` / `-backup` / `-observability` | 変更履歴 / バックアップ / 監視(OTLP export 対応) |
 
+## RPoemとの「Cosmo共通コア」重複整理(2026-07-23追記)
+
+姉妹リポジトリ[RPoem](https://github.com/aon-co-jp/RPoem)と共通の
+Cosmoコアが実際にどこまで重複しているかを`diff`で調査した結果、
+共通20クレート中**18クレートがbyte-for-byte完全一致**していることを
+確認した。新規`scripts/sync-cosmo-core.sh`(両リポジトリに同一配置)で、
+この重複状態を`check`サブコマンドで機械的に検証できるようにした
+(`push`/`pull`で片方向コピーも可能)。詳細は`PORTING.md`
+「RPoem⇔RCosmoのCosmo共通コア重複整理」節を参照。
+
 ## デプロイ
 
 同一バイナリが自前サーバー / VPS / AWS / Docker すべてで動きます。

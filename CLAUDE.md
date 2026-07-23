@@ -457,6 +457,41 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-23 RPoem⇔RCosmo「Cosmo共通コア」重複調査 + 同期スクリプト
+  新設 + Windows非互換テストバグ修正(RPoem側で発見、こちらへ同期)**:
+  ユーザー指示「RPoemとの互換性・実用性向上、RCosmoと有料版部分だけ
+  共有」を受け、RPoem側セッションで実施した調査・修正をこちらへ同期。
+  - **重複調査(実際に`diff -rq`で確認)**: 共通20クレートのうち
+    **18クレートが両リポジトリでbyte-for-byte完全一致**(共通コア
+    全体)。残る`open-runo-db`/`open-runo-gateway`/`open-runo-router`は
+    RPoem固有の拡張により意図的に分岐——正常。詳細はRPoem側`CLAUDE.md`
+    同日エントリ・両リポジトリ`PORTING.md`新規11節を参照。
+  - **新規`scripts/sync-cosmo-core.sh`**(RPoem/RCosmo両方に同一配置)。
+    `check`/`diff <crate>`/`push <crate>`/`pull <crate>`。今後の
+    ミラー作業はこのスクリプトの`check`から始めること(手作業での
+    `diff -rq`は不要になった)。
+  - **本リポジトリの2026-07-22エントリが記録していた「ネイティブ
+    Windows cargoで`open-runo-appserver`の2テストが失敗する」既知issue
+    のうち1件を解消**: `supervisor_reports_up_for_long_running_process_
+    and_stops_it`がUnix専用コマンド`sleep`をハードコードしておりWindows
+    環境で常に失敗する実バグだったと判明、RPoem側で`cfg!(windows)`
+    による分岐(`ping -n 30 127.0.0.1`)を実装・検証した上で
+    `sync-cosmo-core.sh push`でこちらへ同期。**もう1件
+    (`serves_concurrent_requests_across_worker_threads`のflaky
+    `ConnectionAborted`)はWSL/Linux上では3回相当の再検証で再現せず、
+    Windowsネイティブcargo実行環境固有の一過性issueと判断——コード
+    変更は行っていない**(前回2026-07-22エントリの「後者は同一テストを
+    単体で3回連続実行し全て成功(flaky)」という所見と整合する結論)。
+  - **検証**: `cargo test -p open-runo-appserver --release`(WSL Ubuntu、
+    rustc/cargo 1.97)で**14件全green**。`sync-cosmo-core.sh check`で
+    18/18 in syncを確認。
+  - `PORTING.md`に新規12節を追加。
+  - 次にすべきこと: (1) 今後のミラー作業は`scripts/sync-cosmo-core.sh
+    check`から開始する運用へ切り替える、(2) このリポジトリの
+    `open-runo-gateway`が`poem`/`async-graphql-poem`へ直接依存している
+    既知drift(2026-07-22エントリで確認済み・未解消)は影響範囲が広い
+    ため引き続き別セッションでの大規模リファクタリングとして扱う。
+
 - **2026-07-22 バックグラウンドエージェント異常終了後の状態確認 + 実ビルド・
   テスト検証 + ドキュメントdrift1件修正**: 前セッションでこのリポジトリを
   含む複数リポジトリへ並列起動していたバックグラウンドエージェントが
