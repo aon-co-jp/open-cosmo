@@ -457,6 +457,36 @@ production best practice"、"tokio async server 複数プロセス
 
 ## HANDOFF(直近の自動実行パス)
 
+- **2026-07-23(続き) 3点セット(`install.sh`/`install.ps1`/
+  `.github/workflows/release.yml`)を新規追加、v0.1.0タグでCI成功・
+  GitHub Release実在確認まで完了**: エコシステム全体インストーラー
+  整備計画(正本: `open-raid-z/CLAUDE.md`「エコシステム全体
+  インストーラー整備計画」節)の一環。このリポジトリは以前
+  `release.yml`のみ存在し(Linux 2ターゲットをビルドしartifactへ
+  upload するのみ、Windows ビルド無し・GitHub Releaseへの添付無し)、
+  `install.sh`/`install.ps1`は未整備だった。
+  1. 姉妹プロジェクトRPoem(同じ`open-runo-router`バイナリ・同じ役割)
+     の`install.sh`/`install.ps1`をほぼそのまま踏襲して新規作成
+     (systemdサービス名は`rcosmo-router`、Windowsサービス名は
+     `RCosmoRouter`とRPoem側と区別)。
+  2. 既存`release.yml`を、RPoem側と同じ3ジョブ構成
+     (Linux x86_64/aarch64 + Windows x86_64 + GitHub Release添付)へ
+     全面刷新。RPoemは`open-web-server`/`RS-SmartTCP`へのsibling
+     path依存がありCIでgit cloneが必要だったが、RCosmoの
+     `open-runo-router`はワークスペース内のcrateのみに依存しており
+     sibling path依存が無いことを確認済み(RPoemと異なる点として
+     明記)。
+  3. `v0.1.0`タグを実際にpushし、`gh run list`で3ジョブ(Linux
+     x86_64/aarch64・Windows)とも`completed success`、
+     `gh release view v0.1.0`で
+     `open-runo-router-x86_64-unknown-linux-gnu.tar.gz`/
+     `open-runo-router-aarch64-unknown-linux-gnu.tar.gz`/
+     `open-runo-router-windows-x86_64.zip`の3点すべてが実在することを
+     確認した(型チェックのみでの完了報告ではない)。
+  4. README(日英両方)にインストール節を新設。
+  - 次にすべきこと: Android版インストーラー(未着手、他リポジトリと
+    共通のバックログ)。
+
 - **2026-07-23 RPoem⇔RCosmo「Cosmo共通コア」重複調査 + 同期スクリプト
   新設 + Windows非互換テストバグ修正(RPoem側で発見、こちらへ同期)**:
   ユーザー指示「RPoemとの互換性・実用性向上、RCosmoと有料版部分だけ

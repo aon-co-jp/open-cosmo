@@ -162,6 +162,24 @@ Scale from a minimal single-SQLite setup up to `--features full` (DUAL + Redis +
 ClickHouse) via feature flags. There is no functionality gated behind a
 "managed-only" tier.
 
+## Install (open-runo-router, added 2026-07-23)
+
+`install.sh` (Linux, registers a systemd service), `install.ps1` (Windows,
+prints Windows service registration steps), and
+`.github/workflows/release.yml` (builds Linux x86_64/aarch64 and Windows
+x86_64 binaries on every tag push, attached to
+[GitHub Releases](https://github.com/aon-co-jp/RCosmo/releases)) were added
+for standalone distribution of the app-server binary (`open-runo-router`,
+the same role as sibling project RPoem). This closely follows RPoem's
+existing `install.sh`/`install.ps1` pattern (no sibling path dependency —
+every workspace crate `open-runo-router` depends on lives inside this
+repository).
+
+```
+curl -fsSL https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo ./install.sh
+```
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — overall design

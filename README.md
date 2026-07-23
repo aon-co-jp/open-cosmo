@@ -206,6 +206,23 @@ Cosmoコアが実際にどこまで重複しているかを`diff`で調査した
 最小構成（SQLite 1 台）から `--features full`（DUAL + Redis + ClickHouse）まで
 feature フラグで選択。「マネージド版でしか使えない機能」はありません。
 
+## インストール(open-runo-router、2026-07-23追加)
+
+`open-web-server`(第二のApache+Nginx)とSETで使うアプリケーションサーバー
+本体(`open-runo-router`、姉妹プロジェクトRPoemと同じ役割)を単体で
+配布する`install.sh`(Linux、systemdサービス登録)・`install.ps1`
+(Windows、サービス登録案内)・`.github/workflows/release.yml`(タグ
+push時にLinux x86_64/aarch64・Windows x86_64向けバイナリを自動ビルドし
+[GitHub Releases](https://github.com/aon-co-jp/RCosmo/releases)へ添付)
+を追加した。RPoem側の`install.sh`/`install.ps1`パターンをほぼそのまま
+踏襲している(sibling path依存は無し、`open-runo-router`が依存する
+workspace crateはすべてこのリポジトリ内)。
+
+```
+curl -fsSL https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo ./install.sh
+```
+
 ## ドキュメント
 
 - [docs/architecture.md](docs/architecture.md) — 全体設計
