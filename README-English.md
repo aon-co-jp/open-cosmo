@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **GraphQL Federation platform built with Rust** (Poem/Tauri/Cosmo are never
 direct dependencies — their functionality is hand-implemented for
@@ -15,19 +15,19 @@ compatibility.**
 [한국어](README-Korea.md) / [Español](README-Spain.md) / [Français](README-France.md) /
 [Deutsch](README-Germany.md) / [Italiano](README-Italy.md) / [Русский](README-Russia.md) /
 [العربية](README-Arabic.md) ·
-To integrate RCosmo into another project, see **[PORTING.md](PORTING.md)**.
+To integrate open-cosmo into another project, see **[PORTING.md](PORTING.md)**.
 
-## What is RCosmo?
+## What is open-cosmo?
 
 As microservices multiply, REST APIs sprawl out of control (BFF hell, `/v1 /v2`
-version explosion, unmanageable endpoint growth). RCosmo solves this at the
+version explosion, unmanageable endpoint growth). open-cosmo solves this at the
 root with **GraphQL Federation + VersionlessAPI**. Features that WunderGraph
 Cosmo (written in Go) only offers on paid plans (Launch / Scale / Enterprise)
 are implemented here in pure Rust — **entirely free, as OSS**.
 
 ## Feature comparison
 
-| Feature | Cosmo free | Cosmo paid | **RCosmo** |
+| Feature | Cosmo free | Cosmo paid | **open-cosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | GraphQL Subscriptions (WebSocket) | ✅ | ✅ | ✅ |
@@ -41,7 +41,7 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 | Multi-graph / namespaces | — | ✅ | ✅ **free** |
 | Request / team-size / retention limits | Yes | Relaxed | **None at all** |
 
-### Features unique to RCosmo
+### Features unique to open-cosmo
 
 - 🧠 **Self-learning AI** (zero external LLM cost) — automatic HTML page cache
   decisions (cold-start prediction via URL pattern generalization), rendering-cost
@@ -68,8 +68,8 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 ## Quick start
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 tests (362 with --all-features)
 cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
 ```
@@ -168,7 +168,7 @@ ClickHouse) via feature flags. There is no functionality gated behind a
 prints Windows service registration steps), and
 `.github/workflows/release.yml` (builds Linux x86_64/aarch64 and Windows
 x86_64 binaries on every tag push, attached to
-[GitHub Releases](https://github.com/aon-co-jp/RCosmo/releases)) were added
+[GitHub Releases](https://github.com/aon-co-jp/open-cosmo/releases)) were added
 for standalone distribution of the app-server binary (`open-runo-router`,
 the same role as sibling project RPoem). This closely follows RPoem's
 existing `install.sh`/`install.ps1` pattern (no sibling path dependency —
@@ -176,7 +176,7 @@ every workspace crate `open-runo-router` depends on lives inside this
 repository).
 
 ```
-curl -fsSL https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -fsSL https://github.com/aon-co-jp/open-cosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
 sudo ./install.sh
 ```
 
@@ -197,7 +197,7 @@ There is a target architecture combining `open-web-server` with this
 repository, `poem-cosmo-tauri`, PostgreSQL, `aruaru-db`, and `open-raid-z`,
 designed to prevent network loss of paid-item and financial/securities
 data in 3D online games (quadruple-redundant transport and quadruple-
-redundant DB writes, revised 2026-07-11). RCosmo can participate as a
+redundant DB writes, revised 2026-07-11). open-cosmo can participate as a
 Federation Gateway / backend within that architecture (see
 [open-web-server](https://github.com/aon-co-jp/open-web-server)'s
 `README.md`/`CLAUDE.md` for the full picture).

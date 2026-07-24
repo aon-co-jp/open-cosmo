@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **Piattaforma di GraphQL Federation costruita in puro Rust** (Poem/Tauri/Cosmo
 non sono mai dipendenze dirette — la loro funzionalità è reimplementata a mano
@@ -9,17 +9,17 @@ Include una IA auto-apprendente proprietaria (nessun contratto LLM esterno richi
 📖 Altre lingue: [日本語](README-Japan.md) / [English](README-English.md) ·
 Per l'integrazione in altri progetti vedi **[PORTING.md](PORTING.md)**.
 
-## Cos'è RCosmo?
+## Cos'è open-cosmo?
 
 La crescita dei microservizi moltiplica le API REST (inferno BFF,
 esplosione di versioni `/v1 /v2`, gestione degli endpoint fuori controllo).
-RCosmo risolve il problema alla radice con **GraphQL Federation + VersionlessAPI**.
+open-cosmo risolve il problema alla radice con **GraphQL Federation + VersionlessAPI**.
 Le funzionalità che WunderGraph Cosmo (Go) offre solo nei piani a pagamento
 (Launch/Scale/Enterprise) sono qui **implementate interamente in Rust puro, gratis, come OSS**.
 
 ## Confronto funzionalità
 
-| Funzionalità | Cosmo free | Cosmo a pagamento | **RCosmo** |
+| Funzionalità | Cosmo free | Cosmo a pagamento | **open-cosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **gratis** |
@@ -29,7 +29,7 @@ Le funzionalità che WunderGraph Cosmo (Go) offre solo nei piani a pagamento
 | Audit log | — | ✅ | ✅ **gratis** |
 | Limiti richieste/team/retention | Sì | Ridotti | **Nessuno** |
 
-### Solo su RCosmo
+### Solo su open-cosmo
 
 - 🧠 IA auto-apprendente (zero costi LLM esterni) — cache HTML adattiva, TTL dinamico
 - 🔑 KeyGuardian — gestione totalmente automatica delle chiavi API (emissione/revoca via SCIM)
@@ -44,8 +44,8 @@ Le funzionalità che WunderGraph Cosmo (Go) offre solo nei piani a pagamento
 ## Avvio rapido
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 test (362 con --all-features)
 cargo run -p open-runo-gateway  # server REST + GraphQL
 ```

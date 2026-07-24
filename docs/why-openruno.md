@@ -1,8 +1,8 @@
-# なぜ RCosmo を作るのか
+# なぜ open-cosmo を作るのか
 
-## REST API vs WunderGraph Cosmo (Go) vs RCosmo (Rust) — 機能差分表
+## REST API vs WunderGraph Cosmo (Go) vs open-cosmo (Rust) — 機能差分表
 
-| 課題・機能 | REST API のみ | WunderGraph Cosmo (Go) | **RCosmo (Rust + Poem)** |
+| 課題・機能 | REST API のみ | WunderGraph Cosmo (Go) | **open-cosmo (Rust + Poem)** |
 |---|:---:|:---:|:---:|
 | **BFF 開発が必要** | ❌ 毎回必要 | ✅ 不要 | ✅ 不要 |
 | **オーバーフェッチ** | ❌ 常に発生 | ✅ GraphQL で解消 | ✅ GraphQL で解消 |
@@ -33,13 +33,13 @@
 
 **WunderGraph Cosmo (Go)** — GraphQL Federation で REST API 問題を大幅に解消する優れたプラットフォーム。ただし Go の GC によるレイテンシスパイク、VersionlessAPI・AI Routing・DUAL DATABASE の欠如が残る。
 
-**RCosmo (Rust + Poem)** — Cosmo が解決する問題をすべて引き継ぎつつ、Rust の GC なし安定性・コンパイル時安全・VersionlessAPI・AI Native Routing・DUAL DATABASE・Tauri Desktop App を追加する次世代プラットフォーム。
+**open-cosmo (Rust + Poem)** — Cosmo が解決する問題をすべて引き継ぎつつ、Rust の GC なし安定性・コンパイル時安全・VersionlessAPI・AI Native Routing・DUAL DATABASE・Tauri Desktop App を追加する次世代プラットフォーム。
 
 ---
 
-## Go (Cosmo) vs Rust (RCosmo) — 性能・安全性の違い
+## Go (Cosmo) vs Rust (open-cosmo) — 性能・安全性の違い
 
-| 観点 | Go (Cosmo) | Rust (RCosmo) |
+| 観点 | Go (Cosmo) | Rust (open-cosmo) |
 |---|---|---|
 | メモリ管理 | GC（ガベージコレクション） | 所有権システム（GC なし） |
 | レイテンシ特性 | GC pause により突発スパイクが起きる | GC がないため安定した低レイテンシ |
@@ -52,6 +52,6 @@
 
 ## まとめ
 
-RCosmo は **「REST API の問題を根本解決した上で、WunderGraph Cosmo が到達できていない領域にまで踏み込む」** Rust ネイティブプラットフォームです。
+open-cosmo は **「REST API の問題を根本解決した上で、WunderGraph Cosmo が到達できていない領域にまで踏み込む」** Rust ネイティブプラットフォームです。
 
 詳細なアーキテクチャは [`docs/architecture.md`](architecture.md) を、API 仕様は [`docs/api-spec.md`](api-spec.md) を参照してください。

@@ -1,4 +1,4 @@
-# RCosmo Development Guide
+# open-cosmo Development Guide
 
 This document is the practical, day-to-day companion to `CONTRIBUTING.md`.
 `CONTRIBUTING.md` covers process (branching, commits, PRs); this file covers
@@ -15,14 +15,14 @@ the mechanics of building, running, and navigating the codebase.
   (optional for most crates — see §5)
 - Optional: `cargo install cargo-audit cargo-deny` for the full quality gate
 
-No Node.js, Go, or Python toolchain is required — RCosmo is a pure Rust
+No Node.js, Go, or Python toolchain is required — open-cosmo is a pure Rust
 workspace.
 
 ## 2. Getting the code building
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo.git
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo.git
+cd open-cosmo
 cargo build --workspace --all-features
 ```
 
@@ -83,7 +83,7 @@ docker compose up --build
 ## 3. Repository layout
 
 ```text
-RCosmo/
+open-cosmo/
 ├── Cargo.toml              # workspace definition, shared deps, lint policy
 ├── Makefile                 # build/test/fmt/clippy/audit/deny entrypoints
 ├── rustfmt.toml              # formatting rules
@@ -156,7 +156,7 @@ macros. For local development, the simplest option is:
 
 ```bash
 docker run -d --name rcosmo-pg -e POSTGRES_PASSWORD=rcosmo -p 5432:5432 postgres:16
-export DATABASE_URL=postgres://postgres:RCosmo@localhost:5432/postgres
+export DATABASE_URL=postgres://postgres:open-cosmo@localhost:5432/postgres
 ```
 
 ## 6. Runnable examples
@@ -176,10 +176,10 @@ changes, update its example alongside its doc comments.
 
 ## 7. Adding a new crate
 
-1. `cargo new --lib crates/RCosmo-<name>`
+1. `cargo new --lib crates/open-runo-<name>`
 2. Add it to the `members` list and to `[workspace.dependencies]` in the
    root `Cargo.toml` (so other crates can depend on it via
-   `RCosmo-<name> = { workspace = true }`).
+   `open-runo-<name> = { workspace = true }`).
 3. Copy the `[lints] workspace = true` line and the `version.workspace = true`
    / `edition.workspace = true` / etc. package fields from an existing crate's
    `Cargo.toml` so it inherits the shared lint policy and metadata.

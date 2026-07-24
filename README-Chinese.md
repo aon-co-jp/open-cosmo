@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **纯 Rust 构建的 GraphQL Federation 平台**（Poem/Tauri/Cosmo 均非直接依赖 ——
 其功能均为手工重新实现，以在 tokio+hyper 之上保持兼容）
@@ -7,16 +7,16 @@
 📖 其他语言: [日本語](README-Japan.md) / [English](README-English.md) ·
 接入其他项目请参见 **[PORTING.md](PORTING.md)**。
 
-## RCosmo 是什么
+## open-cosmo 是什么
 
 微服务增多导致 REST API 泛滥（BFF 地狱、`/v1 /v2` 版本爆炸、端点管理失控）。
-RCosmo 用 **GraphQL Federation + VersionlessAPI** 从根本上解决这些问题。
+open-cosmo 用 **GraphQL Federation + VersionlessAPI** 从根本上解决这些问题。
 Go 编写的 WunderGraph Cosmo 仅在付费方案（Launch / Scale / Enterprise）中
 提供的功能，本项目用纯 Rust **全部作为开源免费实现**。
 
 ## 功能对比
 
-| 功能 | Cosmo 免费版 | Cosmo 付费版 | **RCosmo** |
+| 功能 | Cosmo 免费版 | Cosmo 付费版 | **open-cosmo** |
 |------|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries / Trusted Documents | — | ✅ | ✅ **免费** |
@@ -26,7 +26,7 @@ Go 编写的 WunderGraph Cosmo 仅在付费方案（Launch / Scale / Enterprise�
 | 审计日志（Git-on-SQL 存储） | — | ✅ | ✅ **免费** |
 | 请求数/团队人数/保留期限制 | 有 | 部分放宽 | **完全没有** |
 
-### RCosmo 独有功能
+### open-cosmo 独有功能
 
 - 🧠 自主学习 AI（零外部 LLM 付费契约）—— HTML 页面缓存自动判定、渲染成本学习、自适应 TTL
 - 🔑 KeyGuardian —— API 密钥全自动运维（与 SCIM 联动的自动签发/失效、异常使用自动隔离）
@@ -41,8 +41,8 @@ Go 编写的 WunderGraph Cosmo 仅在付费方案（Launch / Scale / Enterprise�
 ## 快速开始
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 个测试(--all-features 为 362)
 cargo run -p open-runo-gateway  # 启动 REST + GraphQL 服务
 ```
@@ -58,7 +58,7 @@ cargo run -p open-runo-gateway  # 启动 REST + GraphQL 服务
 存在一个将 `open-web-server` 与本仓库、`poem-cosmo-tauri`、PostgreSQL、
 `aruaru-db`、`open-raid-z` 组合起来的目标架构(通信层与数据库写入四重
 冗余,2026-07-11修订),用于防止 3D 网络游戏中付费道具及金融/证券数据
-的丢失。RCosmo 可作为其中的 Federation Gateway/后端参与(详见
+的丢失。open-cosmo 可作为其中的 Federation Gateway/后端参与(详见
 [open-web-server](https://github.com/aon-co-jp/open-web-server) 的
 `README.md`/`CLAUDE.md`)。
 

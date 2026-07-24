@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **Plataforma de GraphQL Federation construida en Rust puro** (Poem/Tauri/Cosmo
 nunca son dependencias directas — su funcionalidad está reimplementada a mano
@@ -9,17 +9,17 @@ Incluye IA de autoaprendizaje propia (sin contratos con LLM externos).
 📖 Otros idiomas: [日本語](README-Japan.md) / [English](README-English.md) ·
 Para integrarlo en otros proyectos, consulta **[PORTING.md](PORTING.md)**.
 
-## ¿Qué es RCosmo?
+## ¿Qué es open-cosmo?
 
 El crecimiento de microservicios multiplica las APIs REST (infierno BFF,
 explosión de versiones `/v1 /v2`, gestión de endpoints descontrolada).
-RCosmo resuelve esto de raíz con **GraphQL Federation + VersionlessAPI**.
+open-cosmo resuelve esto de raíz con **GraphQL Federation + VersionlessAPI**.
 Las funciones que WunderGraph Cosmo (Go) solo ofrece en planes de pago
 (Launch/Scale/Enterprise) están implementadas aquí **en Rust puro y gratis, como OSS**.
 
 ## Comparativa de funciones
 
-| Función | Cosmo gratis | Cosmo de pago | **RCosmo** |
+| Función | Cosmo gratis | Cosmo de pago | **open-cosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **gratis** |
@@ -29,7 +29,7 @@ Las funciones que WunderGraph Cosmo (Go) solo ofrece en planes de pago
 | Registro de auditoría | — | ✅ | ✅ **gratis** |
 | Límites de solicitudes/equipo/retención | Sí | Reducidos | **Ninguno** |
 
-### Funciones exclusivas de RCosmo
+### Funciones exclusivas de open-cosmo
 
 - 🧠 IA de autoaprendizaje (sin costes de LLM externo) — caché de HTML adaptativo, TTL dinámico
 - 🔑 KeyGuardian — gestión totalmente automática de claves API (emisión/revocación vía SCIM)
@@ -44,8 +44,8 @@ Las funciones que WunderGraph Cosmo (Go) solo ofrece en planes de pago
 ## Inicio rápido
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 tests (362 with --all-features)
 cargo run -p open-runo-gateway  # servidor REST + GraphQL
 ```

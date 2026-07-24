@@ -1,6 +1,6 @@
-# PORTING.md — RCosmo お引越しファイル
+# PORTING.md — open-cosmo お引越しファイル
 
-> このファイル 1 枚で、**どのプロジェクトでも RCosmo を導入・移設**できます。
+> このファイル 1 枚で、**どのプロジェクトでも open-cosmo を導入・移設**できます。
 > open-e-gov / OpenRedmine / OpenWordPress など新プロジェクトのリポジトリに
 > このファイルをコピーして、上から順に進めてください。
 >
@@ -10,9 +10,9 @@
 
 ---
 
-## 0. RCosmo と poem-cosmo-tauri の違い(2026-07-11、ユーザーによる最終定義)
+## 0. open-cosmo と poem-cosmo-tauri の違い(2026-07-11、ユーザーによる最終定義)
 
-このリポジトリ `RCosmo` は、姉妹リポジトリ `poem-cosmo-tauri`
+このリポジトリ `open-cosmo` は、姉妹リポジトリ `poem-cosmo-tauri`
 (https://github.com/aon-co-jp/poem-cosmo-tauri) と共通コア(下記「cosmo
 部分」)を持つが、**全く違うリポジトリのプロジェクト**であり統合対象では
 ない。poem-cosmo-tauri はこの共通コアに加えて、(1) Rust の Poem
@@ -20,11 +20,11 @@
 (2) Tauri の全機能を完全互換で一から自作・再現したフロントエンド、を
 持ち、その2つとcosmoコアの3者をスムーズに連携させることで効率的な
 WEB開発を実現するフレームワーク/ミドルウェアという、より広いスコープを
-持つ。**このリポジトリ(RCosmo)にその上乗せスコープはなく、以下の
+持つ。**このリポジトリ(open-cosmo)にその上乗せスコープはなく、以下の
 cosmo部分が中心**。詳細は `CLAUDE.md` の該当節、または open-raid-z の
 `CLAUDE.md`(正本)を参照。
 
-## 1. RCosmo とは（cosmo部分、30 秒版）
+## 1. open-cosmo とは（cosmo部分、30 秒版）
 
 Rust + tokio/hyper 製（`poem`パッケージには依存しない）の
 **GraphQL Federation プラットフォーム / Web フレームワーク**。
@@ -42,7 +42,7 @@ WunderGraph Cosmo の有料版（Launch / Scale / Enterprise）機能を OSS で
 ## 2. 持っていくもの（ファイル一覧）
 
 ```
-RCosmo/
+open-cosmo/
 ├── Cargo.toml / Cargo.lock      ← workspace 定義（バージョン固定）
 ├── crates/                      ← 18 クレート（本体）
 ├── apps/desktop-wasm/            ← Rust→WebAssembly 管理アプリ（任意、open-runo-routerが自前配信）
@@ -60,12 +60,12 @@ RCosmo/
 ```toml
 [dependencies]
 # 同一マシンにある場合（path 依存）
-open-runo-core     = { path = "../RCosmo/crates/open-runo-core" }
-open-runo-router   = { path = "../RCosmo/crates/open-runo-router" }
-open-runo-gateway  = { path = "../RCosmo/crates/open-runo-gateway" }
-open-runo-db       = { path = "../RCosmo/crates/open-runo-db" }
-open-runo-cache    = { path = "../RCosmo/crates/open-runo-cache" }
-open-runo-security = { path = "../RCosmo/crates/open-runo-security" }
+open-runo-core     = { path = "../open-cosmo/crates/open-runo-core" }
+open-runo-router   = { path = "../open-cosmo/crates/open-runo-router" }
+open-runo-gateway  = { path = "../open-cosmo/crates/open-runo-gateway" }
+open-runo-db       = { path = "../open-cosmo/crates/open-runo-db" }
+open-runo-cache    = { path = "../open-cosmo/crates/open-runo-cache" }
+open-runo-security = { path = "../open-cosmo/crates/open-runo-security" }
 
 # GitHub 公開後は git 依存でも可
 # open-runo-router = { git = "https://github.com/aon-co-jp/poem-cosmo-tauri" }
@@ -278,14 +278,14 @@ OSネイティブ通知・Windows インストーラーが必要な場合は `ap
 ## 8. 動作確認
 
 ```bash
-cd RCosmo
+cd open-cosmo
 cargo test --workspace     # 302 テスト（--all-features で311）+ doctest が全部通れば OK
 cargo run -p open-runo-gateway   # REST + GraphQL 統合バイナリ起動
 ```
 
 ## 9. 命名規約（お引越し先でも守ること）
 
-- クレート/ディレクトリ: `RCosmo-*`　- Rust パス: `open_runo_*`
+- クレート/ディレクトリ: `open-runo-*`　- Rust パス: `open_runo_*`
 - 環境変数: `OPEN_RUNO_*`　- 型名のみ CamelCase: `OpenRuno*`（Rust 言語制約）
 
 ## 10. 詳細ドキュメント
@@ -310,9 +310,9 @@ I/O・CPU 負荷処理を直接呼んでいないか（`tokio::task::spawn_block
 へ退避すべき）、CPU 律速な処理は `rayon` 等でのデータ並列化を検討する
 価値があるか、を移植時にも確認するとよい。
 
-## 12. RPoem ⇔ RCosmo の「Cosmo共通コア」重複整理(2026-07-23)
+## 12. RPoem ⇔ open-cosmo の「Cosmo共通コア」重複整理(2026-07-23)
 
-RPoemは`docs/HANDOFF.md`の通りRCosmoと共通のCosmoコア(Federation・
+RPoemは`docs/HANDOFF.md`の通りopen-cosmoと共通のCosmoコア(Federation・
 VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実際に
 両リポジトリの`crates/`配下をファイル単位で`diff`した結果を記録する
 (詳細な調査過程はRPoem側`PORTING.md`同節に記録、本節は要点のみ)。
@@ -326,7 +326,7 @@ VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実
   しない、小さなモジュールとして直接コピーする」という既存方針
   (RustJSON移植等)を継続する判断。ワークスペース統合はスコープが
   異なる別プロジェクトという既存方針に反するため不採用。
-- **新規: `scripts/sync-cosmo-core.sh`**(RPoem/RCosmo両方に同一ファイル
+- **新規: `scripts/sync-cosmo-core.sh`**(RPoem/open-cosmo両方に同一ファイル
   配置)。従来手作業だった「ミラー」を機械的に検証・実行できるように
   した(`check`/`diff <crate>`/`push <crate>`/`pull <crate>`のサブ
   コマンド、詳細はスクリプト自体のコメントを参照)。今回、RPoem側で
@@ -334,7 +334,7 @@ VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実
   (`supervisor_reports_up_for_long_running_process_and_stops_it`が
   `sleep`コマンドをハードコードしておりWindows環境で常に失敗していた
   実バグ、`cfg!(windows)`で`ping -n 30 127.0.0.1`へ分岐して修正)を
-  このスクリプトの`push`でRCosmo側へ同期し、`check`で0件drift
+  このスクリプトの`push`でopen-cosmo側へ同期し、`check`で0件drift
   (18/18 in sync)を確認済み——このリポジトリ側の`CLAUDE.md`
   「2026-07-22」エントリが「ネイティブWindows cargoでこの2テストが
   失敗する」と記録していた既知issueのうち1件を、RPoem側の修正が

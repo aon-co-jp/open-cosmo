@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **منصة GraphQL Federation مبنية بلغة Rust خالصة** (Poem وTauri وCosmo ليست أبدًا
 اعتماديات مباشرة — تم إعادة تنفيذ وظائفها يدويًا للحفاظ على التوافق فوق tokio+hyper)
@@ -8,17 +8,17 @@
 📖 لغات أخرى: [日本語](README-Japan.md) / [English](README-English.md) ·
 لدمج المشروع في مشاريع أخرى راجع **[PORTING.md](PORTING.md)**.
 
-## ما هو RCosmo؟
+## ما هو open-cosmo؟
 
 مع تزايد الخدمات المصغرة تتكاثر واجهات REST API (جحيم BFF، انفجار الإصدارات
-`/v1 /v2`، إدارة نقاط نهاية خارجة عن السيطرة). يحل RCosmo هذه المشكلة من
+`/v1 /v2`، إدارة نقاط نهاية خارجة عن السيطرة). يحل open-cosmo هذه المشكلة من
 جذورها باستخدام **GraphQL Federation + VersionlessAPI**. الميزات التي يوفرها
 WunderGraph Cosmo (المكتوب بلغة Go) فقط في خططه المدفوعة (Launch/Scale/Enterprise)
 تم تنفيذها هنا **بالكامل بلغة Rust خالصة، مجانًا، كمصدر مفتوح**.
 
 ## مقارنة الميزات
 
-| الميزة | Cosmo المجاني | Cosmo المدفوع | **RCosmo** |
+| الميزة | Cosmo المجاني | Cosmo المدفوع | **open-cosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **مجانًا** |
@@ -28,7 +28,7 @@ WunderGraph Cosmo (المكتوب بلغة Go) فقط في خططه المدفو
 | سجل تدقيق | — | ✅ | ✅ **مجانًا** |
 | حدود الطلبات/الفريق/مدة الاحتفاظ | نعم | مخفّفة | **لا توجد** |
 
-### ميزات حصرية في RCosmo
+### ميزات حصرية في open-cosmo
 
 - 🧠 ذكاء اصطناعي ذاتي التعلّم (بدون تكاليف نماذج لغوية خارجية) — تخزين مؤقت تكيّفي لصفحات HTML
 - 🔑 KeyGuardian — إدارة كاملة وآلية لمفاتيح API (إصدار/إلغاء عبر SCIM)
@@ -43,8 +43,8 @@ WunderGraph Cosmo (المكتوب بلغة Go) فقط في خططه المدفو
 ## البدء السريع
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 اختبارًا (362 مع --all-features)
 cargo run -p open-runo-gateway  # تشغيل خادم REST + GraphQL
 ```

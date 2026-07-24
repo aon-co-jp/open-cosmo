@@ -1,7 +1,9 @@
-# RCosmo
+# open-cosmo
 
-**Rust 製 GraphQL Federation プラットフォーム — WunderGraph Cosmo の有料版とWEB高速化技術が基本**
-(Cosmo自体は着想元のみで実装非依存)。独自の自己学習 AI 搭載(外部 LLM 契約不要)。
+**Rust 製 GraphQL Federation プラットフォーム。WunderGraph Cosmo の有料版を含む
+全ての機能の完全無料のオープンソース版。WEBサーバー負荷分散やDBバックアップの
+分散統合機能なども含みます**(Cosmo自体は着想元のみで実装非依存)。独自の
+自己学習 AI 搭載(外部 LLM 契約不要)。
 **Tauriや、Poem機能はありません**——それらの機能を実装するのは姉妹リポジトリ
 [RPoem](https://github.com/aon-co-jp/RPoem)(旧poem-cosmo-tauri)。
 
@@ -9,10 +11,10 @@
 > もう一方へミラーする運用です(詳細は共有の `docs/HYBRID_NETWORK_ARCHITECTURE.md`
 > §0.5)。共通コア(WunderGraph Cosmoの有料版機能+WEB高速化)はパッケージとして
 > 直接依存せず、Rust 標準ライブラリ + tokio/hyper で自前実装しています。
-> **このリポジトリ(RCosmo)にはTauri・Poemの再現実装は含まれません**——それらを
+> **このリポジトリ(open-cosmo)にはTauri・Poemの再現実装は含まれません**——それらを
 > 含む版はRPoemを参照してください。
 
-[![CI](https://github.com/aon-co-jp/RCosmo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/RCosmo/actions/workflows/ci.yml)
+[![CI](https://github.com/aon-co-jp/open-cosmo/actions/workflows/ci.yml/badge.svg)](https://github.com/aon-co-jp/open-cosmo/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![License](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue)
 ![Tests](https://img.shields.io/badge/tests-362%20passed-brightgreen)
@@ -25,7 +27,7 @@
 
 ---
 
-## RCosmo とは
+## open-cosmo とは
 
 REST API の乱立(BFF 地獄・`/v1 /v2` のバージョン爆発・エンドポイント管理の崩壊)を
 **GraphQL Federation + VersionlessAPI** で根本解決するプラットフォームです。
@@ -41,14 +43,14 @@ tokio/hyper で自前実装しています。
        └───────GraphQL (POST /graphql) + REST───────────┘
                            │
                  ┌───────────────────┐        PostgreSQL :5432
-                 │     RCosmo     │──DUAL──┤
+                 │   open-cosmo   │──DUAL──┤
                  │  (このリポジトリ)  │        aruaru-db  :5433
                  └───────────────────┘        Redis / ClickHouse
 ```
 
 ## 機能マトリクス
 
-| 機能 | Cosmo 無料版 | Cosmo 有料版 | **RCosmo** |
+| 機能 | Cosmo 無料版 | Cosmo 有料版 | **open-cosmo** |
 |------|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | GraphQL Subscriptions (WebSocket) | ✅ | ✅ | ✅ |
@@ -62,7 +64,7 @@ tokio/hyper で自前実装しています。
 | マルチグラフ / namespace | — | ✅ | ✅ **無料** |
 | リクエスト数・チーム人数・保持期間の制限 | あり | 緩和 | **一切なし** |
 
-### RCosmo だけの機能
+### open-cosmo だけの機能
 
 - 🧠 **自己学習 AI**（外部 LLM・有料契約ゼロ）— HTML ページキャッシュの
   自動判定（URL パターン汎化によるコールドスタート予測）、レンダリング
@@ -97,8 +99,8 @@ tokio/hyper で自前実装しています。
 ## クイックスタート
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 テスト(--all-features で362)
 cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
 ```
@@ -198,7 +200,7 @@ Cosmoコアが実際にどこまで重複しているかを`diff`で調査した
 確認した。新規`scripts/sync-cosmo-core.sh`(両リポジトリに同一配置)で、
 この重複状態を`check`サブコマンドで機械的に検証できるようにした
 (`push`/`pull`で片方向コピーも可能)。詳細は`PORTING.md`
-「RPoem⇔RCosmoのCosmo共通コア重複整理」節を参照。
+「RPoem⇔open-cosmoのCosmo共通コア重複整理」節を参照。
 
 ## デプロイ
 
@@ -213,13 +215,13 @@ feature フラグで選択。「マネージド版でしか使えない機能」
 配布する`install.sh`(Linux、systemdサービス登録)・`install.ps1`
 (Windows、サービス登録案内)・`.github/workflows/release.yml`(タグ
 push時にLinux x86_64/aarch64・Windows x86_64向けバイナリを自動ビルドし
-[GitHub Releases](https://github.com/aon-co-jp/RCosmo/releases)へ添付)
+[GitHub Releases](https://github.com/aon-co-jp/open-cosmo/releases)へ添付)
 を追加した。RPoem側の`install.sh`/`install.ps1`パターンをほぼそのまま
 踏襲している(sibling path依存は無し、`open-runo-router`が依存する
 workspace crateはすべてこのリポジトリ内)。
 
 ```
-curl -fsSL https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -fsSL https://github.com/aon-co-jp/open-cosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
 sudo ./install.sh
 ```
 
@@ -240,7 +242,7 @@ sudo ./install.sh
 PostgreSQL・`aruaru-db`・`open-raid-z` を組み合わせ、3Dオンラインゲームの
 課金アイテム・金融/証券データをネットワーク上で紛失させないための
 目標アーキテクチャ(通信層四重化・DB書き込み四重化、2026-07-11改訂)が
-ある。RCosmo は Federation Gateway/バックエンド側として関与しうる
+ある。open-cosmo は Federation Gateway/バックエンド側として関与しうる
 (詳細は [open-web-server](https://github.com/aon-co-jp/open-web-server) の
 `README.md`/`CLAUDE.md` を参照)。
 

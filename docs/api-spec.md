@@ -1,4 +1,4 @@
-# RCosmo API Specification
+# open-cosmo API Specification
 
 All API routes require the `X-Api-Key: <key>` request header.  
 Health routes (`/health`, `/healthz`) are public and exempt.

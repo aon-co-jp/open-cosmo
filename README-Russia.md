@@ -1,4 +1,4 @@
-# RCosmo
+# open-cosmo
 
 **Платформа GraphQL Federation, написанная на чистом Rust** (Poem/Tauri/Cosmo
 никогда не являются прямыми зависимостями — их функциональность реализована
@@ -9,18 +9,18 @@
 📖 Другие языки: [日本語](README-Japan.md) / [English](README-English.md) ·
 Для интеграции в другие проекты см. **[PORTING.md](PORTING.md)**.
 
-## Что такое RCosmo?
+## Что такое open-cosmo?
 
 Рост числа микросервисов приводит к разрастанию REST API (ад BFF,
 взрыв версий `/v1 /v2`, неуправляемое количество эндпоинтов).
-RCosmo решает эту проблему в корне с помощью **GraphQL Federation + VersionlessAPI**.
+open-cosmo решает эту проблему в корне с помощью **GraphQL Federation + VersionlessAPI**.
 Функции, которые WunderGraph Cosmo (на Go) предлагает только в платных
 тарифах (Launch/Scale/Enterprise), здесь **полностью реализованы на чистом Rust,
 бесплатно, как OSS**.
 
 ## Сравнение функций
 
-| Функция | Cosmo Free | Cosmo Paid | **RCosmo** |
+| Функция | Cosmo Free | Cosmo Paid | **open-cosmo** |
 |---|:---:|:---:|:---:|
 | GraphQL Federation / Schema Registry | ✅ | ✅ | ✅ |
 | Persisted Queries | — | ✅ | ✅ **бесплатно** |
@@ -30,7 +30,7 @@ RCosmo решает эту проблему в корне с помощью **Gr
 | Аудит-лог | — | ✅ | ✅ **бесплатно** |
 | Лимиты запросов/команды/хранения | Есть | Смягчены | **Отсутствуют** |
 
-### Только в RCosmo
+### Только в open-cosmo
 
 - 🧠 Самообучающийся ИИ (без затрат на внешние LLM) — адаптивный HTML-кэш, динамический TTL
 - 🔑 KeyGuardian — полностью автоматическое управление API-ключами (выпуск/отзыв через SCIM)
@@ -45,8 +45,8 @@ RCosmo решает эту проблему в корне с помощью **Gr
 ## Быстрый старт
 
 ```bash
-git clone https://github.com/aon-co-jp/RCosmo
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo
+cd open-cosmo
 cargo test --workspace          # 343 тестов (362 с --all-features)
 cargo run -p open-runo-gateway  # сервер REST + GraphQL
 ```

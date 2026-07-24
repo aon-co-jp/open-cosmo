@@ -1,4 +1,4 @@
-# Calling RCosmo from JavaScript, TypeScript, or any other language
+# Calling open-cosmo from JavaScript, TypeScript, or any other language
 
 `open-runo-router`/`open-runo-gateway` speak plain JSON over HTTP -- there
 is no Rust-specific transport, IDL, or SDK requirement. Anything that can
@@ -113,13 +113,13 @@ zero-install option is
 
 ```bash
 # with a router already running on :8080
-npx openapi-typescript http://localhost:8080/api/openapi.json -o RCosmo.d.ts
+npx openapi-typescript http://localhost:8080/api/openapi.json -o open-cosmo.d.ts
 ```
 
 That produces real, field-level types for the covered endpoints, e.g.:
 
 ```ts
-import type { components } from "./RCosmo.d.ts";
+import type { components } from "./open-cosmo.d.ts";
 
 type SchemaVersion = components["schemas"]["SchemaVersion"];
 // { id: string; namespace: string; service_name: string; sdl: string;
@@ -168,7 +168,7 @@ plain page, styled with Bootstrap's CDN like any other static site:
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="container py-4">
-  <h1>RCosmo schema search</h1>
+  <h1>open-cosmo schema search</h1>
   <input id="service" class="form-control mb-2" placeholder="service name">
   <button id="search" class="btn btn-primary mb-3">Search history</button>
   <pre id="result" class="bg-light p-3"></pre>

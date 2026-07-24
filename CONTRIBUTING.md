@@ -1,6 +1,6 @@
-# Contributing to RCosmo
+# Contributing to open-cosmo
 
-Thank you for your interest in contributing to RCosmo! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to open-cosmo! This document provides guidelines and instructions for contributing.
 
 For day-to-day build/test/run commands, repository layout, and
 troubleshooting, see [`DEVELOPMENT.md`](DEVELOPMENT.md). This document
@@ -21,8 +21,8 @@ All contributors are expected to follow our Code of Conduct. Be respectful, incl
 
 ```bash
 # Clone the repository
-git clone https://github.com/aon-co-jp/RCosmo.git
-cd RCosmo
+git clone https://github.com/aon-co-jp/open-cosmo.git
+cd open-cosmo
 
 # Build the project
 cargo build
@@ -65,7 +65,7 @@ Follow conventional commits:
 
 ### Code Style
 
-RCosmo follows Rust conventions:
+open-cosmo follows Rust conventions:
 
 ```bash
 # Auto-format code
@@ -109,7 +109,7 @@ mod tests {
 
 When reporting bugs:
 - Include Rust version (`rustc --version`)
-- Include RCosmo version
+- Include open-cosmo version
 - Provide minimal reproducible example
 - Describe expected vs actual behavior
 
@@ -132,4 +132,4 @@ By contributing, you agree that your contributions will be licensed under the sa
 - Start a Discussion for questions
 - Check existing documentation
 
-Thank you for contributing to RCosmo! 🚀
+Thank you for contributing to open-cosmo! 🚀

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-RCosmo is currently in pre-`0.1.0` / Phase 1 development (see the
+open-cosmo is currently in pre-`0.1.0` / Phase 1 development (see the
 Development Roadmap in `README-English.md` / `README-Japan.md`). There is no
 long-term-supported release line yet; security fixes land on `main` and are
 included in the next tagged release.
@@ -18,7 +18,7 @@ Please do **not** open a public GitHub issue for security vulnerabilities.
 
 Instead:
 
-1. Open a private [GitHub Security Advisory](https://github.com/aon-co-jp/RCosmo/security/advisories/new)
+1. Open a private [GitHub Security Advisory](https://github.com/aon-co-jp/open-cosmo/security/advisories/new)
    for this repository, or
 2. If that is not available, contact a maintainer directly with a
    description of the issue, affected crate(s)/version(s), and, if
@@ -30,7 +30,7 @@ details public.
 
 ## Scope
 
-Given RCosmo's architecture (see `docs/architecture.md`), security-relevant
+Given open-cosmo's architecture (see `docs/architecture.md`), security-relevant
 reports are especially welcome for:
 
 - `open-runo-security` (authentication, API keys, rate limiting)
