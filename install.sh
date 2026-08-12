@@ -9,7 +9,7 @@
 # 参照)。
 #
 # 使い方:
-#   curl -fsSL https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
+#   curl -fsSL https://github.com/aon-co-jp/open-cosmo/releases/latest/download/open-runo-router-x86_64-unknown-linux-gnu.tar.gz | tar xz
 #   sudo ./install.sh
 
 set -eu

@@ -1,11 +1,11 @@
-# RCosmo(open-runo-router)インストールスクリプト(Windows / Windows Server 共通)。
+﻿# RCosmo(open-runo-router)インストールスクリプト(Windows / Windows Server 共通)。
 #
 # RPoem(open-runo-router、姉妹プロジェクト)と同じバイナリ名・同じ役割
 # (open-web-server=第二のApache+NginxとSETで使うアプリケーションサーバー、
 # 第二のTomcat相当)を持つ。
 #
 # 使い方(管理者権限のPowerShellで):
-#   Invoke-WebRequest -Uri "https://github.com/aon-co-jp/RCosmo/releases/latest/download/open-runo-router-windows-x86_64.zip" -OutFile open-runo-router.zip
+#   Invoke-WebRequest -Uri "https://github.com/aon-co-jp/open-cosmo/releases/latest/download/open-runo-router-windows-x86_64.zip" -OutFile open-runo-router.zip
 #   Expand-Archive open-runo-router.zip -DestinationPath open-runo-router
 #   cd open-runo-router
 #   .\install.ps1
