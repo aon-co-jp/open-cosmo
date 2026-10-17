@@ -183,6 +183,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arcstr"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -366,6 +372,17 @@ dependencies = [
  "rustix",
  "slab",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "async-lock"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -1249,7 +1266,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfae6799b68a735270e4344ee3e834365f707c72da09c9a8bb89b45cc3351395"
 dependencies = [
  "deadpool",
- "redis",
+ "redis 0.27.6",
 ]
 
 [[package]]
@@ -2332,7 +2349,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2",
  "system-configuration",
  "tokio",
  "tower-layer",
@@ -2512,7 +2529,7 @@ version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d40460c0ce33d6ce4b0630ad68ff63d6661961c48b6dba35e5a4d81cfb48222"
 dependencies = [
- "socket2 0.6.4",
+ "socket2",
  "widestring",
  "windows-registry",
  "windows-result 0.4.1",
@@ -3039,7 +3056,7 @@ dependencies = [
  "serde_with",
  "sha1",
  "sha2",
- "socket2 0.6.4",
+ "socket2",
  "stringprep",
  "strsim",
  "take_mut",
@@ -3176,7 +3193,7 @@ version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35bd024e8b2ff75562e5f34e7f4905839deb4b22955ef5e73d2fea1b9813cb23"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.7",
  "num-complex",
  "num-integer",
  "num-iter",
@@ -3189,6 +3206,16 @@ name = "num-bigint"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c863e9ab5e7bf9c99ba75e1050f1e4d624ae87ed3532d6238ffbdc7b585dbbe6"
+dependencies = [
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
 dependencies = [
  "num-integer",
  "num-traits",
@@ -3272,7 +3299,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.7",
  "num-integer",
  "num-traits",
 ]
@@ -3387,7 +3414,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "open-runo-core",
- "redis",
+ "redis 1.6.0",
  "serde",
  "serde_json",
  "tokio",
@@ -3426,7 +3453,7 @@ dependencies = [
  "mongodb",
  "open-runo-core",
  "open-runo-rustjson",
- "redis",
+ "redis 1.6.0",
  "serde",
  "serde_json",
  "sqlx",
@@ -3555,7 +3582,7 @@ dependencies = [
  "open-runo-security",
  "poem",
  "rcgen",
- "redis",
+ "redis 1.6.0",
  "reqwest 0.12.28",
  "ring",
  "rustls",
@@ -3611,7 +3638,7 @@ dependencies = [
  "chrono",
  "jsonwebtoken",
  "open-runo-core",
- "redis",
+ "redis 1.6.0",
  "serde",
  "serde_json",
  "tokio",
@@ -4208,7 +4235,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.4",
+ "socket2",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4245,7 +4272,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -4417,22 +4444,46 @@ checksum = "09d8f99a4090c89cc489a94833c901ead69bfbf3877b4867d5482e321ee875bc"
 dependencies = [
  "arc-swap",
  "async-trait",
- "backon",
  "bytes",
  "combine",
- "futures",
  "futures-util",
  "itertools 0.13.0",
  "itoa",
- "num-bigint",
+ "num-bigint 0.4.7",
+ "percent-encoding",
+ "pin-project-lite",
+ "ryu",
+ "tokio",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
+name = "redis"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e37a4ca5c6ca42aa3e6df2fd32b987a65d32a4c2159a6f3fe0fd1df306a2658f"
+dependencies = [
+ "arc-swap",
+ "arcstr",
+ "async-lock",
+ "backon",
+ "bytes",
+ "cfg-if",
+ "combine",
+ "futures-channel",
+ "futures-util",
+ "itoa",
+ "num-bigint 0.5.1",
  "percent-encoding",
  "pin-project-lite",
  "ryu",
  "sha1_smol",
- "socket2 0.5.10",
+ "socket2",
  "tokio",
  "tokio-util",
  "url",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -5268,7 +5319,7 @@ version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
 dependencies = [
- "num-bigint",
+ "num-bigint 0.4.7",
  "num-traits",
  "thiserror 2.0.18",
  "time",
@@ -5309,16 +5360,6 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
-
-[[package]]
-name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
-]
 
 [[package]]
 name = "socket2"
@@ -6077,7 +6118,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.4",
+ "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]
@@ -7261,6 +7302,12 @@ checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "yasna"
