@@ -79,7 +79,7 @@ rcgen = { version = "0.13", optional = true }
 # multi-instance/load-balanced deployment, not just within a single
 # process. Reuses the same `redis` version open-runo-cache's
 # `redis-backend` feature already depends on.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+redis = { version = "1.6", features = ["tokio-comp", "connection-manager"], optional = true }
 anyhow = { workspace = true, optional = true }
 
 [features]
