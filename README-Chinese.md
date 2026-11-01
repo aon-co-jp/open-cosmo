@@ -44,7 +44,7 @@ Go 编写的 WunderGraph Cosmo 仅在付费方案（Launch / Scale / Enterprise�
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 343 个测试(--all-features 为 362)
-cargo run -p open-runo-gateway  # 启动 REST + GraphQL 服务
+cargo run -p open-runo-gateway  # 启动 GraphQL 服务（无需 REST API）
 ```
 
 ## 工作区结构（18 个 crate）

@@ -37,10 +37,12 @@ Tauri・Poem・WunderGraph Cosmo はいずれもパッケージとして直接�
 それぞれの機能・API 形状には互換性を保ちながら Rust 標準ライブラリ +
 tokio/hyper で自前実装しています。
 
+**RPoem/open-cosmo は、REST API を不要にするための WunderGraph Cosmo 互換です**(アプリの API は GraphQL に一本化します。管理用の HTTP エンドポイントはスキーマ登録などの運用のために残っています)。
+
 ```
    open-e-gov     OpenRedmine     OpenWordPress     aruaru-llm
        │               │               │                │
-       └───────GraphQL (POST /graphql) + REST───────────┘
+       └───────GraphQL (POST /graphql)      ───────────┘
                            │
                  ┌───────────────────┐        PostgreSQL :5432
                  │   open-cosmo   │──DUAL──┤
@@ -102,7 +104,7 @@ tokio/hyper で自前実装しています。
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 343 テスト(--all-features で362)
-cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
+cargo run -p open-runo-gateway  # GraphQL 統合サーバー起動(poem-free、REST API 不要)
 ```
 
 ```bash
@@ -111,7 +113,7 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録（REST 管理面）
+# スキーマ登録（管理用エンドポイント。アプリの API ではありません）
 curl -X POST http://localhost:8080/api/schemas \
      -H 'x-api-key: dev-key' \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
@@ -173,7 +175,7 @@ APIキーを `--api-key` で明示しない場合は自動で self-issue され�
 | クレート | 役割 |
 |----------|------|
 | `open-runo-core` | 共通型（AppError / Config / Result） |
-| `open-runo-router` | REST ゲートウェイ・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・自己保守 |
+| `open-runo-router` | HTTP ゲートウェイ(管理用)・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・自己保守 |
 | `open-runo-gateway` | GraphQL エンドポイント（Federation / Subscriptions / PQ / レスポンスキャッシュ） |
 | `open-runo-federation` | スキーマ合成・破壊的変更検出 |
 | `open-runo-schema-registry` | バージョン管理・namespace（マルチグラフ） |
@@ -185,7 +187,7 @@ APIキーを `--api-key` で明示しない場合は自動で self-issue され�
 | `open-runo-ai-routing` | AI プロバイダ選択（コスト/レイテンシ/ローカル/プライバシー） |
 | `open-runo-versionless-api` | 互換性ルールエンジン |
 | `open-runo-cli` | wgc 相当の CLI（schema register/get/history・federation status・openapi・login） |
-| `open-runo-api-types` | REST/CLI 共有の型定義 |
+| `open-runo-api-types` | 管理 API/CLI 共有の型定義 |
 | `open-runo-feature-flags` | Feature Flags（決定的バケッティングによる canary ロールアウト） |
 | `open-runo-rustjson` | 標準JSON完全互換の拡張パーサー（トレイリングコンマ等4拡張・`extract_path`） |
 | `open-runo-appserver` | 第二のTomcat骨格（Supervisor・Dispatcher・ThreadedProxyServer） |

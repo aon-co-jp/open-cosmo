@@ -30,7 +30,7 @@ Go 製の WunderGraph Cosmo が有料プラン（Launch / Scale / Enterprise）�
 ```
    open-e-gov     OpenRedmine     OpenWordPress     aruaru-llm
        │               │               │                │
-       └───────GraphQL (POST /graphql) + REST───────────┘
+       └───────GraphQL (POST /graphql)      ───────────┘
                            │
                  ┌───────────────────┐        PostgreSQL :5432
                  │   open-cosmo   │──DUAL──┤
@@ -82,7 +82,7 @@ Go 製の WunderGraph Cosmo が有料プラン（Launch / Scale / Enterprise）�
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 343 テスト(--all-features で362)
-cargo run -p open-runo-gateway  # REST + GraphQL 統合サーバー起動(poem-free)
+cargo run -p open-runo-gateway  # GraphQL 統合サーバー起動(poem-free、REST API 不要)
 ```
 
 ```bash
@@ -91,7 +91,7 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録（REST 管理面）
+# スキーマ登録（管理用エンドポイント。アプリの API ではありません）
 curl -X POST http://localhost:8080/api/schemas \
      -H 'x-api-key: dev-key' \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
@@ -122,7 +122,7 @@ AI HTML キャッシュを有効化して自分のアプリに載せる例・全
 | クレート | 役割 |
 |----------|------|
 | `open-runo-core` | 共通型（AppError / Config / Result） |
-| `open-runo-router` | REST ゲートウェイ・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・自己保守 |
+| `open-runo-router` | HTTP ゲートウェイ(管理用)・認証(KeyGuardian/RBAC/OIDC/SCIM)・監査・AI HTML キャッシュ・自己保守 |
 | `open-runo-gateway` | GraphQL エンドポイント（Federation / Subscriptions / PQ / レスポンスキャッシュ） |
 | `open-runo-federation` | スキーマ合成・破壊的変更検出 |
 | `open-runo-schema-registry` | バージョン管理・namespace（マルチグラフ） |

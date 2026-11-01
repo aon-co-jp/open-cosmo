@@ -48,7 +48,7 @@ purem Rust, kostenlos und als OSS** implementiert.
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 343 Tests (362 mit --all-features)
-cargo run -p open-runo-gateway  # REST + GraphQL Server
+cargo run -p open-runo-gateway  # GraphQL-Server (keine REST-API nötig)
 ```
 
 ## Workspace-Struktur (18 Crates)

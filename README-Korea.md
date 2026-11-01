@@ -44,7 +44,7 @@
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 테스트 343개(--all-features 시 362개)
-cargo run -p open-runo-gateway  # REST + GraphQL 서버 실행
+cargo run -p open-runo-gateway  # GraphQL 서버 실행 (REST API 불필요)
 ```
 
 ## 워크스페이스 구성(18개 crate)

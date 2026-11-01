@@ -71,7 +71,7 @@ are implemented here in pure Rust — **entirely free, as OSS**.
 git clone https://github.com/aon-co-jp/open-cosmo
 cd open-cosmo
 cargo test --workspace          # 343 tests (362 with --all-features)
-cargo run -p open-runo-gateway  # start the combined REST + GraphQL server (poem-free)
+cargo run -p open-runo-gateway  # start the GraphQL server (poem-free; no REST API needed)
 ```
 
 ```bash
@@ -80,7 +80,7 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# Schema registration (REST admin surface)
+# Schema registration (admin endpoint, not the application API)
 curl -X POST http://localhost:8080/api/schemas \
      -H 'x-api-key: dev-key' \
      -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
@@ -137,7 +137,7 @@ works with no extra setup.
 
 ## Workspace structure (21 crates)
 
-Composed of `open-runo-router` (REST gateway / auth / audit / AI HTML cache /
+Composed of `open-runo-router` (HTTP gateway for administration / auth / audit / AI HTML cache /
 self-maintenance), `open-runo-gateway` (GraphQL endpoint: Federation /
 Subscriptions / Persisted Queries / response cache), `open-runo-federation`
 (schema composition / breaking-change detection), `open-runo-db` (`DbBackend`
