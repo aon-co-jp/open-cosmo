@@ -31,7 +31,7 @@ mongodb   = { version = "3",  optional = true }
 surrealdb = { version = "2",  optional = true }
 
 # ── キャッシュ / KV ───────────────────────────────────────────────────────────
-redis          = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+redis          = { version = "1.6", features = ["tokio-comp", "connection-manager"], optional = true }
 deadpool-redis = { version = "0.18", optional = true }
 
 # ── 列指向 / 分析 ─────────────────────────────────────────────────────────────

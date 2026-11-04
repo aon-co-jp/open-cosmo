@@ -22,7 +22,7 @@ async-trait = { workspace = true }
 # limit state is per-instance in-memory otherwise). Same version as
 # open-runo-cache's `redis-backend` feature. Optional so single-instance
 # deployments don't pull in a Redis client they never use.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "script"], optional = true }
+redis = { version = "1.6", features = ["tokio-comp", "connection-manager", "script"], optional = true }
 
 [features]
 redis-backend = ["dep:redis"]
