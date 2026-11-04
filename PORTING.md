@@ -376,7 +376,7 @@ VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実
 - Эталонные реализации: `RPoem` (`open_runo.admin.v1.Admin`) и `open-easy-web` (`server/src/connect.rs`, `proto/open_easy_web/admin/v1/admin.proto`).
 - Примечание: соответствует ли код конкретного репозитория этой политике, зависит от самого репозитория. Данный раздел лишь фиксирует политику и не означает, что код уже изменён.
 
-## 【2026-11-04】REST 全廃・Connect 移行(2026-11-04、ユーザー決定。正本は `F:uno\API-POLICY.md`)
+## 【2026-11-04】REST 全廃・Connect 移行(2026-11-04、ユーザー決定。正本は `F:\runo\API-POLICY.md`)
 
 管理操作は **Connect の単純呼び出し** `POST /open_cosmo.admin.v1.Admin/<Method>`(`content-type: application/json`、本文は JSON、パスパラメーターも本文のフィールド)に一本化した。旧 `/api/*` の REST 経路は公開ルーターから外し **404**。エラーは `{"code","message"}`(401 `unauthenticated`/400 `invalid_argument`/404 `not_found`/429 `resource_exhausted` など)。本文の読み込みは RS-JSON の `parse_secure`(2 MiB・深さ32・重複キー拒否)。実装は `crates/open-runo-router/src/connect.rs`(既存ハンドラーを作り直さず、本文のフィールドをパス/クエリ/本文へ振り分けるアダプター)と `lib.rs` の `admin_ops` 表。
 
