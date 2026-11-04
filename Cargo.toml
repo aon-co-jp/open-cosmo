@@ -125,3 +125,7 @@ debug = 1
 
 [profile.test]
 opt-level = 1
+
+# RUSTSEC-2023-0071 (rsa Marvin Attack, 修正版なし) 回避: aon-co-jp/rsa-rs の互換実装へ差し替え。
+[patch.crates-io]
+rsa-090 = { package = "rsa", git = "https://github.com/aon-co-jp/rsa-rs", tag = "v0.1.0", version = "=0.9.10" }
