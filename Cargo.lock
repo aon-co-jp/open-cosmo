@@ -3606,6 +3606,7 @@ dependencies = [
  "redis",
  "reqwest 0.12.28",
  "ring",
+ "rust-json",
  "rustls",
  "rustls-pemfile",
  "schemars 1.2.1",
@@ -4867,6 +4868,16 @@ dependencies = [
  "num-traits",
  "serde",
  "smallvec",
+]
+
+[[package]]
+name = "rust-json"
+version = "0.1.0"
+source = "git+https://github.com/aon-co-jp/RS-JSON#4fc14b32229b00c591548a606e39ae36016a6d96"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
         Command::Federation { action } => match action {
             FederationCommand::Status => {
                 let resp: FederationStatusResponse =
-                    get(&client, &cli.base_url, &api_key, "/api/federation/status").await?;
+                    rpc(&client, &cli.base_url, &api_key, "FederationStatus", &serde_json::json!({})).await?;
                 serde_json::to_value(resp)?
             }
         },
@@ -178,47 +178,47 @@ async fn main() -> Result<()> {
                     stage: stage.clone(),
                     namespace: None,
                 };
-                let resp: SchemaVersion = post(&client, &cli.base_url, &api_key, "/api/schemas", &payload).await?;
+                let resp: SchemaVersion = rpc(&client, &cli.base_url, &api_key, "RegisterSchema", &payload).await?;
                 serde_json::to_value(resp)?
             }
             SchemaCommand::Get { service, stage, namespace } => {
-                let path = with_query(
-                    &format!("/api/schemas/{service}"),
-                    &[("stage", Some(stage.as_str())), ("namespace", namespace.as_deref())],
-                );
-                let resp: SchemaVersion = get(&client, &cli.base_url, &api_key, &path).await?;
+                let mut req = serde_json::json!({ "service": service, "stage": stage });
+                if let Some(ns) = namespace {
+                    req["namespace"] = serde_json::json!(ns);
+                }
+                let resp: SchemaVersion = rpc(&client, &cli.base_url, &api_key, "GetSchema", &req).await?;
                 serde_json::to_value(resp)?
             }
             SchemaCommand::History { service, namespace } => {
-                let path = with_query(
-                    &format!("/api/schemas/{service}/history"),
-                    &[("namespace", namespace.as_deref())],
-                );
-                let resp: SchemaHistoryResponse = get(&client, &cli.base_url, &api_key, &path).await?;
+                let mut req = serde_json::json!({ "service": service });
+                if let Some(ns) = namespace {
+                    req["namespace"] = serde_json::json!(ns);
+                }
+                let resp: SchemaHistoryResponse = rpc(&client, &cli.base_url, &api_key, "GetSchemaHistory", &req).await?;
                 serde_json::to_value(resp)?
             }
         },
         Command::Db { action } => match action {
             DbCommand::List { table } => {
                 let resp: DbRecordListResponse =
-                    get(&client, &cli.base_url, &api_key, &format!("/api/db/{table}")).await?;
+                    rpc(&client, &cli.base_url, &api_key, "DbList", &serde_json::json!({ "table": table })).await?;
                 serde_json::to_value(resp)?
             }
             DbCommand::Get { table, key } => {
                 let resp: DbRecordResponse =
-                    get(&client, &cli.base_url, &api_key, &format!("/api/db/{table}/{key}")).await?;
+                    rpc(&client, &cli.base_url, &api_key, "DbGet", &serde_json::json!({ "table": table, "key": key })).await?;
                 serde_json::to_value(resp)?
             }
             DbCommand::Put { table, key, value } => {
                 let value: Value = serde_json::from_str(value).context("--value must be valid JSON")?;
-                let payload = DbUpsertRequest { value };
-                let resp: DbRecordResponse =
-                    put(&client, &cli.base_url, &api_key, &format!("/api/db/{table}/{key}"), &payload).await?;
+                let payload = serde_json::json!({ "table": table, "key": key, "value": value });
+                let _ = DbUpsertRequest { value: Value::Null };
+                let resp: DbRecordResponse = rpc(&client, &cli.base_url, &api_key, "DbPut", &payload).await?;
                 serde_json::to_value(resp)?
             }
             DbCommand::Delete { table, key } => {
                 let resp: DbDeleteResponse =
-                    delete(&client, &cli.base_url, &api_key, &format!("/api/db/{table}/{key}")).await?;
+                    rpc(&client, &cli.base_url, &api_key, "DbDelete", &serde_json::json!({ "table": table, "key": key })).await?;
                 serde_json::to_value(resp)?
             }
         },
@@ -233,57 +233,9 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn with_query(path: &str, params: &[(&str, Option<&str>)]) -> String {
-    let query: Vec<String> = params
-        .iter()
-        .filter_map(|(k, v)| v.map(|v| format!("{k}={}", urlencode(v))))
-        .collect();
-    if query.is_empty() {
-        path.to_string()
-    } else {
-        format!("{path}?{}", query.join("&"))
-    }
-}
-
-/// Minimal percent-encoding for query values -- these are always simple
-/// identifiers (service/namespace/stage names) in practice, but escaping
-/// keeps the CLI from breaking if one contains `&`, `=`, or a space.
-fn urlencode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn with_query_omits_none_params() {
-        assert_eq!(
-            with_query("/api/schemas/users/history", &[("namespace", None)]),
-            "/api/schemas/users/history"
-        );
-    }
-
-    #[test]
-    fn with_query_joins_present_params() {
-        assert_eq!(
-            with_query("/api/schemas/users", &[("stage", Some("local")), ("namespace", Some("default"))]),
-            "/api/schemas/users?stage=local&namespace=default"
-        );
-    }
-
-    #[test]
-    fn urlencode_escapes_reserved_characters() {
-        assert_eq!(urlencode("a b&c=d"), "a%20b%26c%3Dd");
-        assert_eq!(urlencode("plain-service_name.v1~"), "plain-service_name.v1~");
-    }
 
     #[test]
     fn cli_parses_schema_register_args() {
@@ -308,7 +260,8 @@ mod tests {
 
 async fn self_issue_key(client: &reqwest::Client, base_url: &str) -> Result<String> {
     let resp = client
-        .post(format!("{base_url}/api/keys/self-issue"))
+        .post(format!("{base_url}/open_cosmo.admin.v1.Admin/IssueSelfKey"))
+        .json(&serde_json::json!({}))
         .send()
         .await
         .with_context(|| format!("connecting to {base_url}"))?;
@@ -329,47 +282,22 @@ async fn get<T: DeserializeOwned>(client: &reqwest::Client, base_url: &str, api_
     decode(resp).await
 }
 
-async fn post<Req: serde::Serialize, T: DeserializeOwned>(
+/// Connect の単純呼び出し: `POST /open_cosmo.admin.v1.Admin/<Method>`(JSON 本文)。
+async fn rpc<Req: serde::Serialize, T: DeserializeOwned>(
     client: &reqwest::Client,
     base_url: &str,
     api_key: &str,
-    path: &str,
+    method: &str,
     payload: &Req,
 ) -> Result<T> {
+    let url = format!("{base_url}/open_cosmo.admin.v1.Admin/{method}");
     let resp = client
-        .post(format!("{base_url}{path}"))
+        .post(&url)
         .header("X-Api-Key", api_key)
         .json(payload)
         .send()
         .await
-        .with_context(|| format!("POST {base_url}{path}"))?;
-    decode(resp).await
-}
-
-async fn put<Req: serde::Serialize, T: DeserializeOwned>(
-    client: &reqwest::Client,
-    base_url: &str,
-    api_key: &str,
-    path: &str,
-    payload: &Req,
-) -> Result<T> {
-    let resp = client
-        .put(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .json(payload)
-        .send()
-        .await
-        .with_context(|| format!("PUT {base_url}{path}"))?;
-    decode(resp).await
-}
-
-async fn delete<T: DeserializeOwned>(client: &reqwest::Client, base_url: &str, api_key: &str, path: &str) -> Result<T> {
-    let resp = client
-        .delete(format!("{base_url}{path}"))
-        .header("X-Api-Key", api_key)
-        .send()
-        .await
-        .with_context(|| format!("DELETE {base_url}{path}"))?;
+        .with_context(|| format!("POST {url}"))?;
     decode(resp).await
 }
 

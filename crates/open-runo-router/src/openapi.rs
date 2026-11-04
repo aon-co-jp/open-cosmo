@@ -155,13 +155,13 @@ fn with_standard_errors(extra: Value) -> Value {
 /// `pub(crate)` (not just `fn`) so `mcp.rs` can expose this same spec as an
 /// MCP resource without going through the `GET /api/openapi.json` HTTP
 /// handler -- one source of truth for the spec body, two ways to reach it.
-pub(crate) fn spec() -> Value {
+fn legacy_spec() -> Value {
     json!({
         "openapi": "3.0.3",
         "info": {
-            "title": "open-runo REST API",
+            "title": "open-runo admin API (Connect)",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "REST admin surface for open-runo-router. GraphQL Federation is served separately at POST /graphql (GraphiQL at GET /graphql)."
+            "description": "Admin API of open-runo-router. REST was abolished (2026-11-04): every operation is a Connect unary call, POST /open_cosmo.admin.v1.Admin/<Method> with a JSON body (path parameters are body fields). Errors are {\"code\",\"message\"}. SCIM (RFC 7644), /health, /mcp and the event stream keep their standard shapes. GraphQL Federation is served separately at POST /graphql (GraphiQL at GET /graphql)."
         },
         "components": {
             "securitySchemes": {
@@ -346,6 +346,99 @@ pub(crate) fn spec() -> Value {
     })
 }
 
+/// 旧 REST の (メソッド, パス) → Connect メソッド名。`lib.rs` の `admin_ops` と一致させる。
+const CONNECT_MAP: &[(&str, &str, &str)] = &[
+    ("post", "/api/keys/self-issue", "IssueSelfKey"),
+    ("post", "/api/session/login", "Login"),
+    ("post", "/api/session/logout", "Logout"),
+    ("post", "/api/schemas", "RegisterSchema"),
+    ("post", "/api/schemas/upload-raw", "UploadSchemaRaw"),
+    ("get", "/api/schemas/{service}", "GetSchema"),
+    ("get", "/api/schemas/{service}/history", "GetSchemaHistory"),
+    ("post", "/api/federation/compose", "ComposeSchemas"),
+    ("get", "/api/federation/status", "FederationStatus"),
+    ("post", "/api/ai/route", "AiRoute"),
+    ("get", "/api/db/status", "DbStatus"),
+    ("get", "/api/db/routing", "DbRouting"),
+    ("get", "/api/db/{table}", "DbList"),
+    ("get", "/api/db/{table}/{key}", "DbGet"),
+    ("get", "/api/db/{table}/{key}/at/{commit_id}", "DbGetAtCommit"),
+    ("put", "/api/db/{table}/{key}", "DbPut"),
+    ("delete", "/api/db/{table}/{key}", "DbDelete"),
+    ("post", "/api/cache/purge", "PurgePage"),
+    ("post", "/api/cache/purge-all", "PurgeAllPages"),
+    ("get", "/api/cache/ai-stats", "AiStats"),
+    ("post", "/api/backup/export", "BackupExport"),
+    ("post", "/api/backup/import", "BackupImport"),
+    ("post", "/api/backup/restore-latest", "BackupRestoreLatest"),
+    ("post", "/api/migrate/export-sql", "MigrateExportSql"),
+    ("post", "/api/migrate/export-csv", "MigrateExportCsv"),
+    ("post", "/api/integrity/check", "IntegrityCheck"),
+    ("post", "/api/persisted-queries", "RegisterPersistedQuery"),
+    ("get", "/api/persisted-queries/{hash}", "GetPersistedQuery"),
+    ("post", "/api/feature-flags", "UpsertFeatureFlag"),
+    ("get", "/api/feature-flags", "ListFeatureFlags"),
+    ("get", "/api/feature-flags/{name}", "GetFeatureFlag"),
+    ("delete", "/api/feature-flags/{name}", "DeleteFeatureFlag"),
+    ("get", "/api/feature-flags/{name}/evaluate", "EvaluateFeatureFlag"),
+    ("get", "/api/analytics/requests-per-month", "RequestsPerMonth"),
+    ("get", "/api/analytics/operations", "OperationsSummary"),
+];
+
+/// 配信する仕様書。旧 REST の記述を Connect の `POST /open_cosmo.admin.v1.Admin/<Method>` へ付け替える
+/// (パスパラメーターは JSON 本文のフィールドになる)。
+pub(crate) fn spec() -> Value {
+    let mut v = legacy_spec();
+    let paths = v["paths"].as_object().cloned().unwrap_or_default();
+    let mut out = Map::new();
+    for (path, item) in &paths {
+        if path == "/api/schemas/upload" {
+            continue; // multipart 経路は廃止(UploadSchemaRaw に統合)
+        }
+        let mapped: Vec<&(&str, &str, &str)> = CONNECT_MAP.iter().filter(|(_, p, _)| p == path).collect();
+        if mapped.is_empty() {
+            out.insert(path.clone(), item.clone());
+            continue;
+        }
+        for (method, _, name) in mapped {
+            let Some(op) = item.get(*method) else { continue };
+            let mut op = op.clone();
+            if let Some(o) = op.as_object_mut() {
+                let params: Vec<String> = o
+                    .remove("parameters")
+                    .and_then(|p| p.as_array().cloned())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|p| p["name"].as_str().map(str::to_string))
+                    .collect();
+                if !params.is_empty() {
+                    let summary = o.get("summary").and_then(Value::as_str).unwrap_or("").to_string();
+                    o.insert("summary".into(), json!(format!("{summary} (body fields: {})", params.join(", "))));
+                }
+            }
+            out.insert(format!("/{}/{name}", crate::connect::SERVICE), json!({ "post": op }));
+        }
+    }
+    // 旧仕様書に記述が無かった操作も、最低限の項目つきで載せる(Connect メソッドの一覧として完全にする)。
+    for (_, legacy_path, name) in CONNECT_MAP {
+        out.entry(format!("/{}/{name}", crate::connect::SERVICE)).or_insert_with(|| {
+            json!({ "post": {
+                "summary": format!("{name} (formerly {legacy_path})"),
+                "security": api_key_security(),
+                "responses": standard_error_responses_with_ok()
+            } })
+        });
+    }
+    v["paths"] = Value::Object(out);
+    v
+}
+
+fn standard_error_responses_with_ok() -> Value {
+    let mut r = standard_error_responses();
+    r["200"] = json!({ "description": "OK" });
+    r
+}
+
 /// `GET /api/openapi.json` — serves the static OpenAPI 3.0 document above.
 /// No auth required (matches `/health`'s exemption — the spec itself
 /// contains no data, just endpoint shapes).
@@ -359,9 +452,27 @@ mod tests {
     use crate::hyper_compat::{serve, Router};
     use hyper::Method;
 
+    #[test]
+    fn served_spec_describes_connect_methods_not_rest_paths() {
+        let v = spec();
+        let paths = v["paths"].as_object().unwrap();
+        assert!(paths.contains_key("/open_cosmo.admin.v1.Admin/RegisterSchema"));
+        assert!(paths.contains_key("/open_cosmo.admin.v1.Admin/DbPut"));
+        assert!(!paths.keys().any(|k| k.starts_with("/api/") && k != "/api/events"));
+        assert!(paths.contains_key("/scim/v2/Users"));
+        // 全 Connect メソッドが記載されている(漏れ検出)
+        for (_, _, name) in CONNECT_MAP {
+            assert!(paths.contains_key(&format!("/open_cosmo.admin.v1.Admin/{name}")), "{name}");
+        }
+    }
+
     #[tokio::test]
     async fn openapi_spec_is_valid_json_and_lists_known_paths() {
-        let router = Router::new().route(Method::GET, "/api/openapi.json", openapi_handler());
+        let router = Router::new().route(
+            Method::GET,
+            "/api/openapi.json",
+            Arc::new(|_r, _p| Box::pin(async { json_response(StatusCode::OK, &legacy_spec()) })),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");
@@ -431,7 +542,11 @@ mod tests {
     /// pins the fix so it can't silently regress back to untyped.
     #[tokio::test]
     async fn db_and_feature_flag_endpoints_are_typed_and_feature_flags_are_documented() {
-        let router = Router::new().route(Method::GET, "/api/openapi.json", openapi_handler());
+        let router = Router::new().route(
+            Method::GET,
+            "/api/openapi.json",
+            Arc::new(|_r, _p| Box::pin(async { json_response(StatusCode::OK, &legacy_spec()) })),
+        );
         let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
             .await
             .expect("bind ephemeral port");

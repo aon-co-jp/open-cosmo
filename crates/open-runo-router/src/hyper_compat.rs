@@ -455,12 +455,27 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Connect の入口(`connect.rs`)が先に読み込んだ本文。あれば `Incoming` より優先する。
+#[derive(Clone)]
+pub struct PrefetchedBody(pub Bytes);
+
+/// リクエスト本文を全部読む。Connect 経由なら先読み済みの本文を返す。
+pub async fn read_body_bytes(mut req: Request) -> Result<Bytes, ()> {
+    if let Some(p) = req.extensions_mut().remove::<PrefetchedBody>() {
+        return Ok(p.0);
+    }
+    match req.into_body().collect().await {
+        Ok(collected) => Ok(collected.to_bytes()),
+        Err(_) => Err(()),
+    }
+}
+
 pub async fn read_json_body<T: serde::de::DeserializeOwned>(
     req: Request,
 ) -> Result<T, Response> {
-    let bytes = match req.into_body().collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => {
+    let bytes = match read_body_bytes(req).await {
+        Ok(b) => b,
+        Err(()) => {
             return Err(json_response(
                 StatusCode::BAD_REQUEST,
                 &serde_json::json!({ "error": "failed to read request body" }),

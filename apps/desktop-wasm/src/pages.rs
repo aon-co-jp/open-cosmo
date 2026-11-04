@@ -815,8 +815,8 @@ fn render_cache_backup() {
 /// Analytics page (Cosmo Studio parity, `docs/cosmo-parity.md` 4a):
 /// monthly request-count metering + per-operation latency/error-rate,
 /// both served from `open_runo_observability::RequestMetrics`'s
-/// in-process aggregates via `GET /api/analytics/requests-per-month` and
-/// `GET /api/analytics/operations`. An operational dashboard, not a
+/// in-process aggregates via Connect `RequestsPerMonth` and
+/// `OperationsSummary`. An operational dashboard, not a
 /// billing/rate-limit surface -- see those handlers' doc comments.
 fn render_analytics() {
     let Some(content) = content_el() else { return };

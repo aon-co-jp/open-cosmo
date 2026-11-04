@@ -12,7 +12,6 @@ use crate::keyring::{KeyDecision, KeyGuardian};
 use crate::session::SessionBackend;
 use crate::state::AppState;
 use crate::validation::{DB_UPSERT_REQUEST, FEATURE_FLAG_REQUEST, REGISTER_SCHEMA_REQUEST};
-use http_body_util::BodyExt;
 use hyper::StatusCode;
 use open_runo_api_types::{
     DbDeleteResponse, DbRecordAtCommitResponse, DbRecordItem, DbRecordListResponse, DbRecordResponse, DbRoutingEntry,
@@ -756,9 +755,9 @@ pub fn register_schema_upload_raw_handler(state: Arc<AppState>, guardian: Arc<Ke
             let stage = query.get("stage").cloned().unwrap_or_else(|| "local".to_string());
             let namespace = query.get("namespace").cloned();
 
-            let sdl_bytes = match req.into_body().collect().await {
-                Ok(collected) => collected.to_bytes(),
-                Err(_) => {
+            let sdl_bytes = match crate::hyper_compat::read_body_bytes(req).await {
+                Ok(b) => b,
+                Err(()) => {
                     return json_response(
                         StatusCode::BAD_REQUEST,
                         &serde_json::json!({ "error": "failed to read request body" }),

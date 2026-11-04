@@ -57,9 +57,14 @@ async fn get_or_issue_api_key() -> Result<String, String> {
     let opts = RequestInit::new();
     opts.set_method("POST");
     opts.set_mode(RequestMode::SameOrigin);
+    opts.set_body(&JsValue::from_str("{}"));
     let request =
-        Request::new_with_str_and_init(&format!("{}/api/keys/self-issue", base_url()), &opts)
+        Request::new_with_str_and_init(&format!("{}{}/IssueSelfKey", base_url(), CONNECT), &opts)
             .map_err(|e| format!("{e:?}"))?;
+    request
+        .headers()
+        .set("content-type", "application/json")
+        .map_err(|e| format!("{e:?}"))?;
     let window = web_sys::window().ok_or("no window")?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
@@ -114,6 +119,14 @@ pub struct AiRouteResponse {
     pub is_local: bool,
     pub estimated_cost_usd_per_1k_tokens: f64,
     pub estimated_latency_ms: u32,
+}
+
+/// 管理操作の Connect サービスのパス(REST 全廃、`POST /<SERVICE>/<Method>`)。
+const CONNECT: &str = "/open_cosmo.admin.v1.Admin";
+
+/// Connect の単純呼び出し(JSON 本文の POST)。
+async fn rpc<T: for<'de> Deserialize<'de>>(method: &str, body: &impl Serialize) -> Result<T, String> {
+    post_json(&format!("{CONNECT}/{method}"), body).await
 }
 
 /// Base URL for API calls. Empty string means same-origin (the WASM
@@ -218,8 +231,8 @@ pub async fn health_check() -> Result<Health, String> {
 }
 
 pub async fn register_schema(service_name: &str, sdl: &str, stage: &str) -> Result<SchemaVersion, String> {
-    post_json(
-        "/api/schemas",
+    rpc(
+        "RegisterSchema",
         &RegisterSchemaRequest {
             service_name: service_name.to_string(),
             sdl: sdl.to_string(),
@@ -230,81 +243,37 @@ pub async fn register_schema(service_name: &str, sdl: &str, stage: &str) -> Resu
     .await
 }
 
-/// Send `form` as the request body (browser sets the `multipart/form-data;
-/// boundary=...` content-type itself — never set it manually, or the
-/// boundary the browser actually wrote the body with won't match). Poem-free
-/// equivalent of Poem's `Multipart` extractor on the client side; the
-/// server-side counterpart is `hyper_compat::read_multipart_body`.
-async fn do_fetch_form(path: &str, form: &web_sys::FormData, api_key: &str) -> Result<Response, String> {
-    let opts = RequestInit::new();
-    opts.set_method("POST");
-    opts.set_mode(RequestMode::SameOrigin);
-    opts.set_body(form.as_ref());
-
-    let url = format!("{}{path}", base_url());
-    let request = Request::new_with_str_and_init(&url, &opts).map_err(|e| format!("{e:?}"))?;
-    request
-        .headers()
-        .set("x-api-key", api_key)
-        .map_err(|e| format!("{e:?}"))?;
-
-    let window = web_sys::window().ok_or("no window")?;
-    let resp_value = JsFuture::from(window.fetch_with_request(&request))
-        .await
-        .map_err(|e| format!("fetch error: {e:?}"))?;
-    resp_value.dyn_into().map_err(|e| format!("{e:?}"))
-}
-
-/// `POST /api/schemas/upload` — register a schema from an uploaded file
-/// (e.g. an `<input type="file">` selection) instead of inlining the SDL
-/// text into a JSON body. Same transparent-API-key + 401-retry handling as
-/// `send()`, duplicated here because `FormData` bodies can't share
-/// `do_fetch`'s `Option<&str>` body parameter.
+/// `UploadSchemaRaw` — 選んだファイルの中身(SDL)を読み、Connect で登録する。
 pub async fn register_schema_upload(
     service_name: &str,
     stage: &str,
     file: &web_sys::File,
 ) -> Result<SchemaVersion, String> {
-    let form = web_sys::FormData::new().map_err(|e| format!("{e:?}"))?;
-    form.append_with_str("service_name", service_name)
-        .map_err(|e| format!("{e:?}"))?;
-    form.append_with_str("stage", stage).map_err(|e| format!("{e:?}"))?;
-    form.append_with_blob("sdl_file", file).map_err(|e| format!("{e:?}"))?;
-
-    let api_key = get_or_issue_api_key().await?;
-    let mut resp = do_fetch_form("/api/schemas/upload", &form, &api_key).await?;
-
-    if resp.status() == 401 {
-        clear_cached_api_key();
-        let fresh_key = get_or_issue_api_key().await?;
-        resp = do_fetch_form("/api/schemas/upload", &form, &fresh_key).await?;
-    }
-
-    if !resp.ok() {
-        let request_id = resp.headers().get("x-request-id").ok().flatten();
-        let suffix = request_id.map(|id| format!(" (request-id: {id})")).unwrap_or_default();
-        return Err(format!("HTTP {}{suffix}", resp.status()));
-    }
-
-    let json = JsFuture::from(resp.json().map_err(|e| format!("{e:?}"))?)
+    let text = JsFuture::from(file.text())
         .await
-        .map_err(|e| format!("body read error: {e:?}"))?;
-    serde_wasm_bindgen::from_value(json).map_err(|e| format!("decode error: {e}"))
+        .map_err(|e| format!("file read error: {e:?}"))?
+        .as_string()
+        .ok_or("file is not text")?;
+    rpc(
+        "UploadSchemaRaw",
+        &serde_json::json!({ "service_name": service_name, "stage": stage, "sdl": text }),
+    )
+    .await
 }
 
 pub async fn get_schema_history(service: &str) -> Result<SchemaHistoryResponse, String> {
-    get_json(&format!("/api/schemas/{service}/history")).await
+    rpc("GetSchemaHistory", &serde_json::json!({ "service": service })).await
 }
 
 pub async fn federation_status() -> Result<FederationStatusResponse, String> {
-    get_json("/api/federation/status").await
+    rpc("FederationStatus", &serde_json::json!({})).await
 }
 
 pub async fn ai_route(
     policy: &str,
     candidates: Vec<AiRouteCandidate<'_>>,
 ) -> Result<AiRouteResponse, String> {
-    post_json("/api/ai/route", &AiRouteRequest { policy, candidates }).await
+    rpc("AiRoute", &AiRouteRequest { policy, candidates }).await
 }
 
 // DbRecordListResponse/DbRecordResponse/DbUpsertRequest now live in
@@ -313,29 +282,31 @@ pub async fn ai_route(
 // router actually sends (see CLAUDE.md HANDOFF, 2026-07-11).
 
 pub async fn db_list(table: &str) -> Result<DbRecordListResponse, String> {
-    get_json(&format!("/api/db/{table}")).await
+    rpc("DbList", &serde_json::json!({ "table": table })).await
 }
 
 pub async fn db_get(table: &str, key: &str) -> Result<DbRecordResponse, String> {
-    get_json(&format!("/api/db/{table}/{key}")).await
+    rpc("DbGet", &serde_json::json!({ "table": table, "key": key })).await
 }
 
 pub async fn db_put(table: &str, key: &str, value_json: &str) -> Result<DbRecordResponse, String> {
     let value: serde_json::Value =
         serde_json::from_str(value_json).map_err(|e| format!("invalid JSON value: {e}"))?;
-    let body = serde_json::to_string(&DbUpsertRequest { value })
-        .map_err(|e| format!("encode error: {e}"))?;
-    let json = send("PUT", &format!("/api/db/{table}/{key}"), Some(&body)).await?;
-    serde_wasm_bindgen::from_value(json).map_err(|e| format!("decode error: {e}"))
+    let upsert = serde_json::to_value(DbUpsertRequest { value }).map_err(|e| format!("encode error: {e}"))?;
+    let mut body = serde_json::json!({ "table": table, "key": key });
+    if let (Some(b), Some(u)) = (body.as_object_mut(), upsert.as_object()) {
+        b.extend(u.clone());
+    }
+    rpc("DbPut", &body).await
 }
 
 pub async fn db_delete(table: &str, key: &str) -> Result<(), String> {
-    send("DELETE", &format!("/api/db/{table}/{key}"), None).await?;
+    rpc::<serde_json::Value>("DbDelete", &serde_json::json!({ "table": table, "key": key })).await?;
     Ok(())
 }
 
 pub async fn feature_flag_list() -> Result<FeatureFlagListResponse, String> {
-    get_json("/api/feature-flags").await
+    rpc("ListFeatureFlags", &serde_json::json!({})).await
 }
 
 pub async fn feature_flag_upsert(
@@ -344,8 +315,8 @@ pub async fn feature_flag_upsert(
     rollout_percent: u8,
     description: &str,
 ) -> Result<FeatureFlagResponse, String> {
-    post_json(
-        "/api/feature-flags",
+    rpc(
+        "UpsertFeatureFlag",
         &FeatureFlagRequest {
             name: name.to_string(),
             enabled,
@@ -357,32 +328,12 @@ pub async fn feature_flag_upsert(
 }
 
 pub async fn feature_flag_evaluate(name: &str, bucket_key: &str) -> Result<FeatureFlagEvaluationResponse, String> {
-    get_json(&format!(
-        "/api/feature-flags/{name}/evaluate?bucket_key={}",
-        urlencoding_encode(bucket_key)
-    ))
-    .await
+    rpc("EvaluateFeatureFlag", &serde_json::json!({ "name": name, "bucket_key": bucket_key })).await
 }
 
 pub async fn feature_flag_delete(name: &str) -> Result<(), String> {
-    send("DELETE", &format!("/api/feature-flags/{name}"), None).await?;
+    rpc::<serde_json::Value>("DeleteFeatureFlag", &serde_json::json!({ "name": name })).await?;
     Ok(())
-}
-
-/// Minimal percent-encoding for a query-string value (space/`&`/`=`/`#`/`%`
-/// are the characters that would otherwise corrupt the `?bucket_key=...`
-/// query string); avoids pulling in a dedicated crate for one call site.
-fn urlencoding_encode(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    for byte in raw.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
 }
 
 #[derive(Debug, Deserialize)]
@@ -441,11 +392,11 @@ pub struct PqQueryResponse {
 }
 
 pub async fn register_persisted_query(query: &str) -> Result<PqRegisterResponse, String> {
-    post_json("/api/persisted-queries", &PqRegisterRequest { query }).await
+    rpc("RegisterPersistedQuery", &PqRegisterRequest { query }).await
 }
 
 pub async fn get_persisted_query(hash: &str) -> Result<PqQueryResponse, String> {
-    get_json(&format!("/api/persisted-queries/{hash}")).await
+    rpc("GetPersistedQuery", &serde_json::json!({ "hash": hash })).await
 }
 
 #[derive(Debug, Serialize)]
@@ -468,15 +419,15 @@ pub struct AiStatsResponse {
 }
 
 pub async fn cache_purge(path: &str) -> Result<PurgeResponse, String> {
-    post_json("/api/cache/purge", &PurgeRequest { path }).await
+    rpc("PurgePage", &PurgeRequest { path }).await
 }
 
 pub async fn cache_purge_all() -> Result<PurgeResponse, String> {
-    post_json("/api/cache/purge-all", &serde_json::json!({})).await
+    rpc("PurgeAllPages", &serde_json::json!({})).await
 }
 
 pub async fn cache_ai_stats() -> Result<AiStatsResponse, String> {
-    get_json("/api/cache/ai-stats").await
+    rpc("AiStats", &serde_json::json!({})).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -492,11 +443,11 @@ pub struct IntegrityResponse {
 }
 
 pub async fn backup_export() -> Result<ExportResponse, String> {
-    post_json("/api/backup/export", &serde_json::json!({})).await
+    rpc("BackupExport", &serde_json::json!({})).await
 }
 
 pub async fn integrity_check() -> Result<IntegrityResponse, String> {
-    post_json("/api/integrity/check", &serde_json::json!({})).await
+    rpc("IntegrityCheck", &serde_json::json!({})).await
 }
 
 // ── Analytics (docs/cosmo-parity.md 4a: monthly request-count metering +
@@ -529,9 +480,9 @@ pub struct OperationsResponse {
 }
 
 pub async fn requests_per_month() -> Result<RequestsPerMonthResponse, String> {
-    get_json("/api/analytics/requests-per-month").await
+    rpc("RequestsPerMonth", &serde_json::json!({})).await
 }
 
 pub async fn operations_summary() -> Result<OperationsResponse, String> {
-    get_json("/api/analytics/operations").await
+    rpc("OperationsSummary", &serde_json::json!({})).await
 }

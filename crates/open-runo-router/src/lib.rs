@@ -28,6 +28,7 @@
 pub mod acme;
 pub mod audit;
 pub mod auth_hyper;
+pub mod connect;
 pub mod edfs;
 pub mod grpc;
 pub mod handlers_hyper;
@@ -103,6 +104,44 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
         ))
     };
 
+    let admin_ops: Vec<connect::Op> = vec![
+        connect::op("IssueSelfKey", Method::POST, &[], connect::Input::Body, handlers_hyper::self_issue_key_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("Login", Method::POST, &[], connect::Input::Body, handlers_hyper::session_login_handler(Arc::clone(&guardian), Arc::clone(&state.sessions))),
+        connect::op("Logout", Method::POST, &[], connect::Input::Body, handlers_hyper::session_logout_handler(Arc::clone(&state.sessions))),
+        connect::op("RegisterSchema", Method::POST, &[], connect::Input::Body, handlers_hyper::register_schema_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("UploadSchemaRaw", Method::POST, &[], connect::Input::RawText("sdl"), handlers_hyper::register_schema_upload_raw_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("GetSchema", Method::GET, &["service"], connect::Input::Query, handlers_hyper::get_schema_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("GetSchemaHistory", Method::GET, &["service"], connect::Input::Query, handlers_hyper::get_schema_history_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("ComposeSchemas", Method::POST, &[], connect::Input::Body, handlers_hyper::compose_schemas_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("FederationStatus", Method::GET, &[], connect::Input::Query, handlers_hyper::federation_status_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("AiRoute", Method::POST, &[], connect::Input::Body, handlers_hyper::route_request_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbStatus", Method::GET, &[], connect::Input::Query, handlers_hyper::db_status_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbRouting", Method::GET, &[], connect::Input::Query, handlers_hyper::db_routing_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbList", Method::GET, &["table"], connect::Input::Query, handlers_hyper::db_list_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbGet", Method::GET, &["table", "key"], connect::Input::Query, handlers_hyper::db_get_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbGetAtCommit", Method::GET, &["table", "key", "commit_id"], connect::Input::Query, handlers_hyper::db_get_at_commit_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbPut", Method::PUT, &["table", "key"], connect::Input::Body, handlers_hyper::db_put_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DbDelete", Method::DELETE, &["table", "key"], connect::Input::Query, handlers_hyper::db_delete_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("PurgePage", Method::POST, &[], connect::Input::Body, handlers_hyper::purge_page_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
+        connect::op("PurgeAllPages", Method::POST, &[], connect::Input::Body, handlers_hyper::purge_all_pages_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
+        connect::op("AiStats", Method::GET, &[], connect::Input::Query, handlers_hyper::ai_stats_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
+        connect::op("BackupExport", Method::POST, &[], connect::Input::Body, handlers_hyper::backup_export_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
+        connect::op("BackupImport", Method::POST, &[], connect::Input::Body, handlers_hyper::backup_import_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("BackupRestoreLatest", Method::POST, &[], connect::Input::Body, handlers_hyper::backup_restore_latest_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("MigrateExportSql", Method::POST, &[], connect::Input::Body, handlers_hyper::migrate_export_sql_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("MigrateExportCsv", Method::POST, &[], connect::Input::Body, handlers_hyper::migrate_export_csv_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("IntegrityCheck", Method::POST, &[], connect::Input::Body, handlers_hyper::integrity_check_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("RegisterPersistedQuery", Method::POST, &[], connect::Input::Body, handlers_hyper::register_persisted_query_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("GetPersistedQuery", Method::GET, &["hash"], connect::Input::Query, handlers_hyper::get_persisted_query_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("UpsertFeatureFlag", Method::POST, &[], connect::Input::Body, handlers_hyper::feature_flag_upsert_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("ListFeatureFlags", Method::GET, &[], connect::Input::Query, handlers_hyper::feature_flag_list_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("GetFeatureFlag", Method::GET, &["name"], connect::Input::Query, handlers_hyper::feature_flag_get_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("DeleteFeatureFlag", Method::DELETE, &["name"], connect::Input::Query, handlers_hyper::feature_flag_delete_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("EvaluateFeatureFlag", Method::GET, &["name"], connect::Input::Query, handlers_hyper::feature_flag_evaluate_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("RequestsPerMonth", Method::GET, &[], connect::Input::Query, handlers_hyper::requests_per_month_handler(Arc::clone(&state), Arc::clone(&guardian))),
+        connect::op("OperationsSummary", Method::GET, &[], connect::Input::Query, handlers_hyper::operations_summary_handler(Arc::clone(&state), Arc::clone(&guardian))),
+    ];
+
     Router::new()
         .route(Method::GET, "/health", wrap(hyper_compat::health_handler(Arc::clone(&state))))
         .route(Method::GET, "/healthz", wrap(hyper_compat::health_handler(Arc::clone(&state))))
@@ -114,153 +153,8 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
         )
         .route(
             Method::POST,
-            "/api/keys/self-issue",
-            wrap(handlers_hyper::self_issue_key_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
             "/mcp",
             wrap(mcp::mcp_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/session/login",
-            wrap(handlers_hyper::session_login_handler(Arc::clone(&guardian), Arc::clone(&state.sessions))),
-        )
-        .route(
-            Method::POST,
-            "/api/session/logout",
-            wrap(handlers_hyper::session_logout_handler(Arc::clone(&state.sessions))),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas",
-            wrap(handlers_hyper::register_schema_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas/upload",
-            wrap(handlers_hyper::register_schema_upload_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/schemas/upload-raw",
-            wrap(handlers_hyper::register_schema_upload_raw_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/schemas/:service",
-            wrap(handlers_hyper::get_schema_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/schemas/:service/history",
-            wrap(handlers_hyper::get_schema_history_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/federation/compose",
-            wrap(handlers_hyper::compose_schemas_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/federation/status",
-            wrap(handlers_hyper::federation_status_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/ai/route",
-            wrap(handlers_hyper::route_request_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/db/status",
-            wrap(handlers_hyper::db_status_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/db/routing",
-            wrap(handlers_hyper::db_routing_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table",
-            wrap(handlers_hyper::db_list_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_get_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/db/:table/:key/at/:commit_id",
-            wrap(handlers_hyper::db_get_at_commit_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::PUT,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_put_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::DELETE,
-            "/api/db/:table/:key",
-            wrap(handlers_hyper::db_delete_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/cache/purge",
-            wrap(handlers_hyper::purge_page_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/cache/purge-all",
-            wrap(handlers_hyper::purge_all_pages_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/cache/ai-stats",
-            wrap(handlers_hyper::ai_stats_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/export",
-            wrap(handlers_hyper::backup_export_handler(Arc::clone(&state), Arc::clone(&page_cache), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/import",
-            wrap(handlers_hyper::backup_import_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/backup/restore-latest",
-            wrap(handlers_hyper::backup_restore_latest_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/migrate/export-sql",
-            wrap(handlers_hyper::migrate_export_sql_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/migrate/export-csv",
-            wrap(handlers_hyper::migrate_export_csv_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/integrity/check",
-            wrap(handlers_hyper::integrity_check_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::POST,
-            "/api/persisted-queries",
-            wrap(handlers_hyper::register_persisted_query_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/persisted-queries/:hash",
-            wrap(handlers_hyper::get_persisted_query_handler(Arc::clone(&state), Arc::clone(&guardian))),
         )
         .route(
             Method::GET,
@@ -330,42 +224,13 @@ pub async fn build_hyper_app(state: Arc<AppState>, rate_limit_max: u32, rate_lim
             "/api/ws-events",
             handlers_hyper::ws_events_handler(Arc::clone(&state), Arc::clone(&guardian)),
         )
-        .route(
-            Method::POST,
-            "/api/feature-flags",
-            wrap(handlers_hyper::feature_flag_upsert_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags",
-            wrap(handlers_hyper::feature_flag_list_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags/:name",
-            wrap(handlers_hyper::feature_flag_get_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::DELETE,
-            "/api/feature-flags/:name",
-            wrap(handlers_hyper::feature_flag_delete_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/feature-flags/:name/evaluate",
-            wrap(handlers_hyper::feature_flag_evaluate_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
         // ── Analytics (docs/cosmo-parity.md 4a: monthly request-count
         // metering + Cosmo Studio-style operation latency/error-rate) ────
+        // ── 管理操作は Connect のみ(REST 全廃、2026-11-04)。旧 `/api/*` は 404。
         .route(
-            Method::GET,
-            "/api/analytics/requests-per-month",
-            wrap(handlers_hyper::requests_per_month_handler(Arc::clone(&state), Arc::clone(&guardian))),
-        )
-        .route(
-            Method::GET,
-            "/api/analytics/operations",
-            wrap(handlers_hyper::operations_summary_handler(Arc::clone(&state), Arc::clone(&guardian))),
+            Method::POST,
+            "/open_cosmo.admin.v1.Admin/:method",
+            wrap(connect::connect_handler(admin_ops)),
         )
         // ── WASM frontend bundle (apps/desktop-wasm/www) ─────────────────
         // Directory is configurable via OPEN_RUNO_STATIC_DIR so the
@@ -461,15 +326,21 @@ mod hyper_app_tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         let resp = client
-            .get(format!("http://{addr}/api/federation/status"))
+            .post(format!("http://{addr}/open_cosmo.admin.v1.Admin/FederationStatus"))
+            .header("content-type", "application/json")
+            .body("{}")
             .send()
             .await
             .expect("request should succeed");
         assert_eq!(resp.status(), reqwest::StatusCode::UNAUTHORIZED);
+        let body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(body["code"], "unauthenticated");
 
         let resp = client
-            .get(format!("http://{addr}/api/federation/status"))
+            .post(format!("http://{addr}/open_cosmo.admin.v1.Admin/FederationStatus"))
+            .header("content-type", "application/json")
             .header("x-api-key", "test-key")
+            .body("{}")
             .send()
             .await
             .expect("request should succeed");
@@ -497,9 +368,9 @@ mod hyper_app_tests {
             .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
-            .request(reqwest::Method::OPTIONS, format!("http://{addr}/api/federation/status"))
+            .request(reqwest::Method::OPTIONS, format!("http://{addr}/open_cosmo.admin.v1.Admin/FederationStatus"))
             .header("origin", "https://example.com")
-            .header("access-control-request-method", "GET")
+            .header("access-control-request-method", "POST")
             .header("access-control-request-headers", "x-api-key")
             .send()
             .await
@@ -507,6 +378,57 @@ mod hyper_app_tests {
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
         assert!(resp.headers().contains_key("access-control-allow-origin"));
         assert!(resp.headers().contains_key("access-control-allow-headers"));
+    }
+
+    /// REST 全廃: 旧 `/api/*` は 404、Connect は 401/400/404/200 を `{"code","message"}` で返す。
+    #[tokio::test]
+    async fn connect_admin_api_contract() {
+        let state = Arc::new(AppState::new());
+        let app = build_hyper_app(state, 1_000, 60).await;
+        let (addr, _handle) = hyper_compat::serve(app, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
+        let c = reqwest::Client::new();
+        let url = |m: &str| format!("http://{addr}/open_cosmo.admin.v1.Admin/{m}");
+        let post = |m: &str, body: &str| {
+            c.post(url(m))
+                .header("content-type", "application/json")
+                .header("x-api-key", "test-key")
+                .body(body.to_string())
+        };
+
+        // 旧 REST 経路は消えている
+        for path in ["/api/federation/status", "/api/schemas", "/api/db/status", "/api/feature-flags"] {
+            let r = c.get(format!("http://{addr}{path}")).header("x-api-key", "test-key").send().await.unwrap();
+            assert_eq!(r.status(), reqwest::StatusCode::NOT_FOUND, "{path}");
+        }
+        // 不明なメソッド → 404
+        let r = post("NoSuchMethod", "{}").send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::NOT_FOUND);
+        // 不正な JSON → 400、重複キー → 400
+        let r = post("DbPut", "{not json").send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::BAD_REQUEST);
+        let r = post("DbPut", r#"{"table":"t","table":"u","key":"k"}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::BAD_REQUEST);
+        // パスパラメーター欠落 → 400
+        let r = post("DbGet", r#"{"table":"t"}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::BAD_REQUEST);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["code"], "invalid_argument");
+        // content-type 違い → 400
+        let r = c.post(url("DbStatus")).header("content-type", "text/plain").header("x-api-key", "test-key").body("{}").send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::BAD_REQUEST);
+        // 正常: 書き込み → 取得 → 削除
+        let r = post("DbPut", r#"{"table":"t","key":"k","value":{"a":1}}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::OK, "{:?}", r.text().await);
+        let r = post("DbGet", r#"{"table":"t","key":"k"}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::OK);
+        let r = post("DbDelete", r#"{"table":"t","key":"k"}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::OK);
+        let r = post("DbGet", r#"{"table":"t","key":"k"}"#).send().await.unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::NOT_FOUND);
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["code"], "not_found");
     }
 
     #[tokio::test]

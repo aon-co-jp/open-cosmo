@@ -47,6 +47,7 @@ once_cell = { workspace = true }
 hyper = { version = "1.10", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
+rust-json = { git = "https://github.com/aon-co-jp/RS-JSON" }
 bytes = "1.9"
 flate2 = { workspace = true }
 # Poem-parity: TLS termination (`hyper_compat::tls`), opt-in via the `tls`
