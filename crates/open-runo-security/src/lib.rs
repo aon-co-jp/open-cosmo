@@ -26,11 +26,17 @@ impl ApiKey {
     /// can log/return a helpful message.
     pub fn validate(&self, now: DateTime<Utc>) -> Result<()> {
         if self.revoked {
-            return Err(AppError::Validation(format!("API key for '{}' has been revoked", self.owner)));
+            return Err(AppError::Validation(format!(
+                "API key for '{}' has been revoked",
+                self.owner
+            )));
         }
         if let Some(expires_at) = self.expires_at {
             if now >= expires_at {
-                return Err(AppError::Validation(format!("API key for '{}' expired at {expires_at}", self.owner)));
+                return Err(AppError::Validation(format!(
+                    "API key for '{}' expired at {expires_at}",
+                    self.owner
+                )));
             }
         }
         Ok(())
@@ -183,8 +189,15 @@ pub mod redis_backend {
                 .map_err(|e| AppError::Internal(format!("RedisRateLimiter: invalid URL: {e}")))?;
             let manager = redis::aio::ConnectionManager::new(client)
                 .await
-                .map_err(|e| AppError::Internal(format!("RedisRateLimiter: connect failed: {e}")))?;
-            Ok(Self { manager, max_requests, window_secs, key_prefix: "open-runo:ratelimit:" })
+                .map_err(|e| {
+                    AppError::Internal(format!("RedisRateLimiter: connect failed: {e}"))
+                })?;
+            Ok(Self {
+                manager,
+                max_requests,
+                window_secs,
+                key_prefix: "open-runo:ratelimit:",
+            })
         }
 
         fn redis_key(&self, key: &str) -> String {
@@ -236,20 +249,34 @@ pub mod redis_backend {
         #[tokio::test]
         #[ignore = "requires a live Redis instance reachable via OPEN_RUNO_TEST_REDIS_URL"]
         async fn shared_budget_is_enforced_across_two_independent_limiter_instances() {
-            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL")
+                .unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
             let key = format!("test-key-{}", uuid_like_suffix());
 
             // Two separate `RedisRateLimiter`s, simulating two different
             // process instances behind a load balancer -- if the budget
             // were per-instance (the bug this fixes), each would allow
             // `max_requests` independently, for 2x the intended total.
-            let limiter_a = RedisRateLimiter::connect(&url, 3, 60).await.expect("connect A");
-            let limiter_b = RedisRateLimiter::connect(&url, 3, 60).await.expect("connect B");
+            let limiter_a = RedisRateLimiter::connect(&url, 3, 60)
+                .await
+                .expect("connect A");
+            let limiter_b = RedisRateLimiter::connect(&url, 3, 60)
+                .await
+                .expect("connect B");
 
             let now = Utc::now();
-            assert!(limiter_a.check(&key, now).await.is_ok(), "request 1 (via A)");
-            assert!(limiter_b.check(&key, now).await.is_ok(), "request 2 (via B)");
-            assert!(limiter_a.check(&key, now).await.is_ok(), "request 3 (via A)");
+            assert!(
+                limiter_a.check(&key, now).await.is_ok(),
+                "request 1 (via A)"
+            );
+            assert!(
+                limiter_b.check(&key, now).await.is_ok(),
+                "request 2 (via B)"
+            );
+            assert!(
+                limiter_a.check(&key, now).await.is_ok(),
+                "request 3 (via A)"
+            );
             // Budget of 3 is now exhausted -- request 4, even via the
             // *other* instance, must be rejected. This is the actual
             // cross-instance sharing behavior under test.
@@ -259,15 +286,23 @@ pub mod redis_backend {
             );
 
             let retry_after = limiter_a.seconds_until_reset(&key, now).await;
-            assert!(retry_after > 0 && retry_after <= 60, "retry_after should be within the 60s window, got {retry_after}");
+            assert!(
+                retry_after > 0 && retry_after <= 60,
+                "retry_after should be within the 60s window, got {retry_after}"
+            );
         }
 
         fn uuid_like_suffix() -> String {
-            format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos())
+            format!(
+                "{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
         }
     }
 }
-
 
 /// Fine-grained token-bucket rate limiter (Cosmo paid-tier parity).
 ///
@@ -296,8 +331,14 @@ impl TokenBucketLimiter {
 
     /// Give `key` its own budget, independent of the default.
     #[must_use]
-    pub fn with_override(mut self, key: impl Into<String>, capacity: u32, refill_per_sec: f64) -> Self {
-        self.overrides.insert(key.into(), (f64::from(capacity), refill_per_sec));
+    pub fn with_override(
+        mut self,
+        key: impl Into<String>,
+        capacity: u32,
+        refill_per_sec: f64,
+    ) -> Self {
+        self.overrides
+            .insert(key.into(), (f64::from(capacity), refill_per_sec));
         self
     }
 
@@ -317,10 +358,7 @@ impl TokenBucketLimiter {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let (tokens, last) = buckets
-            .get(key)
-            .copied()
-            .unwrap_or((capacity, now));
+        let (tokens, last) = buckets.get(key).copied().unwrap_or((capacity, now));
 
         let elapsed_secs = now.signed_duration_since(last).num_milliseconds() as f64 / 1000.0;
         let tokens = (tokens + elapsed_secs.max(0.0) * refill).min(capacity);
@@ -341,7 +379,7 @@ impl TokenBucketLimiter {
 /// Claims embedded in an open-runo-issued JWT.
 ///
 /// `sub` identifies the caller (service name or user id); `exp` is a Unix
-/// timestamp (seconds) enforced by `jsonwebtoken`'s default validation.
+/// timestamp (seconds) enforced by `open-runo-jwt`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
@@ -359,7 +397,9 @@ pub struct JwtCodec {
 
 impl JwtCodec {
     pub fn new(secret: impl Into<Vec<u8>>) -> Self {
-        Self { secret: secret.into() }
+        Self {
+            secret: secret.into(),
+        }
     }
 
     /// Load the signing secret from `OPEN_RUNO_JWT_SECRET`. Returns `None`
@@ -373,35 +413,27 @@ impl JwtCodec {
     }
 
     /// Issue a signed token for `subject`, valid for `ttl` from now.
-    pub fn encode(&self, subject: &str, roles: Vec<String>, ttl: chrono::Duration) -> Result<String> {
+    pub fn encode(
+        &self,
+        subject: &str,
+        roles: Vec<String>,
+        ttl: chrono::Duration,
+    ) -> Result<String> {
         let claims = Claims {
             sub: subject.to_string(),
             exp: (Utc::now() + ttl).timestamp(),
             roles,
         };
-        jsonwebtoken::encode(
-            &jsonwebtoken::Header::default(),
-            &claims,
-            &jsonwebtoken::EncodingKey::from_secret(&self.secret),
-        )
-        .map_err(|e| AppError::Validation(format!("jwt encode failed: {e}")))
+        open_runo_jwt::encode_hs256(&claims, &self.secret)
+            .map_err(|e| AppError::Validation(format!("jwt encode failed: {e}")))
     }
 
     /// Verify a bearer token's signature and expiry, returning its claims.
     ///
-    /// `leeway` is set to 0 so an expired token is rejected immediately
-    /// (jsonwebtoken defaults to 60 s of clock-skew tolerance, which made
-    /// short-lived tokens outlive their `exp`).
+    /// `leeway` is 0 so an expired token is rejected immediately.
     pub fn decode(&self, token: &str) -> Result<Claims> {
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-        validation.leeway = 0;
-        jsonwebtoken::decode::<Claims>(
-            token,
-            &jsonwebtoken::DecodingKey::from_secret(&self.secret),
-            &validation,
-        )
-        .map(|data| data.claims)
-        .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
+        open_runo_jwt::decode_hs256::<Claims>(token, &self.secret, &open_runo_jwt::Validation::default())
+            .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
     }
 }
 
@@ -412,7 +444,12 @@ mod tests {
 
     #[test]
     fn rejects_revoked_key() {
-        let key = ApiKey { key: "k".into(), owner: "alice".into(), expires_at: None, revoked: true };
+        let key = ApiKey {
+            key: "k".into(),
+            owner: "alice".into(),
+            expires_at: None,
+            revoked: true,
+        };
         assert!(key.validate(Utc::now()).is_err());
     }
 
@@ -463,7 +500,10 @@ mod tests {
         let t0 = Utc::now();
         assert!(limiter.check("client-c", t0).is_ok());
         assert_eq!(limiter.seconds_until_reset("client-c", t0), 10);
-        assert_eq!(limiter.seconds_until_reset("client-c", t0 + Duration::seconds(4)), 6);
+        assert_eq!(
+            limiter.seconds_until_reset("client-c", t0 + Duration::seconds(4)),
+            6
+        );
     }
 
     #[test]
@@ -486,7 +526,9 @@ mod tests {
     #[test]
     fn jwt_rejects_expired_token() {
         let codec = JwtCodec::new("test-secret");
-        let token = codec.encode("alice", vec![], Duration::seconds(-1)).unwrap();
+        let token = codec
+            .encode("alice", vec![], Duration::seconds(-1))
+            .unwrap();
         assert!(codec.decode(&token).is_err());
     }
 

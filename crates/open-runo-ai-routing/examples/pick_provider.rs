@@ -43,8 +43,10 @@ fn main() -> open_runo_core::Result<()> {
         RoutingPolicy::PrivacyFirst,
     ] {
         let chosen = route(&pool, policy, min_context_length)?;
-        println!("{policy:?} -> {:?} (cost=${:.2}/1k tok, latency={}ms)",
-            chosen.provider, chosen.estimated_cost_usd_per_1k_tokens, chosen.estimated_latency_ms);
+        println!(
+            "{policy:?} -> {:?} (cost=${:.2}/1k tok, latency={}ms)",
+            chosen.provider, chosen.estimated_cost_usd_per_1k_tokens, chosen.estimated_latency_ms
+        );
     }
 
     // A request needing more context than the local model supports still

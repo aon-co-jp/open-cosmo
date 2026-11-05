@@ -89,7 +89,12 @@ impl SessionStore {
         let session_id = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
         let csrf_token = uuid::Uuid::new_v4().to_string();
         let expires_at = Utc::now() + chrono::Duration::hours(SESSION_TTL_HOURS);
-        let data = SessionData { owner, roles, csrf_token: csrf_token.clone(), expires_at };
+        let data = SessionData {
+            owner,
+            roles,
+            csrf_token: csrf_token.clone(),
+            expires_at,
+        };
         self.sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -101,25 +106,39 @@ impl SessionStore {
     /// (matches `KeyGuardian::verify`'s auto-clean-on-sight behavior for
     /// expired API keys).
     pub fn get(&self, session_id: &str) -> Option<SessionData> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match sessions.get(session_id) {
             Some(data) if data.expires_at > Utc::now() => Some(data.clone()),
             Some(_) => {
                 sessions.remove(session_id);
                 None
-            }
+            },
             None => None,
         }
     }
 
     /// Destroy a session (logout).
     pub fn destroy(&self, session_id: &str) {
-        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(session_id);
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session_id);
     }
 
     #[cfg(test)]
     pub fn len(&self) -> usize {
-        self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -164,8 +183,13 @@ pub mod redis_backend {
                 .map_err(|e| AppError::Internal(format!("RedisSessionStore: invalid URL: {e}")))?;
             let manager = redis::aio::ConnectionManager::new(client)
                 .await
-                .map_err(|e| AppError::Internal(format!("RedisSessionStore: connect failed: {e}")))?;
-            Ok(Self { manager, key_prefix: "open-runo:session:" })
+                .map_err(|e| {
+                    AppError::Internal(format!("RedisSessionStore: connect failed: {e}"))
+                })?;
+            Ok(Self {
+                manager,
+                key_prefix: "open-runo:session:",
+            })
         }
 
         fn redis_key(&self, session_id: &str) -> String {
@@ -179,7 +203,12 @@ pub mod redis_backend {
             let session_id = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
             let csrf_token = uuid::Uuid::new_v4().to_string();
             let expires_at = chrono::Utc::now() + chrono::Duration::hours(SESSION_TTL_HOURS);
-            let data = SessionData { owner, roles, csrf_token: csrf_token.clone(), expires_at };
+            let data = SessionData {
+                owner,
+                roles,
+                csrf_token: csrf_token.clone(),
+                expires_at,
+            };
 
             // Best-effort: if Redis is briefly unreachable, the caller
             // still gets a session_id/csrf_token back (matching the
@@ -214,7 +243,7 @@ pub mod redis_backend {
                 .query_async(&mut conn)
                 .await
                 .ok()?;
-            let data: SessionData = serde_json::from_str(&json?).ok()?;
+            let data: SessionData = sonic_rs::from_str(&json?).ok()?;
             // Redis's own EX-based TTL is authoritative for expiry (the
             // key simply won't exist anymore past expiry), but this
             // extra check guards against clock skew between instances
@@ -224,8 +253,10 @@ pub mod redis_backend {
 
         async fn destroy(&self, session_id: &str) {
             let mut conn = self.manager.clone();
-            let result: std::result::Result<(), redis::RedisError> =
-                redis::cmd("DEL").arg(self.redis_key(session_id)).query_async(&mut conn).await;
+            let result: std::result::Result<(), redis::RedisError> = redis::cmd("DEL")
+                .arg(self.redis_key(session_id))
+                .query_async(&mut conn)
+                .await;
             if let Err(e) = result {
                 tracing::warn!(error = %e, "RedisSessionStore: failed to delete session");
             }
@@ -244,7 +275,8 @@ pub mod redis_backend {
         #[tokio::test]
         #[ignore = "requires a live Redis instance reachable via OPEN_RUNO_TEST_REDIS_URL"]
         async fn a_session_created_via_one_store_is_readable_via_a_second_independent_store() {
-            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+            let url = std::env::var("OPEN_RUNO_TEST_REDIS_URL")
+                .unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
 
             // Two separate `RedisSessionStore`s, simulating two different
             // process instances behind a load balancer -- the actual
@@ -252,7 +284,9 @@ pub mod redis_backend {
             let store_a = RedisSessionStore::connect(&url).await.expect("connect A");
             let store_b = RedisSessionStore::connect(&url).await.expect("connect B");
 
-            let (session_id, csrf_token) = store_a.create("dave".to_string(), vec!["developer".to_string()]).await;
+            let (session_id, csrf_token) = store_a
+                .create("dave".to_string(), vec!["developer".to_string()])
+                .await;
 
             let data = store_b
                 .get(&session_id)
@@ -281,11 +315,11 @@ pub fn session_id_from_cookie_header(headers: &hyper::HeaderMap) -> Option<Strin
 }
 
 /// Build the `Set-Cookie` header value for a freshly created session.
-/// `HttpOnly` (never readable from JS, defeating XSS-driven cookie theft)
-/// + `SameSite=Strict` (the cookie itself is never sent cross-site at all,
-/// which is a stronger primitive than CSRF tokens alone — the token is a
-/// defense-in-depth layer for browsers/proxies that don't honor
-/// `SameSite`, and for `SameSite=Lax`-only environments).
+/// Sets `HttpOnly` (never readable from JS, defeating XSS-driven cookie
+/// theft) and `SameSite=Strict` (the cookie itself is never sent
+/// cross-site at all, which is a stronger primitive than CSRF tokens
+/// alone — the token is a defense-in-depth layer for browsers/proxies
+/// that don't honor `SameSite`, and for `SameSite=Lax`-only environments).
 pub fn set_cookie_header(session_id: &str) -> String {
     format!(
         "{SESSION_COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age={}",
@@ -307,7 +341,8 @@ mod tests {
     #[test]
     fn create_then_get_returns_matching_session() {
         let store = SessionStore::new();
-        let (session_id, csrf_token) = store.create("alice".to_string(), vec!["developer".to_string()]);
+        let (session_id, csrf_token) =
+            store.create("alice".to_string(), vec!["developer".to_string()]);
         let data = store.get(&session_id).expect("session should exist");
         assert_eq!(data.owner, "alice");
         assert_eq!(data.roles, vec!["developer".to_string()]);
@@ -343,7 +378,11 @@ mod tests {
             .unwrap()
             .expires_at = Utc::now() - chrono::Duration::seconds(1);
         assert!(store.get(&session_id).is_none());
-        assert_eq!(store.len(), 0, "expired session should have been evicted on lookup");
+        assert_eq!(
+            store.len(),
+            0,
+            "expired session should have been evicted on lookup"
+        );
     }
 
     #[test]
@@ -353,7 +392,10 @@ mod tests {
             hyper::header::COOKIE,
             "other=1; orn_session=abc123; third=xyz".parse().unwrap(),
         );
-        assert_eq!(session_id_from_cookie_header(&headers), Some("abc123".to_string()));
+        assert_eq!(
+            session_id_from_cookie_header(&headers),
+            Some("abc123".to_string())
+        );
     }
 
     #[test]

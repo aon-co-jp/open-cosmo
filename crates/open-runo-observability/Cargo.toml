@@ -22,7 +22,7 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
-clickhouse = { version = "0.13", optional = true, features = ["chrono"] }
+clickhouse = { version = "0.15", optional = true, features = ["chrono"] }
 
 [features]
 clickhouse = ["dep:clickhouse"]

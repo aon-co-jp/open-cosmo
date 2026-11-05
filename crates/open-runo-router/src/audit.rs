@@ -29,7 +29,7 @@ pub async fn record(state: &AppState, actor: &str, action: &str, target: impl In
             if let Err(e) = state.db.put("audit_log", &key, &json).await {
                 tracing::warn!(error = %e, action = %entry.action, "audit log write failed");
             }
-        }
+        },
         Err(e) => tracing::warn!(error = %e, "audit record serialization failed"),
     }
 }

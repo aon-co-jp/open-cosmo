@@ -50,7 +50,11 @@ pub struct Role {
 
 impl Role {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), all: false, grants: HashSet::new() }
+        Self {
+            name: name.into(),
+            all: false,
+            grants: HashSet::new(),
+        }
     }
 
     #[must_use]
@@ -203,8 +207,12 @@ mod tests {
     fn custom_role_and_check_error_message() {
         let mut p = RbacPolicy::new();
         p.add_role(Role::new("pq-bot").grant(Resource::PersistedQuery, Action::Write));
-        assert!(p.check(&roles(&["pq-bot"]), Resource::PersistedQuery, Action::Write).is_ok());
-        let err = p.check(&roles(&["pq-bot"]), Resource::Schema, Action::Read).unwrap_err();
+        assert!(p
+            .check(&roles(&["pq-bot"]), Resource::PersistedQuery, Action::Write)
+            .is_ok());
+        let err = p
+            .check(&roles(&["pq-bot"]), Resource::Schema, Action::Read)
+            .unwrap_err();
         assert!(err.to_string().contains("forbidden"));
     }
 }

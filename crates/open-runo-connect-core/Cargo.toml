@@ -1,0 +1,14 @@
+[package]
+name = "open-runo-connect-core"
+description = "gRPC-web-Connect core: protocol negotiation, gRPC / gRPC-web / gRPC-web-text / Connect framing, status-code mapping. Pure (no HTTP stack), compiles to wasm32."
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0 OR MIT"
+rust-version.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+
+[dependencies]
+base64 = "0.23"
+serde_json = "1"

@@ -11,10 +11,10 @@
 //! 消費するアプライヤとして `open-easyweb` 側に実装する。本クレート自体は
 //! `no-DOM` 設計なので native でも wasm32 でもビルド・テストできる。
 
-pub mod hooks;
-pub mod ssr;
 #[cfg(feature = "dom")]
 pub mod dom;
+pub mod hooks;
+pub mod ssr;
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -120,7 +120,11 @@ pub enum Patch {
     /// テキストノードの内容変更。
     SetText { path: Path, text: String },
     /// 属性の追加・変更。
-    SetAttr { path: Path, name: String, value: String },
+    SetAttr {
+        path: Path,
+        name: String,
+        value: String,
+    },
     /// 属性の削除。
     RemoveAttr { path: Path, name: String },
     /// 親 path の末尾に子を追加。
@@ -130,7 +134,11 @@ pub enum Patch {
     /// 親 path 内で from → to へ子を移動(keyed reorder)。
     MoveChild { path: Path, from: usize, to: usize },
     /// イベントハンドラの追加・差し替え(Phase 4)。
-    SetHandler { path: Path, event: String, handler_id: u64 },
+    SetHandler {
+        path: Path,
+        event: String,
+        handler_id: u64,
+    },
     /// イベントハンドラの解除(Phase 4)。
     RemoveHandler { path: Path, event: String },
 }
@@ -151,12 +159,12 @@ fn diff_node(old: &VNode, new: &VNode, path: &mut Path, out: &mut Vec<Patch>) {
                     text: b.clone(),
                 });
             }
-        }
+        },
         (VNode::Element(a), VNode::Element(b)) if a.tag == b.tag => {
             diff_attrs(a, b, path, out);
             diff_events(a, b, path, out);
             diff_children(a, b, path, out);
-        }
+        },
         _ => out.push(Patch::Replace {
             path: path.clone(),
             node: new.clone(),
@@ -165,8 +173,16 @@ fn diff_node(old: &VNode, new: &VNode, path: &mut Path, out: &mut Vec<Patch>) {
 }
 
 fn diff_attrs(a: &VElement, b: &VElement, path: &Path, out: &mut Vec<Patch>) {
-    let old: HashMap<&str, &str> = a.attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let new: HashMap<&str, &str> = b.attrs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let old: HashMap<&str, &str> = a
+        .attrs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let new: HashMap<&str, &str> = b
+        .attrs
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     for (k, v) in &new {
         if old.get(k) != Some(v) {
             out.push(Patch::SetAttr {
@@ -255,7 +271,7 @@ fn diff_children(a: &VElement, b: &VElement, path: &mut Path, out: &mut Vec<Patc
                     path.push(target);
                     diff_node(cur[target], nb, path, out);
                     path.pop();
-                }
+                },
                 None => {
                     // 末尾Append後にtargetへ移動、を1手で表すためAppend+Move。
                     out.push(Patch::Append {
@@ -273,7 +289,7 @@ fn diff_children(a: &VElement, b: &VElement, path: &mut Path, out: &mut Vec<Patc
                         let n = cur.remove(appended_at);
                         cur.insert(target, n);
                     }
-                }
+                },
             }
         }
     } else {
@@ -358,7 +374,7 @@ fn render_into(node: &VNode, out: &mut String) {
                 }
                 let _ = write!(out, "</{}>", e.tag);
             }
-        }
+        },
     }
 }
 
@@ -376,9 +392,14 @@ mod tests {
             name: String,
         }
         let hello: Component<Props> = component(|p: &Props| {
-            h("h1").attr("class", "title").child(format!("Hello, {}", p.name)).build()
+            h("h1")
+                .attr("class", "title")
+                .child(format!("Hello, {}", p.name))
+                .build()
         });
-        let v = hello(&Props { name: "世界".into() });
+        let v = hello(&Props {
+            name: "世界".into(),
+        });
         assert_eq!(render_html(&v), "<h1 class=\"title\">Hello, 世界</h1>");
     }
 
@@ -400,7 +421,11 @@ mod tests {
     #[test]
     fn diff_detects_text_and_attr_changes() {
         let old = h("p").attr("class", "a").child("x").build();
-        let new = h("p").attr("class", "b").attr("id", "p1").child("y").build();
+        let new = h("p")
+            .attr("class", "b")
+            .attr("id", "p1")
+            .child("y")
+            .build();
         let ps = diff(&old, &new);
         assert!(ps.contains(&Patch::SetAttr {
             path: vec![],
@@ -444,7 +469,7 @@ mod tests {
                 if let VNode::Text(t) = at(root, path) {
                     *t = text.clone();
                 }
-            }
+            },
             Patch::SetAttr { path, name, value } => {
                 if let VNode::Element(e) = at(root, path) {
                     if let Some(kv) = e.attrs.iter_mut().find(|(k, _)| k == name) {
@@ -453,29 +478,33 @@ mod tests {
                         e.attrs.push((name.clone(), value.clone()));
                     }
                 }
-            }
+            },
             Patch::RemoveAttr { path, name } => {
                 if let VNode::Element(e) = at(root, path) {
                     e.attrs.retain(|(k, _)| k != name);
                 }
-            }
+            },
             Patch::Append { path, node } => {
                 if let VNode::Element(e) = at(root, path) {
                     e.children.push(node.clone());
                 }
-            }
+            },
             Patch::RemoveChild { path, index } => {
                 if let VNode::Element(e) = at(root, path) {
                     e.children.remove(*index);
                 }
-            }
+            },
             Patch::MoveChild { path, from, to } => {
                 if let VNode::Element(e) = at(root, path) {
                     let n = e.children.remove(*from);
                     e.children.insert(*to, n);
                 }
-            }
-            Patch::SetHandler { path, event, handler_id } => {
+            },
+            Patch::SetHandler {
+                path,
+                event,
+                handler_id,
+            } => {
                 if let VNode::Element(e) = at(root, path) {
                     if let Some(kv) = e.events.iter_mut().find(|(k, _)| k == event) {
                         kv.1 = *handler_id;
@@ -483,12 +512,12 @@ mod tests {
                         e.events.push((event.clone(), *handler_id));
                     }
                 }
-            }
+            },
             Patch::RemoveHandler { path, event } => {
                 if let VNode::Element(e) = at(root, path) {
                     e.events.retain(|(k, _)| k != event);
                 }
-            }
+            },
         }
     }
 
@@ -534,14 +563,21 @@ mod tests {
         for p in &ps {
             apply(&mut cur, p);
         }
-        assert_eq!(cur, new, "applying keyed patches must reproduce the new tree");
+        assert_eq!(
+            cur, new,
+            "applying keyed patches must reproduce the new tree"
+        );
         // 丸ごとReplaceで誤魔化していないことも確認
-        assert!(ps.iter().all(|p| !matches!(p, Patch::Replace { path, .. } if path.is_empty())));
+        assert!(ps
+            .iter()
+            .all(|p| !matches!(p, Patch::Replace { path, .. } if path.is_empty())));
     }
 
     #[test]
     fn unkeyed_diff_patches_transform_old_into_new() {
-        let old = h("div").children(["a".into(), "b".into(), "c".into()]).build();
+        let old = h("div")
+            .children(["a".into(), "b".into(), "c".into()])
+            .build();
         let new = h("div").children(["a".into(), "x".into()]).build();
         let ps = diff(&old, &new);
         let mut cur = old.clone();

@@ -16,7 +16,10 @@ name = "open-runo-router"
 path = "src/main.rs"
 
 [dependencies]
+sonic-rs = "0.5"
 open-runo-core             = { workspace = true }
+open-runo-connect-core     = { path = "../open-runo-connect-core" }
+open-runo-connect-server   = { path = "../open-runo-connect-server" }
 open-runo-observability    = { workspace = true }
 open-runo-security         = { workspace = true }
 open-runo-federation       = { workspace = true }
@@ -27,12 +30,20 @@ open-runo-persisted-queries = { workspace = true }
 open-runo-scim             = { workspace = true }
 open-runo-cache            = { workspace = true }
 open-runo-api-types        = { workspace = true }
+open-runo-proto            = { workspace = true }
+base64 = "0.23"
+prost-reflect = { version = "0.16", features = ["serde"] }
+open-runo-openapi          = { workspace = true }
 open-runo-feature-flags    = { workspace = true }
 schemars = { workspace = true }
 sha2 = { workspace = true }
 sha1 = { workspace = true }
+# Webhook署名検証(HMAC-SHA256、定数時間比較は`verify_slice`)。sha2 0.10系と
+# 揃えた0.12(Cargo.lockに既存)。自前のHMAC/比較は書かない。
+hmac = "0.13"
 hex = { workspace = true }
 open-runo-db               = { workspace = true }
+anyhow = { workspace = true }
 poem = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -47,7 +58,6 @@ once_cell = { workspace = true }
 hyper = { version = "1.10", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
-rust-json = { git = "https://github.com/aon-co-jp/RS-JSON" }
 bytes = "1.9"
 flate2 = { workspace = true }
 # Poem-parity: TLS termination (`hyper_compat::tls`), opt-in via the `tls`
@@ -71,8 +81,13 @@ rustls-pemfile = { version = "2.2", optional = true }
 # submitted at order-finalization time (promoted here from dev-only,
 # where it already existed for TLS test certificates).
 ring = { version = "0.17", optional = true }
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["json", "rustls-tls"] }
-rcgen = { version = "0.13", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+rcgen = { version = "0.14", optional = true }
+# 2026-08-19新設(自動アップデート機能、`self_update.rs`): 従来は`acme`
+# feature配下のみのoptional依存だったが、GitHub Releases APIへの
+# アウトバウンドHTTPクライアントとして自動アップデート機構が常時
+# 必要とするため非optional化した(`acme`側の`dep:reqwest`参照は
+# 引き続き有効、重複定義はしない)。
 # EDFS (Event-Driven Federated Subscriptions, Cosmo-parity gap,
 # docs/cosmo-parity.md 4a): bridges the existing in-process
 # `broadcast::Sender<SchemaEvent>` (crates/open-runo-router/src/edfs.rs)
@@ -80,13 +95,12 @@ rcgen = { version = "0.13", optional = true }
 # multi-instance/load-balanced deployment, not just within a single
 # process. Reuses the same `redis` version open-runo-cache's
 # `redis-backend` feature already depends on.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
-anyhow = { workspace = true, optional = true }
+redis = { version = "1.8", features = ["tokio-comp", "connection-manager"], optional = true }
 
 [features]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
-acme = ["tls", "dep:ring", "dep:reqwest", "dep:rcgen"]
-edfs = ["dep:redis", "dep:anyhow"]
+acme = ["tls", "dep:ring", "dep:rcgen"]
+edfs = ["dep:redis"]
 # Multi-instance shared rate limiting (docs/deployment-scaling.md's known
 # gap: rate-limit budgets are per-instance in-memory otherwise). Off by
 # default; enabling this alone doesn't change behavior unless
@@ -106,15 +120,15 @@ redis-session = ["dep:redis"]
 clickhouse = ["open-runo-observability/clickhouse"]
 
 [dev-dependencies]
-jsonwebtoken = { workspace = true }
+open-runo-proto = { workspace = true, features = ["client"] }
 poem = { workspace = true, features = ["test"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "multipart"] }
 # Test-only WebSocket client, purely to independently verify the from-scratch
 # server-side RFC 6455 implementation in `hyper_compat` (see
 # `handlers_hyper::tests::websocket_echo_round_trip_over_real_tcp`). Not used
 # by any production code path -- the server side is hand-rolled.
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.30"
 # Test-only: generates a throwaway self-signed cert/key pair so
 # `hyper_compat::tls` can be verified end-to-end over a real TLS handshake
 # without checking a certificate into the repo. Not used by production code.
-rcgen = "0.13"
+rcgen = "0.14"

@@ -12,7 +12,7 @@
 //! field name extraction, tolerant of directives, arguments, and
 //! `implements` clauses in either federation dialect.
 
-use crate::{ServiceSchema, FederationVersion};
+use crate::{FederationVersion, ServiceSchema};
 use open_runo_core::{AppError, Result};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,7 +95,11 @@ fn match_type_keyword(s: &str, pos: usize) -> Option<usize> {
     let rest = &s[pos..];
     // Optional leading "extend " before "type"/"interface".
     let rest = rest.strip_prefix("extend").map_or(rest, |r| {
-        if r.starts_with(char::is_whitespace) { r } else { rest }
+        if r.starts_with(char::is_whitespace) {
+            r
+        } else {
+            rest
+        }
     });
     let offset = s[pos..].len() - rest.len();
     let rest = skip_leading_ws(rest);
@@ -260,7 +264,7 @@ fn parse_fields(block: &str) -> Vec<String> {
                 None => {
                     i = after_ident;
                     continue;
-                }
+                },
             }
             j = skip_ws_and_comments(block, j);
         }
@@ -393,8 +397,14 @@ mod tests {
         let v1 = parse_service_sdl("users-service", V1_SUBGRAPH_SDL).unwrap();
         let v2 = parse_service_sdl("billing-service", V2_SUBGRAPH_SDL).unwrap();
 
-        assert_eq!(detect_federation_version(V1_SUBGRAPH_SDL), FederationVersion::V1);
-        assert_eq!(detect_federation_version(V2_SUBGRAPH_SDL), FederationVersion::V2);
+        assert_eq!(
+            detect_federation_version(V1_SUBGRAPH_SDL),
+            FederationVersion::V1
+        );
+        assert_eq!(
+            detect_federation_version(V2_SUBGRAPH_SDL),
+            FederationVersion::V2
+        );
 
         let composed = crate::compose(&[v1, v2]).unwrap();
         assert_eq!(composed.contributing_services.len(), 2);

@@ -59,12 +59,20 @@ impl OperationStat {
     /// `error_count / count`, or `0.0` if the operation has never been
     /// called (avoids a division by zero rather than returning `NaN`).
     pub fn error_rate(&self) -> f64 {
-        if self.count == 0 { 0.0 } else { self.error_count as f64 / self.count as f64 }
+        if self.count == 0 {
+            0.0
+        } else {
+            self.error_count as f64 / self.count as f64
+        }
     }
 
     /// `total_duration_ms / count`, or `0.0` if never called.
     pub fn avg_duration_ms(&self) -> f64 {
-        if self.count == 0 { 0.0 } else { self.total_duration_ms as f64 / self.count as f64 }
+        if self.count == 0 {
+            0.0
+        } else {
+            self.total_duration_ms as f64 / self.count as f64
+        }
     }
 }
 
@@ -99,7 +107,10 @@ impl InMemorySink {
     }
 
     pub fn rows(&self) -> Vec<RequestMetricRow> {
-        self.written.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.written
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -158,21 +169,36 @@ impl RequestMetrics {
     /// Record one completed request. Synchronous and non-blocking --
     /// intended to be called from the hot request path (see
     /// `open-runo-router::middleware_hyper::with_metrics`).
-    pub fn record(&self, method: &str, path: &str, status: u16, duration_ms: u64, at: DateTime<Utc>) {
+    pub fn record(
+        &self,
+        method: &str,
+        path: &str,
+        status: u16,
+        duration_ms: u64,
+        at: DateTime<Utc>,
+    ) {
         let month = at.format("%Y-%m").to_string();
         {
-            let mut monthly = self.monthly_counts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut monthly = self
+                .monthly_counts
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *monthly.entry(month).or_insert(0) += 1;
         }
         {
-            let mut ops = self.operation_stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let entry = ops.entry((method.to_string(), path.to_string())).or_insert_with(|| OperationStat {
-                method: method.to_string(),
-                path: path.to_string(),
-                count: 0,
-                error_count: 0,
-                total_duration_ms: 0,
-            });
+            let mut ops = self
+                .operation_stats
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let entry = ops
+                .entry((method.to_string(), path.to_string()))
+                .or_insert_with(|| OperationStat {
+                    method: method.to_string(),
+                    path: path.to_string(),
+                    count: 0,
+                    error_count: 0,
+                    total_duration_ms: 0,
+                });
             entry.count += 1;
             if status >= 400 {
                 entry.error_count += 1;
@@ -180,7 +206,10 @@ impl RequestMetrics {
             entry.total_duration_ms += duration_ms;
         }
         {
-            let mut buf = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut buf = self
+                .buffer
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if buf.len() >= self.max_buffered {
                 buf.remove(0);
             }
@@ -202,7 +231,10 @@ impl RequestMetrics {
     /// without bound.
     pub async fn flush(&self) -> Result<usize, String> {
         let rows = {
-            let mut buf = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut buf = self
+                .buffer
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             std::mem::take(&mut *buf)
         };
         if rows.is_empty() {
@@ -215,14 +247,25 @@ impl RequestMetrics {
 
     /// How many rows are currently buffered, awaiting the next flush.
     pub fn buffered_len(&self) -> usize {
-        self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        self.buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     /// `GET /api/analytics/requests-per-month` data, sorted oldest month first.
     pub fn requests_per_month(&self) -> Vec<MonthlyCount> {
-        let monthly = self.monthly_counts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut out: Vec<MonthlyCount> =
-            monthly.iter().map(|(month, count)| MonthlyCount { month: month.clone(), count: *count }).collect();
+        let monthly = self
+            .monthly_counts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut out: Vec<MonthlyCount> = monthly
+            .iter()
+            .map(|(month, count)| MonthlyCount {
+                month: month.clone(),
+                count: *count,
+            })
+            .collect();
         out.sort_by(|a, b| a.month.cmp(&b.month));
         out
     }
@@ -231,9 +274,12 @@ impl RequestMetrics {
     /// descending (busiest/slowest-contributing operations first -- the
     /// most actionable ordering for a latency dashboard).
     pub fn operations_summary(&self) -> Vec<OperationStat> {
-        let ops = self.operation_stats.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ops = self
+            .operation_stats
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut out: Vec<OperationStat> = ops.values().cloned().collect();
-        out.sort_by(|a, b| b.total_duration_ms.cmp(&a.total_duration_ms));
+        out.sort_by_key(|o| std::cmp::Reverse(o.total_duration_ms));
         out
     }
 }
@@ -252,7 +298,7 @@ pub fn spawn_periodic_flush(
         loop {
             ticker.tick().await;
             match metrics.flush().await {
-                Ok(0) => {}
+                Ok(0) => {},
                 Ok(n) => tracing::debug!(rows = n, "flushed buffered request metrics"),
                 Err(error) => tracing::warn!(%error, "failed to flush request metrics to sink"),
             }
@@ -281,7 +327,9 @@ pub mod clickhouse_sink {
     // style lint (see workspace lints) needs a hand-written stand-in.
     impl std::fmt::Debug for ClickHouseSink {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("ClickHouseSink").field("table", &self.table).finish_non_exhaustive()
+            f.debug_struct("ClickHouseSink")
+                .field("table", &self.table)
+                .finish_non_exhaustive()
         }
     }
 
@@ -304,7 +352,10 @@ pub mod clickhouse_sink {
         /// `ClickHouseBackend`'s stance that schema management is an
         /// operator concern.
         pub fn new(url: &str, table: impl Into<String>) -> Self {
-            Self { client: Client::default().with_url(url), table: table.into() }
+            Self {
+                client: Client::default().with_url(url),
+                table: table.into(),
+            }
         }
     }
 
@@ -313,7 +364,8 @@ pub mod clickhouse_sink {
         async fn write_batch(&self, rows: &[RequestMetricRow]) -> Result<(), String> {
             let mut insert = self
                 .client
-                .insert(&self.table)
+                .insert::<ClickHouseRow>(&self.table)
+                .await
                 .map_err(|e| format!("ClickHouse insert init: {e}"))?;
             for row in rows {
                 insert
@@ -327,7 +379,10 @@ pub mod clickhouse_sink {
                     .await
                     .map_err(|e| format!("ClickHouse write: {e}"))?;
             }
-            insert.end().await.map_err(|e| format!("ClickHouse end: {e}"))?;
+            insert
+                .end()
+                .await
+                .map_err(|e| format!("ClickHouse end: {e}"))?;
             Ok(())
         }
     }
@@ -350,10 +405,19 @@ mod tests {
         metrics.record("GET", "/api/db/status", 200, 10, at(2026, 8, 1));
 
         let months = metrics.requests_per_month();
-        assert_eq!(months, vec![
-            MonthlyCount { month: "2026-07".into(), count: 2 },
-            MonthlyCount { month: "2026-08".into(), count: 1 },
-        ]);
+        assert_eq!(
+            months,
+            vec![
+                MonthlyCount {
+                    month: "2026-07".into(),
+                    count: 2
+                },
+                MonthlyCount {
+                    month: "2026-08".into(),
+                    count: 1
+                },
+            ]
+        );
 
         let ops = metrics.operations_summary();
         assert_eq!(ops.len(), 1);
@@ -408,7 +472,10 @@ mod tests {
         // Regression guard: pushing past max_buffered must drop the
         // oldest row rather than growing unboundedly or panicking.
         let sink = Arc::new(InMemorySink::new());
-        let metrics = RequestMetrics { max_buffered: 3, ..RequestMetrics::new(sink) };
+        let metrics = RequestMetrics {
+            max_buffered: 3,
+            ..RequestMetrics::new(sink)
+        };
         for i in 0..10u64 {
             metrics.record("GET", "/x", 200, i, at(2026, 7, 1));
         }
@@ -433,10 +500,16 @@ mod tests {
     async fn live_clickhouse_write_batch_round_trip() {
         let url = std::env::var("OPEN_RUNO_CLICKHOUSE_URL")
             .expect("set OPEN_RUNO_CLICKHOUSE_URL to run this ignored live-DB test");
-        let sink = std::sync::Arc::new(clickhouse_sink::ClickHouseSink::new(&url, "request_metrics"));
+        let sink = std::sync::Arc::new(clickhouse_sink::ClickHouseSink::new(
+            &url,
+            "request_metrics",
+        ));
         let metrics = RequestMetrics::new(sink);
         metrics.record("GET", "/live-test", 200, 42, Utc::now());
-        let flushed = metrics.flush().await.expect("flush to a real ClickHouse instance");
+        let flushed = metrics
+            .flush()
+            .await
+            .expect("flush to a real ClickHouse instance");
         assert_eq!(flushed, 1);
     }
 }

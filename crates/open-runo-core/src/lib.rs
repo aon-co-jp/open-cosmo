@@ -166,7 +166,10 @@ mod tests {
 
     #[test]
     fn environment_roundtrip() {
-        assert_eq!(Environment::from_str("production").unwrap(), Environment::Production);
+        assert_eq!(
+            Environment::from_str("production").unwrap(),
+            Environment::Production
+        );
         assert_eq!(Environment::Production.to_string(), "production");
     }
 
@@ -184,7 +187,9 @@ mod tests {
 
     #[test]
     fn config_defaults_when_env_unset() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         env::remove_var("OPEN_RUNO_ENV");
         env::remove_var("OPEN_RUNO_BIND_ADDR");
         env::remove_var("OPEN_RUNO_LOG_LEVEL");
@@ -203,7 +208,9 @@ mod tests {
 
     #[test]
     fn config_reads_otlp_endpoint_when_set() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         env::set_var("OPEN_RUNO_OTLP_ENDPOINT", "http://localhost:4318");
         let cfg = Config::from_env().unwrap();
         env::remove_var("OPEN_RUNO_OTLP_ENDPOINT");
@@ -212,7 +219,9 @@ mod tests {
 
     #[test]
     fn config_rejects_invalid_rate_limit_value() {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         env::set_var("OPEN_RUNO_RATE_LIMIT_MAX_REQUESTS", "not-a-number");
         let result = Config::from_env();
         env::remove_var("OPEN_RUNO_RATE_LIMIT_MAX_REQUESTS");

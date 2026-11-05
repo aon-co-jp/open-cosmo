@@ -146,9 +146,12 @@ pub fn deps_hash<T: std::hash::Hash>(t: &T) -> u64 {
     h.finish()
 }
 
+/// `Runtime` が保持するコンポーネント関数の型(clippy::type_complexity 回避)。
+type ComponentFn<P> = Box<dyn Fn(&mut Ctx, &P) -> VNode>;
+
 /// ステートフル・コンポーネントのランタイム(Reactのルート相当)。
 pub struct Runtime<P> {
-    component: Box<dyn Fn(&mut Ctx, &P) -> VNode>,
+    component: ComponentFn<P>,
     store: HookStore,
     last: Option<VNode>,
 }
@@ -231,17 +234,26 @@ mod tests {
         };
         let mut rt = Runtime::new(comp);
         rt.rerender(&());
-        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=0</button>");
+        assert_eq!(
+            render_html(rt.tree().unwrap()),
+            "<button data-orv-click=\"0\">count=0</button>"
+        );
 
         // クリックをシミュレート
         rt.dispatch(0);
         assert!(rt.is_dirty());
         rt.rerender(&());
-        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=1</button>");
+        assert_eq!(
+            render_html(rt.tree().unwrap()),
+            "<button data-orv-click=\"0\">count=1</button>"
+        );
 
         rt.dispatch(0);
         rt.rerender(&());
-        assert_eq!(render_html(rt.tree().unwrap()), "<button data-orv-click=\"0\">count=2</button>");
+        assert_eq!(
+            render_html(rt.tree().unwrap()),
+            "<button data-orv-click=\"0\">count=2</button>"
+        );
     }
 
     #[test]
@@ -254,12 +266,24 @@ mod tests {
         let mut rt = Runtime::new(comp);
         rt.rerender(&());
         let first = match rt.tree().unwrap() {
-            VNode::Element(e) => e.attrs.iter().find(|(k, _)| k == "data-id").unwrap().1.clone(),
+            VNode::Element(e) => e
+                .attrs
+                .iter()
+                .find(|(k, _)| k == "data-id")
+                .unwrap()
+                .1
+                .clone(),
             _ => unreachable!(),
         };
         rt.rerender(&());
         let second = match rt.tree().unwrap() {
-            VNode::Element(e) => e.attrs.iter().find(|(k, _)| k == "data-id").unwrap().1.clone(),
+            VNode::Element(e) => e
+                .attrs
+                .iter()
+                .find(|(k, _)| k == "data-id")
+                .unwrap()
+                .1
+                .clone(),
             _ => unreachable!(),
         };
         assert_eq!(first, second, "handler_id must stay stable across renders");
@@ -284,7 +308,10 @@ mod tests {
         let mut rt = Runtime::new(rt_component);
 
         let p1 = rt.rerender(&());
-        assert!(matches!(&p1[0], Patch::Replace { .. }), "first render mounts");
+        assert!(
+            matches!(&p1[0], Patch::Replace { .. }),
+            "first render mounts"
+        );
         assert_eq!(render_html(rt.tree().unwrap()), "<span>count=0</span>");
         assert!(rt.is_dirty(), "effect called the setter");
 
@@ -297,7 +324,10 @@ mod tests {
             }],
             "second render must be a minimal text patch, not a full replace"
         );
-        assert!(!rt.is_dirty(), "mount effect must not re-run (deps unchanged)");
+        assert!(
+            !rt.is_dirty(),
+            "mount effect must not re-run (deps unchanged)"
+        );
     }
 
     #[test]
@@ -331,6 +361,10 @@ mod tests {
         rt.rerender(&1);
         rt.rerender(&2);
         rt.rerender(&2);
-        assert_eq!(count.get(), 2, "effect fires only on dep change (1, then 2)");
+        assert_eq!(
+            count.get(),
+            2,
+            "effect fires only on dep change (1, then 2)"
+        );
     }
 }

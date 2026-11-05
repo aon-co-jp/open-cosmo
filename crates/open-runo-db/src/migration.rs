@@ -71,7 +71,7 @@ pub mod postgres {
 /// To keep every existing single-key operation (`get`/`delete`/upsert
 /// conflict target) *and* the new `AS OF COMMIT` read expressible as a
 /// single first-column equality, aruaru-db's copy of `kv_store` carries an
-/// explicit synthetic `pk` column (`table_name || '' || key`) as its
+/// explicit synthetic `pk` column (`table_name || '' || key`) as its
 /// first column. `table_name`/`key` remain as separate columns so
 /// `list()` (`WHERE table_name=$1`, single predicate, unaffected) keeps
 /// working unchanged.
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS kv_store (pk TEXT, table_name TEXT, key TEXT, value T
 ";
 
 /// Build the synthetic single-column primary key used by aruaru-db's
-/// `kv_store` copy: `table_name || '' || key`. `` (a control
+/// `kv_store` copy: `table_name || '' || key`. `` (a control
 /// character that cannot appear in a table/key string supplied over the
 /// REST API's `:table`/`:key` path segments) keeps the composite
 /// unambiguous.

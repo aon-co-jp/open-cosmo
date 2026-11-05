@@ -10,6 +10,7 @@
 //! Phase 1 は同期 `std::process` ベース。Poem/4層トランスポート統合は
 //! 後続フェーズで `Dispatcher` 実装として追加する(§0.9.3)。
 
+pub mod process_lifecycle;
 pub mod proxy;
 pub mod server;
 pub mod tenant_bridge;
@@ -18,6 +19,28 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+/// Unix専用: `SIGTERM`をFFIで直接送るための最小限の宣言(2026-08-07新設、
+/// `Supervisor::stop_graceful`専用)。新規crate(`libc`等)を追加せず、
+/// 必要な1関数だけを自前で`extern "C"`宣言する——`kill(2)`のシグネチャは
+/// POSIXで安定しており、ここで使う分には十分安全。
+#[cfg(unix)]
+mod unix_signal {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    const SIGTERM: i32 = 15;
+
+    /// 指定PIDへSIGTERMを送る。対象が既に存在しない等で失敗しても
+    /// (`kill`の戻り値が負)、呼び出し元は後続のタイムアウト待機→
+    /// 強制終了フォールバックで結局後始末できるため、ここではエラーを
+    /// 無視する(=`stop()`の既存の`let _ = child.kill()`と同じ流儀)。
+    pub fn send_sigterm(pid: u32) {
+        unsafe {
+            let _ = kill(pid as i32, SIGTERM);
+        }
+    }
+}
 
 /// 対応スタック(§0.9.2 の優先順)。`Custom` で任意拡張可能。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,8 +178,13 @@ enum ProcState {
         /// このプロセスに至るまでの連続即死回数(healthy_after 生存でリセット)。
         prior_failures: u32,
     },
-    Backoff { until: Instant, failures: u32 },
-    GaveUp { failures: u32 },
+    Backoff {
+        until: Instant,
+        failures: u32,
+    },
+    GaveUp {
+        failures: u32,
+    },
 }
 
 /// プロファイル1件を監視するスーパーバイザ。
@@ -213,12 +241,12 @@ impl Supervisor {
                     let code = status.code();
                     self.enter_backoff(failures, now);
                     Health::Crashed(code)
-                }
+                },
                 Err(_) => {
                     let failures = prior_failures.saturating_add(1);
                     self.enter_backoff(failures, now);
                     Health::Crashed(None)
-                }
+                },
             },
             ProcState::Backoff { until, failures } => {
                 if *failures >= self.policy.max_rapid_failures {
@@ -231,7 +259,7 @@ impl Supervisor {
                 } else {
                     Health::BackingOff
                 }
-            }
+            },
             ProcState::GaveUp { .. } => Health::GaveUp,
         }
     }
@@ -242,12 +270,90 @@ impl Supervisor {
         self.state = ProcState::NotStarted;
     }
 
+    /// これまでに数えた連続失敗回数。`Backoff` 中および `GaveUp` 後は
+    /// その時点の回数、それ以外(未起動・稼働中)は 0 を返す。管理 API や
+    /// ログから「何回の連続失敗で再起動を諦めたか」を参照するために公開する。
+    pub fn failure_count(&self) -> u32 {
+        match &self.state {
+            ProcState::Backoff { failures, .. } | ProcState::GaveUp { failures } => *failures,
+            _ => 0,
+        }
+    }
+
+    /// 現在稼働中の子プロセスのOS PID(無ければ`None`)。
+    /// テスト・管理APIから「本当にそのプロセスを操作しているか」を検証する
+    /// 目的で公開する。
+    pub fn pid(&self) -> Option<u32> {
+        match &self.state {
+            ProcState::Running { child, .. } => Some(child.id()),
+            _ => None,
+        }
+    }
+
     /// 稼働中なら kill する。
     pub fn stop(&mut self) {
         if let ProcState::Running { child, .. } = &mut self.state {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+
+    /// 段階的グレースフルシャットダウン(2026-08-07新設): まずSIGTERM相当を
+    /// 送って`timeout`まで自発的な終了を待ち、応答が無ければ強制終了
+    /// (`stop()`と同じ`Child::kill()`、Unixでは`SIGKILL`相当)にフォール
+    /// バックする。戻り値は「SIGTERMのみで終了できたか」
+    /// (`true`=グレースフル終了、`false`=タイムアウトしてSIGKILLした)。
+    ///
+    /// **正直な開示・プラットフォーム差**: Unixでは実際に`SIGTERM`を送信する
+    /// (`std::process::Child`はSIGKILL相当の`kill()`しか提供しないため、
+    /// 新規crateを足さずに`libc`の`kill(2)`をFFIで直接宣言して呼ぶ——
+    /// このモジュール内で完結する数行のFFIであり、`open-runo-appserver`
+    /// が新規依存を増やさない既存方針を維持できる)。Windowsには任意の
+    /// 子プロセスへ「グレースフルに終了してほしい」と伝える標準的な
+    /// ポータブル手段が無い(`GenerateConsoleCtrlEvent`は同一コンソール
+    /// グループに限定される等の制約が強く、汎用的に使えない)ため、
+    /// Windows環境では何も送らずタイムアウトまで待ってから強制終了する
+    /// ——「SIGTERMを送ったのに応答が無い」ケースと外形上は区別が付かない
+    /// が、実際にはそもそも終了要求自体を送れていない、という違いを
+    /// 正直に記録しておく。
+    pub fn stop_graceful(&mut self, timeout: Duration) -> bool {
+        let ProcState::Running { child, .. } = &mut self.state else {
+            // 既に稼働していない場合は「グレースフルに完了済み」として扱う。
+            return true;
+        };
+
+        #[cfg(unix)]
+        {
+            unix_signal::send_sigterm(child.id());
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows等: ポータブルな「終了してほしい」通知手段が無いため、
+            // ここでは何も送らずタイムアウト待機のみ行う(doc comment参照)。
+        }
+
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    self.state = ProcState::NotStarted;
+                    return true;
+                },
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20).min(timeout));
+                },
+                Err(_) => break,
+            }
+        }
+
+        // タイムアウト、または`try_wait`自体がエラー: 強制終了にフォールバック。
+        let _ = child.kill();
+        let _ = child.wait();
+        self.state = ProcState::NotStarted;
+        false
     }
 
     fn spawn(&mut self, prior_failures: u32) -> Health {
@@ -259,11 +365,11 @@ impl Supervisor {
                     prior_failures,
                 };
                 Health::Starting
-            }
+            },
             Err(_) => {
                 self.enter_backoff(prior_failures + 1, Instant::now());
                 Health::Crashed(None)
-            }
+            },
         }
     }
 
@@ -372,7 +478,10 @@ impl SharedDispatcher {
 
     /// 登録を削除する(未登録でも冪等に成功、Apacheの`a2dissite`相当)。
     pub fn remove(&self, host: &str) {
-        self.routes.write().expect("SharedDispatcher lock poisoned").remove(&host.to_ascii_lowercase());
+        self.routes
+            .write()
+            .expect("SharedDispatcher lock poisoned")
+            .remove(&host.to_ascii_lowercase());
     }
 
     /// 登録済みの全ホスト一覧(管理API・監査用)。
@@ -396,7 +505,11 @@ impl SharedDispatcher {
 impl Dispatcher for SharedDispatcher {
     fn resolve(&self, host: &str) -> Option<UpstreamAddr> {
         let h = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
-        self.routes.read().expect("SharedDispatcher lock poisoned").get(&h).cloned()
+        self.routes
+            .read()
+            .expect("SharedDispatcher lock poisoned")
+            .get(&h)
+            .cloned()
     }
 }
 
@@ -424,7 +537,7 @@ mod tests {
     fn profile_roundtrips_through_json() {
         let p = RuntimeProfile::template(Stack::PythonFastapi, "api", "/srv/api", 8000);
         let s = serde_json::to_string(&p).unwrap();
-        let q: RuntimeProfile = serde_json::from_str(&s).unwrap();
+        let q: RuntimeProfile = sonic_rs::from_str(&s).unwrap();
         assert_eq!(q.name, "api");
         assert_eq!(q.stack, Stack::PythonFastapi);
     }
@@ -451,7 +564,7 @@ mod tests {
                 Health::GaveUp => {
                     saw_gave_up = true;
                     break;
-                }
+                },
                 // 即死プロセスの exit 待ちで tick を浪費しないよう毎回少し待つ。
                 _ => std::thread::sleep(Duration::from_millis(2)),
             }
@@ -468,7 +581,10 @@ mod tests {
         // コマンドへ`cfg!(windows)`で分岐する。
         let (command, args): (String, Vec<String>) = if cfg!(windows) {
             // `ping -n 30 127.0.0.1`はWindows標準コマンドで約30秒かかる。
-            ("ping".into(), vec!["-n".into(), "30".into(), "127.0.0.1".into()])
+            (
+                "ping".into(),
+                vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+            )
         } else {
             ("sleep".into(), vec!["30".into()])
         };
@@ -480,6 +596,106 @@ mod tests {
         std::thread::sleep(Duration::from_millis(50));
         assert_eq!(sup.tick(), Health::Up);
         sup.stop();
+    }
+
+    #[test]
+    fn stop_graceful_terminates_a_well_behaved_process_promptly() {
+        // `dummy_http_server`(examples/)は明示的なSIGTERMハンドラを持たない
+        // ため、Unixでは既定の振る舞い(即終了)でSIGTERMを受けて終了する
+        // ——つまりSIGKILLへフォールバックせずグレースフルに終わるはず。
+        let exe = crate::process_lifecycle::dummy_app_exe_path();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        drop(l);
+        let mut profile =
+            RuntimeProfile::template(Stack::Custom("dummy".into()), "dummy", ".", port);
+        profile.command = exe.to_string_lossy().to_string();
+        profile.args.clear();
+        let mut sup = Supervisor::new(profile, RestartPolicy::default());
+        assert_eq!(sup.tick(), Health::Starting);
+        // 実際に接続できるまで待つ(起動完了の確認)。
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline
+            && std::net::TcpStream::connect(("127.0.0.1", port)).is_err()
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(),
+            "dummy server must be up before stop_graceful"
+        );
+
+        let start = Instant::now();
+        let graceful = sup.stop_graceful(Duration::from_secs(5));
+        // `elapsed` を読むのは下の `#[cfg(unix)]` ブロックだけなので、
+        // 非Unixでは未使用になる。
+        #[cfg_attr(not(unix), allow(unused_variables))]
+        let elapsed = start.elapsed();
+        assert!(
+            std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "process must actually be gone"
+        );
+
+        #[cfg(unix)]
+        {
+            assert!(graceful, "a process with no SIGTERM handler must exit on SIGTERM (default disposition), not require SIGKILL");
+            assert!(
+                elapsed < Duration::from_secs(2),
+                "must not wait for the full 5s timeout, took {elapsed:?}"
+            );
+        }
+        // Windowsでは実際にSIGTERM相当を送る手段が無いため、常に
+        // タイムアウト経過後の強制終了(graceful=false)になる
+        // ——doc comment・HANDOFFに記載済みの正直な既知の制約。
+        #[cfg(windows)]
+        {
+            assert!(!graceful, "Windows has no portable SIGTERM equivalent; stop_graceful must fall back to force-kill after the timeout");
+        }
+    }
+
+    #[test]
+    fn stop_graceful_falls_back_to_force_kill_after_timeout_for_stubborn_process() {
+        // Unix専用の"stubborn"ダミー(SIGTERMを無視する)でフォールバック
+        // パスを実証する。Windowsではそもそも終了要求を送る手段が無いため
+        // 上のテストと本質的に同じ経路になり別途の検証価値が薄いので、
+        // このテストはUnixに限定する。
+        #[cfg(unix)]
+        {
+            let exe = crate::process_lifecycle::dummy_stubborn_exe_path();
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = l.local_addr().unwrap().port();
+            drop(l);
+            let mut profile =
+                RuntimeProfile::template(Stack::Custom("stubborn".into()), "stubborn", ".", port);
+            profile.command = exe.to_string_lossy().to_string();
+            profile.args.clear();
+            let mut sup = Supervisor::new(profile, RestartPolicy::default());
+            assert_eq!(sup.tick(), Health::Starting);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline
+                && std::net::TcpStream::connect(("127.0.0.1", port)).is_err()
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                std::net::TcpStream::connect(("127.0.0.1", port)).is_ok(),
+                "stubborn server must be up before stop_graceful"
+            );
+
+            let start = Instant::now();
+            let graceful = sup.stop_graceful(Duration::from_millis(300));
+            let elapsed = start.elapsed();
+
+            assert!(
+                !graceful,
+                "a process that ignores SIGTERM must be force-killed, not counted as graceful"
+            );
+            assert!(elapsed >= Duration::from_millis(280), "must actually wait out (approximately) the timeout before force-killing, took {elapsed:?}");
+            assert!(
+                std::net::TcpStream::connect(("127.0.0.1", port)).is_err(),
+                "process must be gone after the force-kill fallback"
+            );
+        }
     }
 
     #[test]
@@ -495,7 +711,13 @@ mod tests {
     #[test]
     fn shared_dispatcher_resolves_host_with_and_without_port_case_insensitively() {
         let d = SharedDispatcher::new();
-        d.upsert("Shop.Example.JP", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        d.upsert(
+            "Shop.Example.JP",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
         assert_eq!(d.resolve("shop.example.jp").unwrap().port, 4100);
         assert_eq!(d.resolve("SHOP.EXAMPLE.JP:443").unwrap().port, 4100);
         assert!(d.resolve("other.example.jp").is_none());
@@ -504,7 +726,13 @@ mod tests {
     #[test]
     fn shared_dispatcher_remove_is_idempotent() {
         let d = SharedDispatcher::new();
-        d.upsert("shop.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
+        d.upsert(
+            "shop.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
         assert!(d.contains("shop.example.jp"));
         d.remove("shop.example.jp");
         assert!(!d.contains("shop.example.jp"));
@@ -516,11 +744,26 @@ mod tests {
     #[test]
     fn shared_dispatcher_list_reports_all_registered_tenants() {
         let d = SharedDispatcher::new();
-        d.upsert("a.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4100 });
-        d.upsert("b.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 4200 });
+        d.upsert(
+            "a.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4100,
+            },
+        );
+        d.upsert(
+            "b.example.jp",
+            UpstreamAddr {
+                host: "127.0.0.1".into(),
+                port: 4200,
+            },
+        );
         let mut hosts: Vec<String> = d.list().into_iter().map(|(h, _)| h).collect();
         hosts.sort();
-        assert_eq!(hosts, vec!["a.example.jp".to_string(), "b.example.jp".to_string()]);
+        assert_eq!(
+            hosts,
+            vec!["a.example.jp".to_string(), "b.example.jp".to_string()]
+        );
     }
 
     /// これが本質的な検証: 「分身の術」構想が実際に成立するかどうかは、
@@ -536,7 +779,13 @@ mod tests {
         let writer = {
             let dispatcher = Arc::clone(&dispatcher);
             std::thread::spawn(move || {
-                dispatcher.upsert("new-tenant.example.jp", UpstreamAddr { host: "127.0.0.1".into(), port: 5100 });
+                dispatcher.upsert(
+                    "new-tenant.example.jp",
+                    UpstreamAddr {
+                        host: "127.0.0.1".into(),
+                        port: 5100,
+                    },
+                );
             })
         };
         writer.join().unwrap();

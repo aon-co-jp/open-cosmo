@@ -34,19 +34,34 @@ fn status_panel(ctx: &mut Ctx, props: &StatusPanelState) -> VNode {
     let toggle_id = ctx.use_handler(move || set_expanded.update(|v| !v));
 
     let mut root = h("section")
-        .attr("class", if props.healthy { "status ok" } else { "status ng" })
+        .attr(
+            "class",
+            if props.healthy {
+                "status ok"
+            } else {
+                "status ng"
+            },
+        )
         .attr("data-openruno", "status-panel")
         .child(h("h2").child(props.site_name.as_str()).build())
         .child(
             h("p")
-                .child(if props.healthy { "稼働中" } else { "停止中" })
+                .child(if props.healthy {
+                    "稼働中"
+                } else {
+                    "停止中"
+                })
                 .build(),
         )
         .child(
             h("button")
                 .attr("type", "button")
                 .on("click", toggle_id)
-                .child(if expanded { "詳細を隠す" } else { "詳細を表示" })
+                .child(if expanded {
+                    "詳細を隠す"
+                } else {
+                    "詳細を表示"
+                })
                 .build(),
         );
     if expanded {
@@ -119,7 +134,10 @@ mod tests {
         assert!(body.contains("<title>runo.tokyo</title>"));
         assert!(body.contains("id=\"open-runo-root\""));
         assert!(body.contains("data-openruno=\"status-panel\""));
-        assert!(body.contains("data-orv-click=\""), "button must carry the delegated-click marker");
+        assert!(
+            body.contains("data-orv-click=\""),
+            "button must carry the delegated-click marker"
+        );
         assert!(body.contains("window.__OPEN_RUNO_STATE__ = {"));
         assert!(body.contains("\"site_name\":\"runo.tokyo\""));
         assert!(body.contains("audiocafe.tokyo"));

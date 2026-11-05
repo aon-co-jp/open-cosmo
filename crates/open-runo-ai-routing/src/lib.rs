@@ -38,11 +38,11 @@ pub struct Candidate {
 /// Routes a request to the best candidate for the given policy and minimum
 /// required context length. Returns [`AppError::NotFound`] if nothing
 /// qualifies.
-pub fn route<'a>(
-    candidates: &'a [Candidate],
+pub fn route(
+    candidates: &[Candidate],
     policy: RoutingPolicy,
     min_context_length: u32,
-) -> Result<&'a Candidate> {
+) -> Result<&Candidate> {
     let eligible: Vec<&Candidate> = candidates
         .iter()
         .filter(|c| c.context_length >= min_context_length)
@@ -61,7 +61,7 @@ pub fn route<'a>(
         }),
         RoutingPolicy::LatencyOptimized => {
             eligible.into_iter().min_by_key(|c| c.estimated_latency_ms)
-        }
+        },
         RoutingPolicy::LocalFirst | RoutingPolicy::PrivacyFirst => eligible
             .iter()
             .find(|c| c.is_local)
@@ -72,7 +72,8 @@ pub fn route<'a>(
     // `eligible` was checked non-empty above, so every match arm above
     // yields `Some`; we still surface a proper error instead of
     // panicking in case that invariant is ever broken by a future edit.
-    chosen.ok_or_else(|| AppError::Internal("routing candidate selection produced no result".into()))
+    chosen
+        .ok_or_else(|| AppError::Internal("routing candidate selection produced no result".into()))
 }
 
 #[cfg(test)]

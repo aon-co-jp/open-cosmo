@@ -199,7 +199,11 @@ pub fn pattern_of(path: &str) -> String {
         })
         .collect();
     let joined = collapsed.join("/");
-    if joined.is_empty() { "/".to_string() } else { joined }
+    if joined.is_empty() {
+        "/".to_string()
+    } else {
+        joined
+    }
 }
 
 fn is_variable_segment(seg: &str) -> bool {
@@ -218,7 +222,10 @@ fn is_variable_segment(seg: &str) -> bool {
 
 impl CachePredictor {
     pub fn new(config: PredictorConfig) -> Self {
-        Self { config, tables: Mutex::new(Tables::default()) }
+        Self {
+            config,
+            tables: Mutex::new(Tables::default()),
+        }
     }
 
     pub fn from_env() -> Self {
@@ -230,7 +237,9 @@ impl CachePredictor {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Tables> {
-        self.tables.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.tables
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Learn from a request and decide: should this page be cached now?
@@ -246,7 +255,10 @@ impl CachePredictor {
         Self::bound(&mut t.keys, self.config.max_tracked);
         Self::bound(&mut t.patterns, self.config.max_tracked);
 
-        let entry = t.keys.entry(key.to_string()).or_insert_with(|| Stats::new(now));
+        let entry = t
+            .keys
+            .entry(key.to_string())
+            .or_insert_with(|| Stats::new(now));
         entry.observe_request(now);
         let key_interval = entry.arrival_interval_secs;
         let key_requests = entry.requests;
@@ -281,7 +293,7 @@ impl CachePredictor {
             Some(secs) if secs > 0.0 => {
                 let ttl = self.suggest_ttl_locked(&t, key, path).num_seconds() as f64;
                 ttl / secs >= effective_threshold
-            }
+            },
             // Burst faster than clock resolution → clearly hot.
             Some(_) => true,
             // Nothing learned yet for key or pattern → stay conservative.
@@ -309,7 +321,11 @@ impl CachePredictor {
             .keys
             .get(key)
             .and_then(|s| s.update_interval_secs)
-            .or_else(|| t.patterns.get(&pattern_of(path)).and_then(|s| s.update_interval_secs));
+            .or_else(|| {
+                t.patterns
+                    .get(&pattern_of(path))
+                    .and_then(|s| s.update_interval_secs)
+            });
 
         let ttl = match update_interval {
             // Volatility known: cache for half the observed update interval.
@@ -329,7 +345,7 @@ impl CachePredictor {
                     .unwrap_or(0.0);
                 let scaled = self.config.default_ttl.num_seconds() as f64 * (1.0 + cost);
                 Duration::seconds(scaled as i64)
-            }
+            },
         };
         ttl.clamp(self.config.min_ttl, self.config.max_ttl)
     }
@@ -459,16 +475,16 @@ mod tests {
         for i in 0..5 {
             let key = format!("/page/{i}");
             p.observe_and_decide(&key, &key, now + Duration::seconds(i));
-            p.observe_and_decide(&key, &key, now + Duration::seconds(i) + Duration::seconds(1));
+            p.observe_and_decide(
+                &key,
+                &key,
+                now + Duration::seconds(i) + Duration::seconds(1),
+            );
         }
 
         // A brand-new page under the same pattern: admitted on its FIRST
         // request (this is the prediction the min-hits filter cannot make).
-        assert!(p.observe_and_decide(
-            "/page/999999",
-            "/page/999999",
-            now + Duration::seconds(30)
-        ));
+        assert!(p.observe_and_decide("/page/999999", "/page/999999", now + Duration::seconds(30)));
     }
 
     #[test]
@@ -502,7 +518,10 @@ mod tests {
 
         // Pattern-level volatility flows to sibling pages.
         let ttl_sibling = p.suggest_ttl("/page/42", "/page/42").num_seconds();
-        assert!((45..=55).contains(&ttl_sibling), "sibling ttl={ttl_sibling}");
+        assert!(
+            (45..=55).contains(&ttl_sibling),
+            "sibling ttl={ttl_sibling}"
+        );
     }
 
     #[test]
@@ -536,7 +555,7 @@ mod tests {
         let json = serde_json::to_string(&snap).unwrap();
 
         let restored = predictor();
-        restored.restore(serde_json::from_str(&json).unwrap());
+        restored.restore(sonic_rs::from_str(&json).unwrap());
         assert_eq!(restored.snapshot().outcomes.cache_hits, 1);
         // Learned arrival rate survives → still admitted immediately.
         assert!(restored.observe_and_decide("/hot", "/hot", now + Duration::seconds(2)));

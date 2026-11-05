@@ -93,7 +93,7 @@ impl PersistedQueryStore {
     pub async fn get(&self, hash: &str) -> Result<Option<PersistedQuery>> {
         match self.db.get(TABLE, hash).await? {
             None => Ok(None),
-            Some(raw) => serde_json::from_str(&raw)
+            Some(raw) => sonic_rs::from_str(&raw)
                 .map(Some)
                 .map_err(|e| AppError::Internal(format!("corrupt persisted query record: {e}"))),
         }
@@ -110,32 +110,39 @@ impl PersistedQueryStore {
                 .map(str::to_string)
                 .ok_or_else(|| AppError::Validation("query document required".into())),
 
-            EnforcementMode::Allow => match (hash, document) {
-                (Some(h), Some(d)) => {
-                    // APQ: verify the pair, register on first sight.
-                    if hash_document(d.trim()) != h {
-                        return Err(AppError::Validation("provided sha256 does not match query".into()));
-                    }
-                    Ok(self.register(d).await?.document)
+            EnforcementMode::Allow => {
+                match (hash, document) {
+                    (Some(h), Some(d)) => {
+                        // APQ: verify the pair, register on first sight.
+                        if hash_document(d.trim()) != h {
+                            return Err(AppError::Validation(
+                                "provided sha256 does not match query".into(),
+                            ));
+                        }
+                        Ok(self.register(d).await?.document)
+                    },
+                    (Some(h), None) => self.get(h).await?.map(|p| p.document).ok_or_else(|| {
+                        AppError::NotFound(format!("persisted query not found: {h}"))
+                    }),
+                    (None, Some(d)) => Ok(d.to_string()),
+                    (None, None) => Err(AppError::Validation(
+                        "query or persisted-query hash required".into(),
+                    )),
                 }
-                (Some(h), None) => self
-                    .get(h)
-                    .await?
-                    .map(|p| p.document)
-                    .ok_or_else(|| AppError::NotFound(format!("persisted query not found: {h}"))),
-                (None, Some(d)) => Ok(d.to_string()),
-                (None, None) => Err(AppError::Validation("query or persisted-query hash required".into())),
             },
 
             EnforcementMode::Enforce => {
                 let h = hash.ok_or_else(|| {
-                    AppError::Validation("trusted-documents mode: only registered persisted queries may execute".into())
+                    AppError::Validation(
+                        "trusted-documents mode: only registered persisted queries may execute"
+                            .into(),
+                    )
                 })?;
                 self.get(h)
                     .await?
                     .map(|p| p.document)
                     .ok_or_else(|| AppError::NotFound(format!("persisted query not found: {h}")))
-            }
+            },
         }
     }
 }

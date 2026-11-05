@@ -77,7 +77,7 @@ impl Cache for InMemoryTtlCache {
             Some((_, expires)) if *expires <= Utc::now() => {
                 entries.remove(key);
                 Ok(None)
-            }
+            },
             Some((value, _)) => Ok(Some(value.clone())),
             None => Ok(None),
         }
@@ -98,7 +98,7 @@ impl Cache for InMemoryTtlCache {
                 match victim {
                     Some(k) => {
                         entries.remove(&k);
-                    }
+                    },
                     None => break,
                 }
             }
@@ -136,7 +136,9 @@ pub mod redis_backend {
 
     impl std::fmt::Debug for RedisCache {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.debug_struct("RedisCache").field("prefix", &self.prefix).finish()
+            f.debug_struct("RedisCache")
+                .field("prefix", &self.prefix)
+                .finish()
         }
     }
 
@@ -147,7 +149,10 @@ pub mod redis_backend {
             let manager = redis::aio::ConnectionManager::new(client)
                 .await
                 .map_err(|e| AppError::Internal(format!("redis connect: {e}")))?;
-            Ok(Self { manager, prefix: prefix.into() })
+            Ok(Self {
+                manager,
+                prefix: prefix.into(),
+            })
         }
 
         fn key(&self, key: &str) -> String {
@@ -228,7 +233,10 @@ mod tests {
     #[tokio::test]
     async fn expired_entries_are_gone() {
         let cache = InMemoryTtlCache::new();
-        cache.set("k", "v", Duration::milliseconds(-1)).await.unwrap();
+        cache
+            .set("k", "v", Duration::milliseconds(-1))
+            .await
+            .unwrap();
         assert_eq!(cache.get("k").await.unwrap(), None);
     }
 
@@ -257,7 +265,10 @@ mod tests {
     #[tokio::test]
     async fn write_sweeps_expired_entries() {
         let cache = InMemoryTtlCache::new();
-        cache.set("old", "x", Duration::milliseconds(-1)).await.unwrap();
+        cache
+            .set("old", "x", Duration::milliseconds(-1))
+            .await
+            .unwrap();
         cache.set("new", "y", Duration::seconds(60)).await.unwrap();
         assert_eq!(cache.lock().len(), 1); // "old" swept on write
     }
@@ -265,8 +276,14 @@ mod tests {
     #[tokio::test]
     async fn capacity_bound_evicts_soonest_expiring() {
         let cache = InMemoryTtlCache::with_capacity(2);
-        cache.set("short", "1", Duration::seconds(10)).await.unwrap();
-        cache.set("long", "2", Duration::seconds(1000)).await.unwrap();
+        cache
+            .set("short", "1", Duration::seconds(10))
+            .await
+            .unwrap();
+        cache
+            .set("long", "2", Duration::seconds(1000))
+            .await
+            .unwrap();
         // Third insert: "short" (closest to expiry) is evicted.
         cache.set("new", "3", Duration::seconds(500)).await.unwrap();
 

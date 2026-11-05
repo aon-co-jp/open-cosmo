@@ -32,6 +32,14 @@
 //! `hyper_compat::serve` itself. That proves the client logic is correct;
 //! it does not prove interoperability with a real CA's exact quirks.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used)]
+
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -76,7 +84,9 @@ impl ChallengeStore {
 /// validator actually connects to. Returns the published key authorization
 /// as `text/plain` (per RFC 8555 §8.3), or 404 if nothing is published
 /// under that token (unknown/expired/already-cleaned-up challenge).
-pub fn challenge_response_handler(store: std::sync::Arc<ChallengeStore>) -> crate::hyper_compat::Handler {
+pub fn challenge_response_handler(
+    store: std::sync::Arc<ChallengeStore>,
+) -> crate::hyper_compat::Handler {
     use crate::hyper_compat::{empty_status, fixed_body};
     use hyper::StatusCode;
     std::sync::Arc::new(move |_req, params: crate::hyper_compat::Params| {
@@ -114,7 +124,8 @@ mod client {
     /// crate dependency, mirroring `hyper_compat`'s existing hand-rolled
     /// standard-alphabet encoder for the WebSocket handshake.
     fn base64url_encode(bytes: &[u8]) -> String {
-        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
         for chunk in bytes.chunks(3) {
             let b0 = chunk[0];
@@ -145,9 +156,14 @@ mod client {
         pub fn generate() -> Result<Self> {
             let rng = SystemRandom::new();
             let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng)
-                .map_err(|e| AppError::Internal(format!("ACME account key generation failed: {e}")))?;
-            let key_pair = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng)
-                .map_err(|e| AppError::Internal(format!("ACME account key parse failed: {e}")))?;
+                .map_err(|e| {
+                    AppError::Internal(format!("ACME account key generation failed: {e}"))
+                })?;
+            let key_pair =
+                EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng)
+                    .map_err(|e| {
+                        AppError::Internal(format!("ACME account key parse failed: {e}"))
+                    })?;
             Ok(Self { key_pair, rng })
         }
 
@@ -166,7 +182,11 @@ mod client {
         /// coordinates.
         fn jwk(&self) -> serde_json::Value {
             let public = self.key_pair.public_key().as_ref();
-            debug_assert_eq!(public.len(), 65, "uncompressed P-256 point is 1+32+32 bytes");
+            debug_assert_eq!(
+                public.len(),
+                65,
+                "uncompressed P-256 point is 1+32+32 bytes"
+            );
             let x = &public[1..33];
             let y = &public[33..65];
             serde_json::json!({
@@ -276,7 +296,9 @@ mod client {
                 .get("replay-nonce")
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string)
-                .ok_or_else(|| AppError::Internal("ACME newNonce response missing Replay-Nonce".to_string()))
+                .ok_or_else(|| {
+                    AppError::Internal("ACME newNonce response missing Replay-Nonce".to_string())
+                })
         }
 
         /// POST a JWS-wrapped `payload` (or an empty "POST-as-GET" body if
@@ -284,7 +306,11 @@ mod client {
         /// already registered, `jwk` otherwise. Returns the response's
         /// headers and parsed JSON body; also captures the next
         /// `Replay-Nonce` and (if present) a fresh `kid` from `Location`.
-        async fn post_jws(&mut self, url: &str, payload: Option<serde_json::Value>) -> Result<(reqwest::header::HeaderMap, serde_json::Value)> {
+        async fn post_jws(
+            &mut self,
+            url: &str,
+            payload: Option<serde_json::Value>,
+        ) -> Result<(reqwest::header::HeaderMap, serde_json::Value)> {
             let nonce = match self.nonce.take() {
                 Some(n) => n,
                 None => self.fetch_nonce().await?,
@@ -323,7 +349,11 @@ mod client {
                 .await
                 .map_err(|e| AppError::Internal(format!("ACME request to {url} failed: {e}")))?;
 
-            if let Some(next_nonce) = resp.headers().get("replay-nonce").and_then(|v| v.to_str().ok()) {
+            if let Some(next_nonce) = resp
+                .headers()
+                .get("replay-nonce")
+                .and_then(|v| v.to_str().ok())
+            {
                 self.nonce = Some(next_nonce.to_string());
             }
 
@@ -336,8 +366,9 @@ mod client {
             let parsed: serde_json::Value = if bytes.is_empty() {
                 serde_json::Value::Null
             } else {
-                serde_json::from_slice(&bytes)
-                    .map_err(|e| AppError::Internal(format!("ACME response JSON parse failed: {e}")))?
+                sonic_rs::from_slice(&bytes).map_err(|e| {
+                    AppError::Internal(format!("ACME response JSON parse failed: {e}"))
+                })?
             };
 
             if !status.is_success() {
@@ -351,9 +382,16 @@ mod client {
 
         /// Register (or, per RFC 8555 §7.3.1, look up the existing
         /// registration for) the client's account key.
-        pub async fn new_account(&mut self, contact_emails: &[String], terms_agreed: bool) -> Result<()> {
+        pub async fn new_account(
+            &mut self,
+            contact_emails: &[String],
+            terms_agreed: bool,
+        ) -> Result<()> {
             let url = self.directory.new_account.clone();
-            let contact: Vec<String> = contact_emails.iter().map(|e| format!("mailto:{e}")).collect();
+            let contact: Vec<String> = contact_emails
+                .iter()
+                .map(|e| format!("mailto:{e}"))
+                .collect();
             let payload = serde_json::json!({
                 "termsOfServiceAgreed": terms_agreed,
                 "contact": contact,
@@ -362,7 +400,9 @@ mod client {
             let kid = headers
                 .get("location")
                 .and_then(|v| v.to_str().ok())
-                .ok_or_else(|| AppError::Internal("ACME newAccount response missing Location".to_string()))?
+                .ok_or_else(|| {
+                    AppError::Internal("ACME newAccount response missing Location".to_string())
+                })?
                 .to_string();
             self.kid = Some(kid);
             Ok(())
@@ -377,13 +417,15 @@ mod client {
                 .collect();
             let payload = serde_json::json!({ "identifiers": identifiers });
             let (_headers, body) = self.post_jws(&url, Some(payload)).await?;
-            serde_json::from_value(body).map_err(|e| AppError::Internal(format!("ACME order parse failed: {e}")))
+            serde_json::from_value(body)
+                .map_err(|e| AppError::Internal(format!("ACME order parse failed: {e}")))
         }
 
         /// POST-as-GET an authorization URL (RFC 8555 §7.5).
         pub async fn get_authorization(&mut self, url: &str) -> Result<AcmeAuthorization> {
             let (_headers, body) = self.post_jws(url, None).await?;
-            serde_json::from_value(body).map_err(|e| AppError::Internal(format!("ACME authorization parse failed: {e}")))
+            serde_json::from_value(body)
+                .map_err(|e| AppError::Internal(format!("ACME authorization parse failed: {e}")))
         }
 
         /// The key authorization this account would need to publish for
@@ -397,7 +439,8 @@ mod client {
         /// published [`Self::key_authorization_for`]'s result (e.g. via
         /// [`ChallengeStore::publish`]) before calling this.
         pub async fn respond_to_challenge(&mut self, challenge_url: &str) -> Result<()> {
-            self.post_jws(challenge_url, Some(serde_json::json!({}))).await?;
+            self.post_jws(challenge_url, Some(serde_json::json!({})))
+                .await?;
             Ok(())
         }
 
@@ -408,7 +451,11 @@ mod client {
         /// header instead of a fixed delay; this fixed-delay version is
         /// sufficient for the mock-CA test in this module and for
         /// low-volume interactive use.
-        pub async fn poll_authorization_until_valid(&mut self, authorization_url: &str, max_attempts: u32) -> Result<()> {
+        pub async fn poll_authorization_until_valid(
+            &mut self,
+            authorization_url: &str,
+            max_attempts: u32,
+        ) -> Result<()> {
             for _ in 0..max_attempts {
                 let auth = self.get_authorization(authorization_url).await?;
                 match auth.status.as_str() {
@@ -418,7 +465,7 @@ mod client {
                         return Err(AppError::Internal(format!(
                             "ACME authorization {authorization_url} ended in status {other}"
                         )))
-                    }
+                    },
                 }
             }
             Err(AppError::Internal(format!(
@@ -431,9 +478,14 @@ mod client {
         /// finalized order (poll `certificate` via [`Self::download_certificate`]
         /// once `status` is `"valid"`) and the PEM-encoded private key the
         /// CSR was built with.
-        pub async fn finalize_order(&mut self, order: &AcmeOrder, domain: &str) -> Result<(AcmeOrder, String)> {
-            let key_pair = rcgen::KeyPair::generate()
-                .map_err(|e| AppError::Internal(format!("certificate key generation failed: {e}")))?;
+        pub async fn finalize_order(
+            &mut self,
+            order: &AcmeOrder,
+            domain: &str,
+        ) -> Result<(AcmeOrder, String)> {
+            let key_pair = rcgen::KeyPair::generate().map_err(|e| {
+                AppError::Internal(format!("certificate key generation failed: {e}"))
+            })?;
             let params = rcgen::CertificateParams::new(vec![domain.to_string()])
                 .map_err(|e| AppError::Internal(format!("certificate params failed: {e}")))?;
             let csr = params
@@ -443,8 +495,9 @@ mod client {
 
             let payload = serde_json::json!({ "csr": base64url_encode(csr.der()) });
             let (_headers, body) = self.post_jws(&order.finalize, Some(payload)).await?;
-            let finalized: AcmeOrder =
-                serde_json::from_value(body).map_err(|e| AppError::Internal(format!("ACME finalize response parse failed: {e}")))?;
+            let finalized: AcmeOrder = serde_json::from_value(body).map_err(|e| {
+                AppError::Internal(format!("ACME finalize response parse failed: {e}"))
+            })?;
             Ok((finalized, key_pem))
         }
 
@@ -455,9 +508,12 @@ mod client {
                 Some(n) => n,
                 None => self.fetch_nonce().await?,
             };
-            let mut protected = serde_json::json!({ "alg": "ES256", "nonce": nonce, "url": certificate_url });
+            let mut protected =
+                serde_json::json!({ "alg": "ES256", "nonce": nonce, "url": certificate_url });
             protected["kid"] = serde_json::Value::String(
-                self.kid.clone().ok_or_else(|| AppError::Internal("no ACME account kid".to_string()))?,
+                self.kid
+                    .clone()
+                    .ok_or_else(|| AppError::Internal("no ACME account kid".to_string()))?,
             );
             let protected_b64 = base64url_encode(&serde_json::to_vec(&protected).unwrap());
             let payload_b64 = String::new();
@@ -476,8 +532,14 @@ mod client {
                 .json(&body)
                 .send()
                 .await
-                .map_err(|e| AppError::Internal(format!("ACME certificate download failed: {e}")))?;
-            if let Some(next_nonce) = resp.headers().get("replay-nonce").and_then(|v| v.to_str().ok()) {
+                .map_err(|e| {
+                    AppError::Internal(format!("ACME certificate download failed: {e}"))
+                })?;
+            if let Some(next_nonce) = resp
+                .headers()
+                .get("replay-nonce")
+                .and_then(|v| v.to_str().ok())
+            {
                 self.nonce = Some(next_nonce.to_string());
             }
             resp.text()
@@ -496,7 +558,9 @@ mod client {
         challenges: &Arc<ChallengeStore>,
     ) -> Result<(String, String)> {
         let mut client = AcmeClient::discover(directory_url).await?;
-        client.new_account(&[contact_email.to_string()], true).await?;
+        client
+            .new_account(&[contact_email.to_string()], true)
+            .await?;
         let order = client.new_order(&[domain.to_string()]).await?;
 
         for auth_url in &order.authorizations {
@@ -515,9 +579,9 @@ mod client {
         }
 
         let (finalized, key_pem) = client.finalize_order(&order, domain).await?;
-        let cert_url = finalized
-            .certificate
-            .ok_or_else(|| AppError::Internal("ACME order finalized without a certificate URL".to_string()))?;
+        let cert_url = finalized.certificate.ok_or_else(|| {
+            AppError::Internal("ACME order finalized without a certificate URL".to_string())
+        })?;
         let cert_pem = client.download_certificate(&cert_url).await?;
         Ok((cert_pem, key_pem))
     }
@@ -570,25 +634,31 @@ mod client {
         /// 32 digest bytes -- SHA-256 digests never need long-form length
         /// encoding since 32 < 128).
         pub fn generate_validation_cert(domain: &str, digest: [u8; 32]) -> Result<CertifiedKey> {
-            let key_pair = rcgen::KeyPair::generate()
-                .map_err(|e| AppError::Internal(format!("TLS-ALPN-01 cert key generation failed: {e}")))?;
+            let key_pair = rcgen::KeyPair::generate().map_err(|e| {
+                AppError::Internal(format!("TLS-ALPN-01 cert key generation failed: {e}"))
+            })?;
             let mut params = rcgen::CertificateParams::new(vec![domain.to_string()])
                 .map_err(|e| AppError::Internal(format!("TLS-ALPN-01 cert params failed: {e}")))?;
 
             let mut octet_string = vec![0x04, digest.len() as u8];
             octet_string.extend_from_slice(&digest);
-            let mut ext = rcgen::CustomExtension::from_oid_content(ACME_IDENTIFIER_OID, octet_string);
+            let mut ext =
+                rcgen::CustomExtension::from_oid_content(ACME_IDENTIFIER_OID, octet_string);
             ext.set_criticality(true);
             params.custom_extensions.push(ext);
 
-            let cert = params
-                .self_signed(&key_pair)
-                .map_err(|e| AppError::Internal(format!("TLS-ALPN-01 cert self-sign failed: {e}")))?;
+            let cert = params.self_signed(&key_pair).map_err(|e| {
+                AppError::Internal(format!("TLS-ALPN-01 cert self-sign failed: {e}"))
+            })?;
 
             let key_der = rustls::pki_types::PrivateKeyDer::try_from(key_pair.serialize_der())
-                .map_err(|e| AppError::Internal(format!("TLS-ALPN-01 key DER conversion failed: {e}")))?;
-            let signing_key = rustls::crypto::ring::sign::any_supported_type(&key_der)
-                .map_err(|e| AppError::Internal(format!("TLS-ALPN-01 signing key build failed: {e}")))?;
+                .map_err(|e| {
+                    AppError::Internal(format!("TLS-ALPN-01 key DER conversion failed: {e}"))
+                })?;
+            let signing_key =
+                rustls::crypto::ring::sign::any_supported_type(&key_der).map_err(|e| {
+                    AppError::Internal(format!("TLS-ALPN-01 signing key build failed: {e}"))
+                })?;
 
             Ok(CertifiedKey {
                 cert: vec![cert.der().clone()],
@@ -644,7 +714,10 @@ mod client {
                     .unwrap_or(false);
                 if wants_acme_tls_alpn1 {
                     if let Some(name) = client_hello.server_name() {
-                        let guard = self.challenges.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let guard = self
+                            .challenges
+                            .read()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         if let Some(cert) = guard.get(name) {
                             return Some(Arc::clone(cert));
                         }
@@ -659,7 +732,15 @@ mod client {
         /// a validation) and `http/1.1` (so ordinary HTTPS traffic keeps
         /// negotiating normally the rest of the time).
         pub fn server_config(resolver: Arc<TlsAlpnResolver>) -> ServerConfig {
-            let mut config = ServerConfig::builder().with_no_client_auth().with_cert_resolver(resolver);
+            // ring を明示(aws-lc-rs と同時に有効でも既定プロバイダの曖昧さで落ちないように)。
+            #[allow(clippy::expect_used)]
+            let mut config = ServerConfig::builder_with_provider(Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .expect("ring supports the default TLS protocol versions")
+            .with_no_client_auth()
+            .with_cert_resolver(resolver);
             config.alpn_protocols = vec![ACME_TLS_ALPN_1.as_bytes().to_vec(), b"http/1.1".to_vec()];
             config
         }
@@ -677,7 +758,9 @@ mod client {
             resolver: &Arc<TlsAlpnResolver>,
         ) -> Result<(String, String)> {
             let mut client = AcmeClient::discover(directory_url).await?;
-            client.new_account(&[contact_email.to_string()], true).await?;
+            client
+                .new_account(&[contact_email.to_string()], true)
+                .await?;
             let order = client.new_order(&[domain.to_string()]).await?;
 
             for auth_url in &order.authorizations {
@@ -686,7 +769,9 @@ mod client {
                     .challenges
                     .iter()
                     .find(|c| c.challenge_type == "tls-alpn-01")
-                    .ok_or_else(|| AppError::Internal("no tls-alpn-01 challenge offered".to_string()))?;
+                    .ok_or_else(|| {
+                        AppError::Internal("no tls-alpn-01 challenge offered".to_string())
+                    })?;
 
                 let digest = key_authorization_digest(&challenge.token, &client.account_key);
                 let cert = generate_validation_cert(domain, digest)?;
@@ -697,9 +782,9 @@ mod client {
             }
 
             let (finalized, key_pem) = client.finalize_order(&order, domain).await?;
-            let cert_url = finalized
-                .certificate
-                .ok_or_else(|| AppError::Internal("ACME order finalized without a certificate URL".to_string()))?;
+            let cert_url = finalized.certificate.ok_or_else(|| {
+                AppError::Internal("ACME order finalized without a certificate URL".to_string())
+            })?;
             let cert_pem = client.download_certificate(&cert_url).await?;
             Ok((cert_pem, key_pem))
         }
@@ -753,7 +838,8 @@ mod client {
                 let resolver = TlsAlpnResolver::new(Arc::new(fallback));
 
                 let challenge_digest = [0xBB; 32];
-                let challenge_cert = generate_validation_cert("challenge.local", challenge_digest).unwrap();
+                let challenge_cert =
+                    generate_validation_cert("challenge.local", challenge_digest).unwrap();
                 resolver.publish("challenge.local".to_string(), Arc::new(challenge_cert));
 
                 let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -795,14 +881,21 @@ mod client {
                     let mut tls = connector.connect(server_name, tcp).await.unwrap();
                     let mut buf = [0u8; 1];
                     let _ = tls.read_exact(&mut buf).await;
-                    tls.get_ref().1.peer_certificates().expect("server must present a certificate").to_vec()
+                    tls.get_ref()
+                        .1
+                        .peer_certificates()
+                        .expect("server must present a certificate")
+                        .to_vec()
                 };
                 let (_, peer_certs) = tokio::join!(accept_one(acceptor, &listener), connect);
 
                 let mut needle = vec![0x04, 0x20];
                 needle.extend_from_slice(&challenge_digest);
                 assert!(
-                    peer_certs[0].as_ref().windows(needle.len()).any(|w| w == needle.as_slice()),
+                    peer_certs[0]
+                        .as_ref()
+                        .windows(needle.len())
+                        .any(|w| w == needle.as_slice()),
                     "acme-tls/1 connection for a published domain must get the validation cert"
                 );
 
@@ -817,12 +910,19 @@ mod client {
                     let mut tls = connector2.connect(server_name, tcp).await.unwrap();
                     let mut buf = [0u8; 1];
                     let _ = tls.read_exact(&mut buf).await;
-                    tls.get_ref().1.peer_certificates().expect("server must present a certificate").to_vec()
+                    tls.get_ref()
+                        .1
+                        .peer_certificates()
+                        .expect("server must present a certificate")
+                        .to_vec()
                 };
                 let (_, peer_certs2) = tokio::join!(accept_one(acceptor2, &listener), connect2);
 
                 assert!(
-                    !peer_certs2[0].as_ref().windows(needle.len()).any(|w| w == needle.as_slice()),
+                    !peer_certs2[0]
+                        .as_ref()
+                        .windows(needle.len())
+                        .any(|w| w == needle.as_slice()),
                     "non-acme-tls/1 connection must NOT get the validation cert"
                 );
             }
@@ -834,7 +934,9 @@ mod client {
             /// own out-of-band trust decision (they're validating a
             /// challenge, not establishing a trusted HTTPS session).
             mod danger {
-                use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+                use rustls::client::danger::{
+                    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+                };
                 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
                 use rustls::{ClientConfig, DigitallySignedStruct, SignatureScheme};
                 use std::sync::Arc;
@@ -886,10 +988,14 @@ mod client {
 
                 impl NoServerAuth {
                     pub fn config() -> ClientConfig {
-                        ClientConfig::builder()
-                            .dangerous()
-                            .with_custom_certificate_verifier(Arc::new(NoVerify))
-                            .with_no_client_auth()
+                        ClientConfig::builder_with_provider(Arc::new(
+                            rustls::crypto::ring::default_provider(),
+                        ))
+                        .with_safe_default_protocol_versions()
+                        .unwrap()
+                        .dangerous()
+                        .with_custom_certificate_verifier(Arc::new(NoVerify))
+                        .with_no_client_auth()
                     }
                 }
             }
@@ -935,7 +1041,11 @@ mod client {
         pub trait DnsProvider: Send + Sync {
             /// Create a `TXT` record at `name` (e.g.
             /// `_acme-challenge.example.com`) with content `value`.
-            fn create_txt_record<'a>(&'a self, name: &'a str, value: &'a str) -> BoxFuture<Result<()>>;
+            fn create_txt_record<'a>(
+                &'a self,
+                name: &'a str,
+                value: &'a str,
+            ) -> BoxFuture<Result<()>>;
             /// Remove the `TXT` record previously created at `name`.
             fn delete_txt_record<'a>(&'a self, name: &'a str) -> BoxFuture<Result<()>>;
         }
@@ -956,30 +1066,45 @@ mod client {
             /// in `create_txt_record` can hold its own owned handle
             /// instead of borrowing `&self` for the `'static` bound
             /// `BoxFuture` requires.
-            created_records: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+            created_records:
+                std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
         }
 
         impl CloudflareDnsProvider {
             pub fn new(zone_id: impl Into<String>, api_token: impl Into<String>) -> Self {
-                Self::with_base_url(zone_id, api_token, "https://api.cloudflare.com/client/v4".to_string())
+                Self::with_base_url(
+                    zone_id,
+                    api_token,
+                    "https://api.cloudflare.com/client/v4".to_string(),
+                )
             }
 
             /// Test-only entry point: same as [`Self::new`] but pointed at
             /// a caller-supplied base URL (a local mock server) instead of
             /// the real Cloudflare API.
-            pub fn with_base_url(zone_id: impl Into<String>, api_token: impl Into<String>, base_url: String) -> Self {
+            pub fn with_base_url(
+                zone_id: impl Into<String>,
+                api_token: impl Into<String>,
+                base_url: String,
+            ) -> Self {
                 Self {
                     http: reqwest::Client::new(),
                     base_url,
                     zone_id: zone_id.into(),
                     api_token: api_token.into(),
-                    created_records: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                    created_records: std::sync::Arc::new(std::sync::Mutex::new(
+                        std::collections::HashMap::new(),
+                    )),
                 }
             }
         }
 
         impl DnsProvider for CloudflareDnsProvider {
-            fn create_txt_record<'a>(&'a self, name: &'a str, value: &'a str) -> BoxFuture<Result<()>> {
+            fn create_txt_record<'a>(
+                &'a self,
+                name: &'a str,
+                value: &'a str,
+            ) -> BoxFuture<Result<()>> {
                 let http = self.http.clone();
                 let url = format!("{}/zones/{}/dns_records", self.base_url, self.zone_id);
                 let token = self.api_token.clone();
@@ -994,18 +1119,29 @@ mod client {
                         .send()
                         .await
                         .map_err(|e| AppError::Internal(format!("Cloudflare TXT record create failed: {e}")))?;
-                    let body: serde_json::Value = resp
-                        .json()
-                        .await
-                        .map_err(|e| AppError::Internal(format!("Cloudflare TXT record create response parse failed: {e}")))?;
+                    let body: serde_json::Value = resp.json().await.map_err(|e| {
+                        AppError::Internal(format!(
+                            "Cloudflare TXT record create response parse failed: {e}"
+                        ))
+                    })?;
                     if body["success"].as_bool() != Some(true) {
-                        return Err(AppError::Internal(format!("Cloudflare TXT record create was not successful: {body}")));
+                        return Err(AppError::Internal(format!(
+                            "Cloudflare TXT record create was not successful: {body}"
+                        )));
                     }
                     let id = body["result"]["id"]
                         .as_str()
-                        .ok_or_else(|| AppError::Internal("Cloudflare TXT record create response missing result.id".to_string()))?
+                        .ok_or_else(|| {
+                            AppError::Internal(
+                                "Cloudflare TXT record create response missing result.id"
+                                    .to_string(),
+                            )
+                        })?
                         .to_string();
-                    created_records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(name, id);
+                    created_records
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(name, id);
                     Ok(())
                 })
             }
@@ -1033,7 +1169,9 @@ mod client {
                         .bearer_auth(&token)
                         .send()
                         .await
-                        .map_err(|e| AppError::Internal(format!("Cloudflare TXT record delete failed: {e}")))?;
+                        .map_err(|e| {
+                            AppError::Internal(format!("Cloudflare TXT record delete failed: {e}"))
+                        })?;
                     Ok(())
                 })
             }
@@ -1055,7 +1193,9 @@ mod client {
             dns: &dyn DnsProvider,
         ) -> Result<(String, String)> {
             let mut client = AcmeClient::discover(directory_url).await?;
-            client.new_account(&[contact_email.to_string()], true).await?;
+            client
+                .new_account(&[contact_email.to_string()], true)
+                .await?;
             let order = client.new_order(&[domain.to_string()]).await?;
             let record_name = format!("_acme-challenge.{domain}");
 
@@ -1082,9 +1222,9 @@ mod client {
             }
 
             let (finalized, key_pem) = client.finalize_order(&order, domain).await?;
-            let cert_url = finalized
-                .certificate
-                .ok_or_else(|| AppError::Internal("ACME order finalized without a certificate URL".to_string()))?;
+            let cert_url = finalized.certificate.ok_or_else(|| {
+                AppError::Internal("ACME order finalized without a certificate URL".to_string())
+            })?;
             let cert_pem = client.download_certificate(&cert_url).await?;
             Ok((cert_pem, key_pem))
         }
@@ -1102,31 +1242,43 @@ mod client {
             /// `CloudflareDnsProvider`'s request/response handling for
             /// real over HTTP, without needing genuine Cloudflare
             /// credentials.
-            fn mock_cloudflare_router(created: Arc<StdMutex<Vec<(String, String)>>>, deleted: Arc<StdMutex<Vec<String>>>) -> Router {
+            fn mock_cloudflare_router(
+                created: Arc<StdMutex<Vec<(String, String)>>>,
+                deleted: Arc<StdMutex<Vec<String>>>,
+            ) -> Router {
                 let create_handler: crate::hyper_compat::Handler = {
                     let created = Arc::clone(&created);
                     Arc::new(move |req, _params| {
                         let created = Arc::clone(&created);
                         Box::pin(async move {
-                            let body: serde_json::Value = crate::hyper_compat::read_json_body(req).await.unwrap();
+                            let body: serde_json::Value =
+                                crate::hyper_compat::read_json_body(req).await.unwrap();
                             let name = body["name"].as_str().unwrap().to_string();
                             let content = body["content"].as_str().unwrap().to_string();
                             created.lock().unwrap().push((name, content));
-                            json_response(StatusCode::OK, &serde_json::json!({ "success": true, "result": { "id": "record-1" } }))
+                            json_response(
+                                StatusCode::OK,
+                                &serde_json::json!({ "success": true, "result": { "id": "record-1" } }),
+                            )
                         })
                     })
                 };
-                let delete_handler: crate::hyper_compat::Handler = Arc::new(move |_req, params: crate::hyper_compat::Params| {
-                    let deleted = Arc::clone(&deleted);
-                    let id = params.get("id").unwrap().to_string();
-                    Box::pin(async move {
-                        deleted.lock().unwrap().push(id);
-                        empty_status(StatusCode::OK)
-                    })
-                });
+                let delete_handler: crate::hyper_compat::Handler =
+                    Arc::new(move |_req, params: crate::hyper_compat::Params| {
+                        let deleted = Arc::clone(&deleted);
+                        let id = params.get("id").unwrap().to_string();
+                        Box::pin(async move {
+                            deleted.lock().unwrap().push(id);
+                            empty_status(StatusCode::OK)
+                        })
+                    });
                 Router::new()
                     .route(Method::POST, "/zones/test-zone/dns_records", create_handler)
-                    .route(Method::DELETE, "/zones/test-zone/dns_records/:id", delete_handler)
+                    .route(
+                        Method::DELETE,
+                        "/zones/test-zone/dns_records/:id",
+                        delete_handler,
+                    )
             }
 
             #[tokio::test]
@@ -1134,14 +1286,35 @@ mod client {
                 let created = Arc::new(StdMutex::new(Vec::new()));
                 let deleted = Arc::new(StdMutex::new(Vec::new()));
                 let router = mock_cloudflare_router(Arc::clone(&created), Arc::clone(&deleted));
-                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock cloudflare");
+                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+                    .await
+                    .expect("bind mock cloudflare");
 
-                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{addr}"));
-                provider.create_txt_record("_acme-challenge.example.com", "abc123digest").await.unwrap();
-                assert_eq!(created.lock().unwrap().as_slice(), &[("_acme-challenge.example.com".to_string(), "abc123digest".to_string())]);
+                let provider = CloudflareDnsProvider::with_base_url(
+                    "test-zone",
+                    "test-token",
+                    format!("http://{addr}"),
+                );
+                provider
+                    .create_txt_record("_acme-challenge.example.com", "abc123digest")
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    created.lock().unwrap().as_slice(),
+                    &[(
+                        "_acme-challenge.example.com".to_string(),
+                        "abc123digest".to_string()
+                    )]
+                );
 
-                provider.delete_txt_record("_acme-challenge.example.com").await.unwrap();
-                assert_eq!(deleted.lock().unwrap().as_slice(), &["record-1".to_string()]);
+                provider
+                    .delete_txt_record("_acme-challenge.example.com")
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    deleted.lock().unwrap().as_slice(),
+                    &["record-1".to_string()]
+                );
             }
 
             #[tokio::test]
@@ -1149,11 +1322,23 @@ mod client {
                 let created = Arc::new(StdMutex::new(Vec::new()));
                 let deleted = Arc::new(StdMutex::new(Vec::new()));
                 let router = mock_cloudflare_router(created, Arc::clone(&deleted));
-                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock cloudflare");
+                let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+                    .await
+                    .expect("bind mock cloudflare");
 
-                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{addr}"));
-                provider.delete_txt_record("never-published.example.com").await.unwrap();
-                assert!(deleted.lock().unwrap().is_empty(), "no DELETE request should have been made for an unknown name");
+                let provider = CloudflareDnsProvider::with_base_url(
+                    "test-zone",
+                    "test-token",
+                    format!("http://{addr}"),
+                );
+                provider
+                    .delete_txt_record("never-published.example.com")
+                    .await
+                    .unwrap();
+                assert!(
+                    deleted.lock().unwrap().is_empty(),
+                    "no DELETE request should have been made for an unknown name"
+                );
             }
 
             /// End-to-end verification of the *protocol* side (the same
@@ -1169,13 +1354,21 @@ mod client {
                 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
                 const TOKEN: &str = "dns01-test-token";
-                const FAKE_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\nMOCK-DNS01\n-----END CERTIFICATE-----\n";
+                const FAKE_CERT_PEM: &str =
+                    "-----BEGIN CERTIFICATE-----\nMOCK-DNS01\n-----END CERTIFICATE-----\n";
 
                 let dns_created = Arc::new(StdMutex::new(Vec::new()));
                 let dns_deleted = Arc::new(StdMutex::new(Vec::new()));
-                let dns_router = mock_cloudflare_router(Arc::clone(&dns_created), Arc::clone(&dns_deleted));
-                let (dns_addr, _dns_handle) = serve(dns_router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock dns");
-                let provider = CloudflareDnsProvider::with_base_url("test-zone", "test-token", format!("http://{dns_addr}"));
+                let dns_router =
+                    mock_cloudflare_router(Arc::clone(&dns_created), Arc::clone(&dns_deleted));
+                let (dns_addr, _dns_handle) = serve(dns_router, "127.0.0.1:0".parse().unwrap())
+                    .await
+                    .expect("bind mock dns");
+                let provider = CloudflareDnsProvider::with_base_url(
+                    "test-zone",
+                    "test-token",
+                    format!("http://{dns_addr}"),
+                );
 
                 let ca_base: Arc<StdMutex<String>> = Arc::new(StdMutex::new(String::new()));
                 let nonce_counter = Arc::new(AtomicU64::new(0));
@@ -1212,7 +1405,8 @@ mod client {
                         let nonce = next_nonce();
                         Box::pin(async move {
                             let mut resp = empty_status(StatusCode::OK);
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1224,9 +1418,14 @@ mod client {
                         let base = base_of();
                         let nonce = next_nonce();
                         Box::pin(async move {
-                            let mut resp = json_response(StatusCode::CREATED, &serde_json::json!({ "status": "valid" }));
-                            resp.headers_mut().insert("location", format!("{base}/acct/1").parse().unwrap());
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            let mut resp = json_response(
+                                StatusCode::CREATED,
+                                &serde_json::json!({ "status": "valid" }),
+                            );
+                            resp.headers_mut()
+                                .insert("location", format!("{base}/acct/1").parse().unwrap());
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1246,8 +1445,10 @@ mod client {
                                     "finalize": format!("{base}/finalize/1"),
                                 }),
                             );
-                            resp.headers_mut().insert("location", format!("{base}/order/1").parse().unwrap());
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp.headers_mut()
+                                .insert("location", format!("{base}/order/1").parse().unwrap());
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1274,7 +1475,8 @@ mod client {
                                     }],
                                 }),
                             );
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1296,8 +1498,12 @@ mod client {
                             if published {
                                 challenge_validated.store(true, Ordering::SeqCst);
                             }
-                            let mut resp = json_response(StatusCode::OK, &serde_json::json!({ "status": "processing" }));
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            let mut resp = json_response(
+                                StatusCode::OK,
+                                &serde_json::json!({ "status": "processing" }),
+                            );
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1318,7 +1524,8 @@ mod client {
                                     "certificate": format!("{base}/cert/1"),
                                 }),
                             );
-                            resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                            resp.headers_mut()
+                                .insert("replay-nonce", nonce.parse().unwrap());
                             resp
                         })
                     })
@@ -1328,7 +1535,9 @@ mod client {
                         hyper::Response::builder()
                             .status(StatusCode::OK)
                             .header("content-type", "application/pem-certificate-chain")
-                            .body(crate::hyper_compat::fixed_body(bytes::Bytes::from_static(FAKE_CERT_PEM.as_bytes())))
+                            .body(crate::hyper_compat::fixed_body(bytes::Bytes::from_static(
+                                FAKE_CERT_PEM.as_bytes(),
+                            )))
                             .unwrap()
                     })
                 });
@@ -1342,24 +1551,41 @@ mod client {
                     .route(Method::POST, "/challenge/1", challenge_handler)
                     .route(Method::POST, "/finalize/1", finalize_handler)
                     .route(Method::POST, "/cert/1", cert_handler);
-                let (ca_addr, _ca_handle) = serve(ca_router, "127.0.0.1:0".parse().unwrap()).await.expect("bind mock CA");
+                let (ca_addr, _ca_handle) = serve(ca_router, "127.0.0.1:0".parse().unwrap())
+                    .await
+                    .expect("bind mock CA");
                 *ca_base.lock().unwrap() = format!("http://{ca_addr}");
 
                 let directory_url = format!("http://{ca_addr}/directory");
-                let (cert_pem, key_pem) = obtain_certificate(&directory_url, "dns01-test.local", "admin@test.local", &provider)
-                    .await
-                    .expect("full DNS-01 flow should succeed against the mock CA and mock DNS provider");
+                let (cert_pem, key_pem) = obtain_certificate(
+                    &directory_url,
+                    "dns01-test.local",
+                    "admin@test.local",
+                    &provider,
+                )
+                .await
+                .expect(
+                    "full DNS-01 flow should succeed against the mock CA and mock DNS provider",
+                );
 
                 assert_eq!(cert_pem, FAKE_CERT_PEM);
                 assert!(key_pem.contains("PRIVATE KEY"));
                 assert!(challenge_validated.load(Ordering::SeqCst));
-                assert_eq!(dns_created.lock().unwrap().len(), 1, "exactly one TXT record should have been published");
+                assert_eq!(
+                    dns_created.lock().unwrap().len(),
+                    1,
+                    "exactly one TXT record should have been published"
+                );
                 assert_eq!(
                     dns_created.lock().unwrap()[0].0,
                     "_acme-challenge.dns01-test.local",
                     "TXT record name should follow RFC 8555 §8.4's _acme-challenge.<domain> convention"
                 );
-                assert_eq!(dns_deleted.lock().unwrap().len(), 1, "the TXT record should be cleaned up after validation");
+                assert_eq!(
+                    dns_deleted.lock().unwrap().len(),
+                    1,
+                    "the TXT record should be cleaned up after validation"
+                );
             }
         }
     }
@@ -1410,7 +1636,11 @@ mod client {
             let key = AcmeAccountKey::generate().unwrap();
             for _ in 0..5 {
                 let sig = key.sign(b"test message").unwrap();
-                assert_eq!(sig.len(), 64, "ES256 JWS signatures must be fixed-length r||s, not ASN.1 DER");
+                assert_eq!(
+                    sig.len(),
+                    64,
+                    "ES256 JWS signatures must be fixed-length r||s, not ASN.1 DER"
+                );
             }
         }
 
@@ -1436,7 +1666,8 @@ mod client {
             use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
             const TOKEN: &str = "test-challenge-token";
-            const FAKE_CERT_PEM: &str = "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n";
+            const FAKE_CERT_PEM: &str =
+                "-----BEGIN CERTIFICATE-----\nMOCK\n-----END CERTIFICATE-----\n";
 
             // 1. The real, production challenge-response server.
             let challenge_store = Arc::new(ChallengeStore::new());
@@ -1445,9 +1676,10 @@ mod client {
                 "/.well-known/acme-challenge/:token",
                 super::super::challenge_response_handler(Arc::clone(&challenge_store)),
             );
-            let (challenge_addr, _challenge_handle) = serve(challenge_router, "127.0.0.1:0".parse().unwrap())
-                .await
-                .expect("bind challenge responder");
+            let (challenge_addr, _challenge_handle) =
+                serve(challenge_router, "127.0.0.1:0".parse().unwrap())
+                    .await
+                    .expect("bind challenge responder");
 
             // 2. The mock CA. `ca_base` starts empty and is filled in once
             // this server itself is bound (see the chicken-and-egg note
@@ -1460,7 +1692,12 @@ mod client {
 
             let base_of = {
                 let ca_base = Arc::clone(&ca_base);
-                move || ca_base.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+                move || {
+                    ca_base
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone()
+                }
             };
             let next_nonce = {
                 let nonce_counter = Arc::clone(&nonce_counter);
@@ -1490,7 +1727,8 @@ mod client {
                     let nonce = next_nonce();
                     Box::pin(async move {
                         let mut resp = empty_status(StatusCode::OK);
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1503,9 +1741,14 @@ mod client {
                     let base = base_of();
                     let nonce = next_nonce();
                     Box::pin(async move {
-                        let mut resp = json_response(StatusCode::CREATED, &serde_json::json!({ "status": "valid" }));
-                        resp.headers_mut().insert("location", format!("{base}/acct/1").parse().unwrap());
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        let mut resp = json_response(
+                            StatusCode::CREATED,
+                            &serde_json::json!({ "status": "valid" }),
+                        );
+                        resp.headers_mut()
+                            .insert("location", format!("{base}/acct/1").parse().unwrap());
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1526,8 +1769,10 @@ mod client {
                                 "finalize": format!("{base}/finalize/1"),
                             }),
                         );
-                        resp.headers_mut().insert("location", format!("{base}/order/1").parse().unwrap());
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        resp.headers_mut()
+                            .insert("location", format!("{base}/order/1").parse().unwrap());
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1555,7 +1800,8 @@ mod client {
                                 }],
                             }),
                         );
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1572,7 +1818,8 @@ mod client {
                         // *actual* challenge-response server started in
                         // step 1, over real HTTP. Only mark it valid if the
                         // client genuinely published something there.
-                        let url = format!("http://{challenge_addr}/.well-known/acme-challenge/{TOKEN}");
+                        let url =
+                            format!("http://{challenge_addr}/.well-known/acme-challenge/{TOKEN}");
                         if let Ok(resp) = reqwest::get(&url).await {
                             if resp.status().is_success() {
                                 if let Ok(body) = resp.text().await {
@@ -1582,8 +1829,12 @@ mod client {
                                 }
                             }
                         }
-                        let mut resp = json_response(StatusCode::OK, &serde_json::json!({ "status": "processing" }));
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        let mut resp = json_response(
+                            StatusCode::OK,
+                            &serde_json::json!({ "status": "processing" }),
+                        );
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1607,7 +1858,8 @@ mod client {
                                 "certificate": format!("{base}/cert/1"),
                             }),
                         );
-                        resp.headers_mut().insert("replay-nonce", nonce.parse().unwrap());
+                        resp.headers_mut()
+                            .insert("replay-nonce", nonce.parse().unwrap());
                         resp
                     })
                 })
@@ -1618,7 +1870,9 @@ mod client {
                     hyper::Response::builder()
                         .status(StatusCode::OK)
                         .header("content-type", "application/pem-certificate-chain")
-                        .body(crate::hyper_compat::fixed_body(bytes::Bytes::from_static(FAKE_CERT_PEM.as_bytes())))
+                        .body(crate::hyper_compat::fixed_body(bytes::Bytes::from_static(
+                            FAKE_CERT_PEM.as_bytes(),
+                        )))
                         .unwrap()
                 })
             });
@@ -1649,7 +1903,10 @@ mod client {
             .expect("full ACME HTTP-01 flow should succeed against the mock CA");
 
             assert_eq!(cert_pem, FAKE_CERT_PEM);
-            assert!(key_pem.contains("PRIVATE KEY"), "should return a real PEM private key");
+            assert!(
+                key_pem.contains("PRIVATE KEY"),
+                "should return a real PEM private key"
+            );
             assert!(
                 challenge_validated.load(Ordering::SeqCst),
                 "the mock CA's loopback fetch must have actually observed a published key authorization"
@@ -1658,7 +1915,10 @@ mod client {
             // The challenge token must have been cleaned up after use --
             // publishing it forever would let anyone who knows the token
             // re-fetch a stale key authorization.
-            assert!(challenge_store.get(TOKEN).is_none(), "challenge token should be removed after use");
+            assert!(
+                challenge_store.get(TOKEN).is_none(),
+                "challenge token should be removed after use"
+            );
         }
     }
 }

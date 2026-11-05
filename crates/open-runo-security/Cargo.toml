@@ -12,17 +12,18 @@ description = "open-runo Security Layer: authentication, authorization, API key 
 workspace = true
 
 [dependencies]
+sonic-rs = "0.5"
 open-runo-core = { workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true }
-jsonwebtoken = { workspace = true }
+open-runo-jwt = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 # Distributed rate limiting (docs/deployment-scaling.md's known gap: rate
 # limit state is per-instance in-memory otherwise). Same version as
 # open-runo-cache's `redis-backend` feature. Optional so single-instance
 # deployments don't pull in a Redis client they never use.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager", "script"], optional = true }
+redis = { version = "1.8", features = ["tokio-comp", "connection-manager", "script"], optional = true }
 
 [features]
 redis-backend = ["dep:redis"]

@@ -23,7 +23,10 @@ DefaultDirName={autopf}\open-runo-tray
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=open-runo-tray-setup
+; エコシステム全体の命名規則(2026-08-26統一、ユーザー指示「パワーシェル
+; でインストールする関連リポジトリは全て、リポジトリ名-installer.exe
+; ...に統一して」): <製品名>-installer.exe(旧`-setup`から改名)。
+OutputBaseFilename=open-runo-tray-installer
 Compression=lzma
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

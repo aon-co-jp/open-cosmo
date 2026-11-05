@@ -1,26 +1,31 @@
 [workspace]
 members = [
-    "crates/open-runo-core",
-    "crates/open-runo-router",
-    "crates/open-runo-federation",
-    "crates/open-runo-schema-registry",
     "crates/open-runo-ai-routing",
-    "crates/open-runo-versionless-api",
+    "crates/open-runo-api-types",
     "crates/open-runo-appserver",
-    "crates/open-runo-view",
-    "crates/open-runo-db",
-    "crates/open-runo-backup",
-    "crates/open-runo-history",
-    "crates/open-runo-observability",
-    "crates/open-runo-security",
-    "crates/open-runo-gateway",
-    "crates/open-runo-persisted-queries",
-    "crates/open-runo-scim",
     "crates/open-runo-cache",
     "crates/open-runo-cli",
-    "crates/open-runo-api-types",
+    "crates/open-runo-connect-core",
+    "crates/open-runo-connect-server",
+    "crates/open-runo-core",
+    "crates/open-runo-db",
     "crates/open-runo-feature-flags",
+    "crates/open-runo-federation",
+    "crates/open-runo-gateway",
+    "crates/open-runo-history",
+    "crates/open-runo-jwt",
+    "crates/open-runo-observability",
+    "crates/open-runo-openapi",
+    "crates/open-runo-persisted-queries",
+    "crates/open-runo-proto",
+    "crates/open-runo-router",
     "crates/open-runo-rustjson",
+    "crates/open-runo-schema-registry",
+    "crates/open-runo-scim",
+    "crates/open-runo-security",
+    "crates/open-runo-view",
+    "crates/open-runo-versionless-api",
+    "crates/open-runo-backup",
 ]
 
 resolver = "2"
@@ -28,27 +33,23 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.88"
 authors = ["open-runo Contributors"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/aon-co-jp/open-runo"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
-# 厳密ピン: poem 3.1.12+ / poem-derive 3.1.12+ / indexmap 2.3+ は
-# Cargo.toml自体がedition2024を要求し、本ワークスペースが宣言する
-# rust-version = "1.75" では解決不能(依存取得の時点で失敗する)。
-# poem="3.1"のような範囲指定はrust-version宣言と実際にビルド可能な
-# バージョンの間に齟齬を生む——これはsandbox限定の回避策ではなく、
-# 「rust-version 1.75」を名乗る以上維持すべき実際の制約。
-poem = { version = "=3.1.0", features = ["sse"] }
-poem-derive = "=3.1.0"
-indexmap = "=2.2.6"
+# 2026-10-28: poem/poem-derive/indexmap の厳密ピンを解除(rust-version を 1.88 へ上げ、
+# edition2024 を要求する最新の依存を許容する。lopdf 0.46 が indexmap 2.14+ を要求するため)。
+poem = { version = "3.1", features = ["sse"] }
+poem-derive = "3.1"
+indexmap = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "chrono", "uuid"] }
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1.0", features = ["v4", "serde"] }
@@ -57,22 +58,21 @@ futures = "0.3"
 async-trait = "0.1"
 lazy_static = "1.4"
 regex = "1.10"
-opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
-tracing-opentelemetry = "0.33"
-jsonwebtoken = "9.3"
-jsonschema = "0.26"
+opentelemetry = "0.33"
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-client", "trace"] }
+tracing-opentelemetry = "0.34"
+jsonschema = "0.60"
 once_cell = "1.20"
 async-graphql = "7.0"
 async-graphql-poem = "7.0"
-sha2 = "0.10"
-sha1 = "0.10"
+sha2 = "0.11"
+sha1 = "0.11"
 hex = "0.4"
 clap = { version = "4.5", features = ["derive", "env"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 schemars = "1.2"
-toml = "0.8"
+toml = "1.1"
 flate2 = "1.0"
 
 # open-runo crates (path deps, shared across workspace members)
@@ -89,12 +89,15 @@ open-runo-backup = { path = "crates/open-runo-backup" }
 open-runo-history = { path = "crates/open-runo-history" }
 open-runo-observability = { path = "crates/open-runo-observability" }
 open-runo-security = { path = "crates/open-runo-security" }
+open-runo-jwt = { path = "crates/open-runo-jwt" }
 open-runo-gateway = { path = "crates/open-runo-gateway" }
 open-runo-persisted-queries = { path = "crates/open-runo-persisted-queries" }
 open-runo-scim = { path = "crates/open-runo-scim" }
 open-runo-cache = { path = "crates/open-runo-cache" }
 open-runo-api-types = { path = "crates/open-runo-api-types" }
+open-runo-openapi = { path = "crates/open-runo-openapi" }
 open-runo-feature-flags = { path = "crates/open-runo-feature-flags" }
+open-runo-proto = { path = "crates/open-runo-proto" }
 
 # Quality Gate: workspace-wide lint policy.
 # Individual crates opt in via `[lints] workspace = true`.

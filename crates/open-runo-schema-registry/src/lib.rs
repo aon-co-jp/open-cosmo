@@ -185,7 +185,10 @@ mod tests {
             "type User { id: ID! name: String }",
             Stage::Local,
         );
-        assert_eq!(registry.latest("users-service", Stage::Local).unwrap().id, latest.id);
+        assert_eq!(
+            registry.latest("users-service", Stage::Local).unwrap().id,
+            latest.id
+        );
         assert_eq!(registry.history("users-service").len(), 2);
     }
 
@@ -193,7 +196,10 @@ mod tests {
     fn diff_reports_added_line() {
         let registry = SchemaRegistry::new();
         let diff = registry
-            .diff("type User { id: ID! }", "type User { id: ID!\nname: String }")
+            .diff(
+                "type User { id: ID! }",
+                "type User { id: ID!\nname: String }",
+            )
             .unwrap();
         assert!(diff.iter().any(|l| l.starts_with('+')));
     }
@@ -211,7 +217,9 @@ mod tests {
         registry.register_in("redmine", "users", "type Account { id: ID! }", Stage::Local);
 
         let egov = registry.latest_in("e-gov", "users", Stage::Local).unwrap();
-        let redmine = registry.latest_in("redmine", "users", Stage::Local).unwrap();
+        let redmine = registry
+            .latest_in("redmine", "users", Stage::Local)
+            .unwrap();
         assert_ne!(egov.sdl, redmine.sdl);
         assert_eq!(egov.namespace, "e-gov");
 
@@ -240,4 +248,3 @@ mod tests {
         assert_eq!(registry.services_in("e-gov"), vec!["billing", "users"]);
     }
 }
-

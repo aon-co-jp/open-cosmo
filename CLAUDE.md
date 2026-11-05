@@ -1,17 +1,16 @@
 # 開発方針・開発環境ルール(全リポジトリ共通ヘッダー、2026-07-15追記)
 
-## REST 全廃・Connect 移行(2026-11-04、ユーザー決定。正本は `F:\runo\API-POLICY.md`)
+## REST 全廃 → RPoem の gRPC / Connect 構成へ(2026-11-05)
 
-管理操作は **Connect の単純呼び出し** `POST /open_cosmo.admin.v1.Admin/<Method>`(`content-type: application/json`、本文は JSON、パスパラメーターも本文のフィールド)に一本化した。旧 `/api/*` の REST 経路は公開ルーターから外し **404**。エラーは `{"code","message"}`(401 `unauthenticated`/400 `invalid_argument`/404 `not_found`/429 `resource_exhausted` など)。本文の読み込みは RS-JSON の `parse_secure`(2 MiB・深さ32・重複キー拒否)。実装は `crates/open-runo-router/src/connect.rs`(既存ハンドラーを作り直さず、本文のフィールドをパス/クエリ/本文へ振り分けるアダプター)と `lib.rs` の `admin_ops` 表。
+管理操作は **RPoem と同じ `open_runo.admin.v1.Admin`**(gRPC。同じ定義を gRPC-web・Connect でも受け、`gateway` の `POST /open_runo.admin.v1.Admin/<Method>` が Content-Type で振り分ける)。旧 `/api/*` の REST は無く 404。エラーは `{"code","message"}`。定義の正は `crates/open-runo-proto/proto/open_runo/admin/v1/admin.proto`、処理本体は `open-runo-router` の `admin_ops.rs`/`admin_sys.rs`。詳細・経緯は RPoem の `CLAUDE.md` 冒頭「方針転換(gRPC)」と `docs/connect-hybrid.md`。
 
-- **移した(35本)**: IssueSelfKey / Login / Logout / RegisterSchema / UploadSchemaRaw / GetSchema / GetSchemaHistory / ComposeSchemas / FederationStatus / AiRoute / DbStatus / DbRouting / DbList / DbGet / DbGetAtCommit / DbPut / DbDelete / PurgePage / PurgeAllPages / AiStats / BackupExport / BackupImport / BackupRestoreLatest / MigrateExportSql / MigrateExportCsv / IntegrityCheck / RegisterPersistedQuery / GetPersistedQuery / UpsertFeatureFlag / ListFeatureFlags / GetFeatureFlag / DeleteFeatureFlag / EvaluateFeatureFlag / RequestsPerMonth / OperationsSummary。
-  呼び出し元(WASM 画面 `apps/desktop-wasm/src/api.rs`、CLI `open-runo-cli`、OpenAPI 仕様書 `openapi.rs`)は同時に Connect へ直した。
-- **廃止**: `POST /api/schemas/upload`(multipart)。`UploadSchemaRaw`(SDL を JSON の `sdl` に入れる)に統合し、画面はファイルを読んで送る。
-- **例外(移さない。理由=相手の規格が形を決める/ストリーミング)**: `/health`・`/healthz`(ヘルスチェック)、`/.well-known/acme-challenge/:token`(ACME)、`/mcp`(Model Context Protocol)、`/scim/v2/Users|Groups`(SCIM RFC 7644 互換)、`/graphql`(Cosmo/GraphQL 互換、Cosmo Router/Studio が呼ぶ形)、静的ファイル(`/`・`/pkg/*`・`/manifest.json`・`/icon.svg`)、`/api/openapi.json`(仕様書そのもの)。
-- **残した(期限つき・ストリーミング)**: `/api/events`(SSE)、`/api/ws-echo`・`/api/ws-events`(WebSocket)。Connect のストリーミングが必要になった時に移す(方針「ストリーミングは必要になってから」)。
-- RPoem の `open_runo.admin.v1.Admin`(gRPC)とは別サービス名 `open_cosmo.admin.v1.Admin`。操作の対象(スキーマ登録・DB 等)が異なり重複実装は無い。gRPC 側(tonic 化)は未着手。
-- 試験: `cargo test --workspace` 全通過。`connect_admin_api_contract`(旧REST 404・不明メソッド404・不正JSON400・重複キー400・パラメーター欠落400・content-type違い400・DbPut→DbGet→DbDelete→404)、実バイナリへの curl でも確認。画面(WASM)は wasm32 の `cargo check` まで(ブラウザでの通し操作は未実施)。
-- `docs/*.md` や `README-*.md` の旧 `/api/...` の記述は順次更新(上記が正)。
+- **経緯**: 2026-11-04 に自前の「外側 Connect アダプター」(`open_cosmo.admin.v1.Admin`、`connect.rs`)で移したが、RPoem(実装の先行地点)の gRPC / Connect 構成と二重になるため、2026-11-05 に **RPoem の構成へ置き換えた**(自前アダプターは撤去)。
+- **取り込み方**: RPoem の該当クレート(router・gateway・proto・connect-core/server・jwt・openapi ほか、計26)と `apps/desktop-wasm`・`desktop-tray` をそのまま持ち込み、ワークスペースを合わせた(CLI・管理画面も Connect/gRPC-web 版)。
+- **open-cosmo だけの差(意図的)**: 兄弟リポジトリへの path 依存を持たない方針のため、RPoem の `open-web-server-wire` を使う UDP 通知リスナー(`udp_notice.rs`)は **無効化**(カウンタ型と `spawn_from_env`=常に `None` だけ残した)。`tests/ledger_fusion.rs`(open-web-server との融合テスト)も除いた。UDP 通知が要るなら RPoem 側のルーターを使う。
+- **例外(移さない)**: `/health`・ACME・`/mcp`・SCIM・`/graphql`(Cosmo 互換)・静的ファイル・Webhook など、相手の規格が形を決めるもの。
+- **確認**: `cargo test --workspace` 全通過(appserver のテストは先に `cargo build -p open-runo-appserver --bins` が要る)。gateway 実バイナリで、旧REST 404・認証なし401・不正JSON400・不明メソッド501・DbStatus 200 を確認。`apps/desktop-wasm` は wasm32 の `cargo check` まで。
+- **既知の差・未了**: RPoem の Connect 層は JSON の **重複キーを拒否しない**(`DbPut` の重複キー本文が 200)。方針(RS-JSON の `parse_secure`)に合わせる修正は RPoem 側で行い、こちらへ同期する。ブラウザでの管理画面の通し操作(新構成)は未実施。VPS では open-cosmo は稼働していない。
+- `docs/*.md`・`README-*.md` の旧 `/api/...` の記述は順次更新。
 
 ## 1. 比較的新しい言語・フレームワークの参照資料一覧
 

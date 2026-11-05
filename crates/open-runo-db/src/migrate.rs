@@ -59,7 +59,10 @@ pub async fn transfer(
         }
         if copied > 0 {
             report.total += copied;
-            report.tables.push(TableReport { table: (*table).to_string(), copied });
+            report.tables.push(TableReport {
+                table: (*table).to_string(),
+                copied,
+            });
         }
     }
     Ok(report)
@@ -85,7 +88,7 @@ pub async fn verify(
                     key: row.key,
                     kind: "value_mismatch".into(),
                 }),
-                Some(_) => {}
+                Some(_) => {},
             }
         }
     }
@@ -118,7 +121,10 @@ mod tests {
         let target = InMemoryBackend::new();
         source.put("schemas", "a", r#"{"sdl":"A"}"#).await.unwrap();
         source.put("schemas", "b", r#"{"sdl":"B"}"#).await.unwrap();
-        source.put("scim_users", "u1", r#"{"userName":"alice"}"#).await.unwrap();
+        source
+            .put("scim_users", "u1", r#"{"userName":"alice"}"#)
+            .await
+            .unwrap();
 
         let (report, issues) = transfer_verified(&source, &target, TABLES).await.unwrap();
         assert_eq!(report.total, 3);

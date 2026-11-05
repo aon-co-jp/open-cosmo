@@ -6,7 +6,7 @@ structurally cannot: a system tray icon and genuine native OS
 notifications. The actual admin UI stays exactly what it already is — a
 browser-based WASM app served by `open-runo-router`/`open-runo-gateway` —
 this binary has no UI of its own beyond the tray icon; clicking it (or
-"Open open-cosmo" in its menu) opens the real app in the default browser.
+"Open open-runo" in its menu) opens the real app in the default browser.
 
 **Does not depend on the `tauri` package.** Built from `tray-icon` (tray
 icon abstraction) + `tao` (event loop / native message pump) + `notify-rust`
@@ -32,7 +32,7 @@ cargo run --release
 OPEN_RUNO_TRAY_URL=http://localhost:9090/ cargo run --release
 ```
 
-Left-click the tray icon (or the "Open open-cosmo" menu item) to open the
+Left-click the tray icon (or the "Open open-runo" menu item) to open the
 admin UI in the default browser. Right-click for the menu (Open / Quit).
 
 ## Build a Windows installer
@@ -42,7 +42,7 @@ cargo build --release
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\open-runo-tray.iss
 ```
 
-Produces `installer\dist\open-runo-tray-setup.exe` — a real, per-user
+Produces `installer\dist\open-runo-tray-installer.exe` — a real, per-user
 (no admin elevation required), silently-uninstallable Windows installer.
 [Inno Setup](https://jrsoftware.org/isinfo.php) was used instead of the WiX
 Toolset: WiX v7+ requires accepting a commercial "Open Source Maintenance

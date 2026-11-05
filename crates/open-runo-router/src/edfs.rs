@@ -119,17 +119,17 @@ pub async fn spawn_bridge(
                 Err(error) => {
                     tracing::warn!(%error, "EDFS: received non-UTF8 Redis Pub/Sub payload; dropping");
                     continue;
-                }
+                },
             };
             match decode_event(&payload) {
                 Ok(event) => {
                     // Errors here just mean "nobody is subscribed right
                     // now" -- not logged as a failure (see doc comment).
                     let _ = state.events.send(event);
-                }
+                },
                 Err(error) => {
                     tracing::warn!(%error, payload, "EDFS: received malformed SchemaEvent payload; dropping");
-                }
+                },
             }
         }
     });

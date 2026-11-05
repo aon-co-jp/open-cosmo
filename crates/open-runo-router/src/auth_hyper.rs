@@ -73,30 +73,53 @@ pub async fn authenticate_with_session(
     guardian: &Arc<KeyGuardian>,
     sessions: &Arc<dyn SessionBackend>,
 ) -> Result<Actor, StatusCode> {
-    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok()).unwrap_or("").trim();
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .trim();
     if !api_key.is_empty() {
         return match guardian.verify(api_key, chrono::Utc::now()).await {
-            KeyDecision::RegistryEmpty => {
-                Ok(Actor { owner: "dev".to_string(), roles: vec![], via_session: false })
-            }
-            KeyDecision::Ok { owner, roles } => Ok(Actor { owner, roles, via_session: false }),
+            KeyDecision::RegistryEmpty => Ok(Actor {
+                owner: "dev".to_string(),
+                roles: vec![],
+                via_session: false,
+            }),
+            KeyDecision::Ok { owner, roles } => Ok(Actor {
+                owner,
+                roles,
+                via_session: false,
+            }),
             KeyDecision::Rejected | KeyDecision::Suspended => Err(StatusCode::UNAUTHORIZED),
         };
     }
 
-    let session_id = session::session_id_from_cookie_header(headers).ok_or(StatusCode::UNAUTHORIZED)?;
-    let data = sessions.get(&session_id).await.ok_or(StatusCode::UNAUTHORIZED)?;
+    let session_id =
+        session::session_id_from_cookie_header(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let data = sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
-    let is_state_changing =
-        matches!(*method, Method::POST | Method::PUT | Method::PATCH | Method::DELETE);
+    let is_state_changing = matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    );
     if is_state_changing {
-        let provided = headers.get(CSRF_HEADER_NAME).and_then(|v| v.to_str().ok()).unwrap_or("");
+        let provided = headers
+            .get(CSRF_HEADER_NAME)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
         if provided.is_empty() || provided != data.csrf_token {
             return Err(StatusCode::FORBIDDEN);
         }
     }
 
-    Ok(Actor { owner: data.owner, roles: data.roles, via_session: true })
+    Ok(Actor {
+        owner: data.owner,
+        roles: data.roles,
+        via_session: true,
+    })
 }
 
 #[cfg(test)]
@@ -108,7 +131,10 @@ mod tests {
 
     fn guardian() -> Arc<KeyGuardian> {
         let state = AppState::new();
-        Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()))
+        Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ))
     }
 
     #[tokio::test]
@@ -151,22 +177,29 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_rejects_when_nothing_provided() {
         let headers = HeaderMap::new();
-        let result = authenticate_with_session(&headers, &Method::GET, &guardian(), &sessions()).await;
+        let result =
+            authenticate_with_session(&headers, &Method::GET, &guardian(), &sessions()).await;
         assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn authenticate_with_session_rejects_unknown_session_cookie() {
         let mut headers = HeaderMap::new();
-        headers.insert(hyper::header::COOKIE, "orn_session=no-such-session".parse().unwrap());
-        let result = authenticate_with_session(&headers, &Method::GET, &guardian(), &sessions()).await;
+        headers.insert(
+            hyper::header::COOKIE,
+            "orn_session=no-such-session".parse().unwrap(),
+        );
+        let result =
+            authenticate_with_session(&headers, &Method::GET, &guardian(), &sessions()).await;
         assert_eq!(result.unwrap_err(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
     async fn authenticate_with_session_get_needs_no_csrf_token() {
         let store = sessions();
-        let (session_id, _csrf) = store.create("alice".to_string(), vec!["developer".to_string()]).await;
+        let (session_id, _csrf) = store
+            .create("alice".to_string(), vec!["developer".to_string()])
+            .await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,
@@ -209,7 +242,9 @@ mod tests {
     #[tokio::test]
     async fn authenticate_with_session_post_with_correct_csrf_token_succeeds() {
         let store = sessions();
-        let (session_id, csrf) = store.create("alice".to_string(), vec!["developer".to_string()]).await;
+        let (session_id, csrf) = store
+            .create("alice".to_string(), vec!["developer".to_string()])
+            .await;
         let mut headers = HeaderMap::new();
         headers.insert(
             hyper::header::COOKIE,

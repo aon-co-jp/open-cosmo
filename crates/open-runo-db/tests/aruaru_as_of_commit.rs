@@ -38,7 +38,11 @@ fn aruaru_server_binary() -> Option<PathBuf> {
         .join("aruaru-db")
         .join("target")
         .join("debug")
-        .join(if cfg!(windows) { "aruaru-server.exe" } else { "aruaru-server" });
+        .join(if cfg!(windows) {
+            "aruaru-server.exe"
+        } else {
+            "aruaru-server"
+        });
     candidate.exists().then_some(candidate)
 }
 
@@ -51,14 +55,19 @@ async fn as_of_commit_returns_the_old_value_through_the_real_pgwire_endpoint() {
     );
 
     let port = 15433u16;
-    let data_dir = std::env::temp_dir().join(format!("aruaru-as-of-commit-test-{}", std::process::id()));
+    let data_dir =
+        std::env::temp_dir().join(format!("aruaru-as-of-commit-test-{}", std::process::id()));
     std::fs::create_dir_all(&data_dir).expect("create temp data dir");
 
     let child = Command::new(&binary)
-        .arg("--pg-port").arg(port.to_string())
-        .arg("--gql-port").arg("0")
-        .arg("--data").arg(&data_dir)
-        .arg("--log-level").arg("warn")
+        .arg("--pg-port")
+        .arg(port.to_string())
+        .arg("--gql-port")
+        .arg("0")
+        .arg("--data")
+        .arg(&data_dir)
+        .arg("--log-level")
+        .arg("warn")
         .env("ARUARU_USERS", "aruaru:aruaru")
         .spawn()
         .expect("spawn aruaru-server");
@@ -75,16 +84,29 @@ async fn as_of_commit_returns_the_old_value_through_the_real_pgwire_endpoint() {
     let backend = open_runo_db::aruaru::AruaruDbBackend::from_pool(pool.clone());
 
     // 1st write + commit.
-    backend.put("items", "sword", r#"{"qty":1}"#).await.expect("put 1");
+    backend
+        .put("items", "sword", r#"{"qty":1}"#)
+        .await
+        .expect("put 1");
     let commit_1 = aruaru_commit(&pool, "first grant").await;
 
     // 2nd write (same key, new value) + commit.
-    backend.put("items", "sword", r#"{"qty":5}"#).await.expect("put 2");
+    backend
+        .put("items", "sword", r#"{"qty":5}"#)
+        .await
+        .expect("put 2");
     let _commit_2 = aruaru_commit(&pool, "quantity bumped").await;
 
     // Latest value is qty=5.
-    let latest = backend.get("items", "sword").await.expect("get").expect("value present");
-    assert!(latest.contains("\"qty\":5"), "latest value should be qty=5, got {latest}");
+    let latest = backend
+        .get("items", "sword")
+        .await
+        .expect("get")
+        .expect("value present");
+    assert!(
+        latest.contains("\"qty\":5"),
+        "latest value should be qty=5, got {latest}"
+    );
 
     // AS OF the first commit must return qty=1 — the old value, not the latest.
     let historical = backend
@@ -96,11 +118,19 @@ async fn as_of_commit_returns_the_old_value_through_the_real_pgwire_endpoint() {
         historical.contains("\"qty\":1"),
         "AS OF COMMIT '{commit_1}' should return the OLD value (qty=1), got: {historical}"
     );
-    assert_ne!(historical, latest, "AS OF COMMIT must not silently return the latest value");
+    assert_ne!(
+        historical, latest,
+        "AS OF COMMIT must not silently return the latest value"
+    );
 
     // An unknown commit id must not be confused with "key never existed".
-    let unknown = backend.get_at_commit("items", "sword", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef").await;
-    assert!(unknown.is_err(), "unknown commit id should error, not silently return None/old data");
+    let unknown = backend
+        .get_at_commit("items", "sword", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+        .await;
+    assert!(
+        unknown.is_err(),
+        "unknown commit id should error, not silently return None/old data"
+    );
 }
 
 async fn aruaru_commit(pool: &PgPool, message: &str) -> String {
@@ -110,10 +140,13 @@ async fn aruaru_commit(pool: &PgPool, message: &str) -> String {
     // extended-query `query_as`/`query` path relies on Describe to know
     // column shape and fails against it. `raw_sql` uses the simple query
     // protocol instead, which this server answers with real column data.
-    let mut rows = sqlx::raw_sql(&format!("SELECT aruaru_commit('{}')", message.replace('\'', "''")))
-        .fetch_all(pool)
-        .await
-        .expect("aruaru_commit");
+    let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "SELECT aruaru_commit('{}')",
+        message.replace('\'', "''")
+    )))
+    .fetch_all(pool)
+    .await
+    .expect("aruaru_commit");
     let row = rows.pop().expect("aruaru_commit returned a row");
     row.try_get::<String, _>(0).expect("aruaru_commit column 0")
 }
@@ -126,7 +159,7 @@ async fn connect_with_retry(url: &str) -> PgPool {
             Err(e) => {
                 last_err = Some(e);
                 tokio::time::sleep(Duration::from_millis(200)).await;
-            }
+            },
         }
     }
     panic!("could not connect to aruaru-server pgwire endpoint: {last_err:?}");

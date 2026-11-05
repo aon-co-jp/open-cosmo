@@ -76,7 +76,9 @@ impl BackupJob {
     }
 
     pub fn mark_failed(&mut self, reason: impl Into<String>) {
-        self.status = BackupStatus::Failed { reason: reason.into() };
+        self.status = BackupStatus::Failed {
+            reason: reason.into(),
+        };
     }
 }
 
@@ -94,13 +96,21 @@ mod tests {
 
     #[test]
     fn cannot_succeed_without_running() {
-        let mut job = BackupJob::new(BackupTarget::LocalStorage, BackupKind::Incremental, Utc::now());
+        let mut job = BackupJob::new(
+            BackupTarget::LocalStorage,
+            BackupKind::Incremental,
+            Utc::now(),
+        );
         assert!(job.mark_succeeded().is_err());
     }
 
     #[test]
     fn defaults_to_encrypted() {
-        let job = BackupJob::new(BackupTarget::S3Compatible { bucket: "b".into() }, BackupKind::Full, Utc::now());
+        let job = BackupJob::new(
+            BackupTarget::S3Compatible { bucket: "b".into() },
+            BackupKind::Full,
+            Utc::now(),
+        );
         assert!(job.encrypted);
     }
 }

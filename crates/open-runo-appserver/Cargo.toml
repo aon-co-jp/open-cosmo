@@ -4,7 +4,45 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Universal application-server runtime host (the 'second Tomcat', not limited to Java): declarative RuntimeProfile for Rust+Poem / Python+FastAPI / PHP+Laravel / Ruby+Rails / Dart+Flutter, with ProcessSupervisor and Dispatcher abstractions"
+# `examples/dummy_http_server.rs` と `examples/dummy_stubborn_server.rs` は
+# 下で `[[bin]]` として登録している(統合テストが `CARGO_BIN_EXE_*` で
+# 見つけられるようにするため)。自動 example 検出を有効にしたままだと
+# 同じソースが「example」と「bin」の 2 つの build target になり cargo が
+# 警告するため、example の自動検出は切り、残りの example は明示登録する。
+autoexamples = false
 
 [dependencies]
+sonic-rs = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# 既存の`examples/dummy_http_server.rs`(Supervisor検証用の最小HTTPサーバー、
+# `/health`で200・`/crash`で自己`process::exit(1)`)を、統合テストから
+# `env!("CARGO_BIN_EXE_open-runo-dummy-http-server")`で確実に見つけられる
+# ようにするため`[[bin]]`としても登録する(exampleのままだとcargoが
+# `CARGO_BIN_EXE_*`を発行しないため、テストがバイナリパスを推測する
+# 必要が生じてしまう)。ソースはexampleと共有、内容の複製はしない。
+[[bin]]
+name = "open-runo-dummy-http-server"
+path = "examples/dummy_http_server.rs"
+
+# `stop_graceful`(2026-08-07新設、段階的グレースフルシャットダウン)の
+# SIGKILLフォールバック経路を実証するための、SIGTERMを無視するUnix専用
+# ダミーサーバー。上と同じ理由で`[[bin]]`として登録する。
+[[bin]]
+name = "open-runo-dummy-stubborn-server"
+path = "examples/dummy_stubborn_server.rs"
+
+# `autoexamples = false` にしたため、bin 兼用ではない通常の example は
+# ここで明示登録する。
+[[example]]
+name = "e2e_stub_app"
+path = "examples/e2e_stub_app.rs"
+
+[[example]]
+name = "supervisor_demo"
+path = "examples/supervisor_demo.rs"
+
+[[example]]
+name = "world_lab_supervised"
+path = "examples/world_lab_supervised.rs"

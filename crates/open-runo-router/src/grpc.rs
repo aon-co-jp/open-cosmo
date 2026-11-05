@@ -44,6 +44,14 @@
 //! `hyper_compat::tls::serve_tls` uses for TLS) keeps the common path
 //! simple; gRPC-aware clients connect straight to it with prior knowledge.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use bytes::{Bytes, BytesMut};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, StreamBody};
@@ -176,13 +184,13 @@ fn request_is_list_services(bytes: &[u8]) -> bool {
                     return true;
                 }
                 buf = &rest[len..];
-            }
+            },
             0 => {
                 let Some((_, rest)) = decode_varint(buf) else {
                     return false;
                 };
                 buf = rest;
-            }
+            },
             _ => return false,
         }
     }
@@ -242,11 +250,11 @@ fn extract_file_containing_symbol(bytes: &[u8]) -> Option<String> {
                     return Some(String::from_utf8_lossy(&rest[..len]).into_owned());
                 }
                 buf = &rest[len..];
-            }
+            },
             0 => {
                 let (_, rest) = decode_varint(buf)?;
                 buf = rest;
-            }
+            },
             _ => return None,
         }
     }
@@ -276,11 +284,11 @@ fn extract_file_by_filename(bytes: &[u8]) -> Option<String> {
                     return Some(String::from_utf8_lossy(&rest[..len]).into_owned());
                 }
                 buf = &rest[len..];
-            }
+            },
             0 => {
                 let (_, rest) = decode_varint(buf)?;
                 buf = rest;
-            }
+            },
             _ => return None,
         }
     }
@@ -325,19 +333,26 @@ fn build_health_file_descriptor_proto() -> Bytes {
         }
         out
     };
-    let method_descriptor = |name: &str, input_type: &str, output_type: &str, server_streaming: bool| -> BytesMut {
-        let mut out = BytesMut::new();
-        out.extend_from_slice(&encode_string_field(1, name));
-        out.extend_from_slice(&encode_string_field(2, input_type));
-        out.extend_from_slice(&encode_string_field(3, output_type));
-        if server_streaming {
-            encode_varint_field(6, 1, &mut out);
-        }
-        out
-    };
+    let method_descriptor =
+        |name: &str, input_type: &str, output_type: &str, server_streaming: bool| -> BytesMut {
+            let mut out = BytesMut::new();
+            out.extend_from_slice(&encode_string_field(1, name));
+            out.extend_from_slice(&encode_string_field(2, input_type));
+            out.extend_from_slice(&encode_string_field(3, output_type));
+            if server_streaming {
+                encode_varint_field(6, 1, &mut out);
+            }
+            out
+        };
 
-    let request_msg = message_descriptor("HealthCheckRequest", &[field_descriptor("service", 1, TYPE_STRING)]);
-    let response_msg = message_descriptor("HealthCheckResponse", &[field_descriptor("status", 1, TYPE_INT32)]);
+    let request_msg = message_descriptor(
+        "HealthCheckRequest",
+        &[field_descriptor("service", 1, TYPE_STRING)],
+    );
+    let response_msg = message_descriptor(
+        "HealthCheckResponse",
+        &[field_descriptor("status", 1, TYPE_INT32)],
+    );
     let check_method = method_descriptor(
         "Check",
         ".grpc.health.v1.HealthCheckRequest",
@@ -370,7 +385,10 @@ fn build_health_file_descriptor_proto() -> Bytes {
 /// this server doesn't recognize the symbol (the caller should respond
 /// `NOT_FOUND`, mirroring how `Check`/`Watch` already report `NOT_FOUND`
 /// for a health-check request naming an unknown service).
-fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
+fn resolve_symbol_file_descriptor(symbol: &str, admin: bool) -> Option<Vec<Bytes>> {
+    if admin && symbol.starts_with("open_runo.admin.v1") {
+        return admin_descriptor_files("open_runo/admin/v1/admin.proto");
+    }
     const HEALTH_SYMBOLS: &[&str] = &[
         "grpc.health.v1.Health",
         "grpc.health.v1.Health.Check",
@@ -379,10 +397,28 @@ fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
         "grpc.health.v1.HealthCheckResponse",
     ];
     if HEALTH_SYMBOLS.contains(&symbol) {
-        Some(build_health_file_descriptor_proto())
+        Some(vec![build_health_file_descriptor_proto()])
     } else {
         None
     }
+}
+
+/// `admin.proto`(と、それが依存するファイル)の`FileDescriptorProto`群。`open-runo-proto`が
+/// ビルド時に`protox`で生成した記述子セットから取り出す。先頭が要求されたファイル、続いて依存。
+fn admin_descriptor_files(filename: &str) -> Option<Vec<Bytes>> {
+    use open_runo_proto::prost::Message;
+    let fds = open_runo_proto::prost_types::FileDescriptorSet::decode(
+        open_runo_proto::FILE_DESCRIPTOR_SET,
+    )
+    .ok()?;
+    let wanted = fds.file.iter().find(|f| f.name() == filename)?;
+    let mut out = vec![Bytes::from(wanted.encode_to_vec())];
+    for dep in &wanted.dependency {
+        if let Some(d) = fds.file.iter().find(|f| f.name() == dep.as_str()) {
+            out.push(Bytes::from(d.encode_to_vec()));
+        }
+    }
+    Some(out)
 }
 
 /// Resolve a `file_by_filename` request's proto filename to the
@@ -392,10 +428,15 @@ fn resolve_symbol_file_descriptor(symbol: &str) -> Option<Bytes> {
 /// resolves the file path itself -- `grpcurl <addr> descriptor
 /// grpc/health/v1/health.proto` (as opposed to `describe
 /// grpc.health.v1.Health`) is the client-facing use case this closes.
-fn resolve_filename_file_descriptor(filename: &str) -> Option<Bytes> {
+fn resolve_filename_file_descriptor(filename: &str, admin: bool) -> Option<Vec<Bytes>> {
     const HEALTH_PROTO_FILENAME: &str = "grpc/health/v1/health.proto";
     if filename == HEALTH_PROTO_FILENAME {
-        Some(build_health_file_descriptor_proto())
+        Some(vec![build_health_file_descriptor_proto()])
+    } else if admin
+        && (filename == "open_runo/admin/v1/admin.proto"
+            || filename == "google/protobuf/struct.proto")
+    {
+        admin_descriptor_files(filename)
     } else {
         None
     }
@@ -404,9 +445,11 @@ fn resolve_filename_file_descriptor(filename: &str) -> Option<Bytes> {
 /// Build the `ServerReflectionResponse` bytes for a successful
 /// `file_containing_symbol` request: field 4 (`file_descriptor_response`)
 /// wraps a `FileDescriptorResponse { repeated bytes file_descriptor_proto = 1; }`.
-fn encode_file_descriptor_response(file_descriptor_proto: &[u8]) -> Bytes {
+fn encode_file_descriptor_response(files: &[Bytes]) -> Bytes {
     let mut fdr = BytesMut::new();
-    fdr.extend_from_slice(&encode_bytes_field(1, file_descriptor_proto));
+    for file in files {
+        fdr.extend_from_slice(&encode_bytes_field(1, file));
+    }
     let response = encode_embedded_message(4, &fdr);
     response.freeze()
 }
@@ -440,7 +483,7 @@ fn decode_health_check_request(bytes: &[u8]) -> Result<HealthCheckRequest, GrpcS
                 };
                 service = String::from_utf8_lossy(value_bytes).into_owned();
                 buf = &rest[len..];
-            }
+            },
             // Unknown field: skip it minimally-correctly for the two wire
             // types this tiny decoder might plausibly see; anything else
             // is rejected rather than silently mis-parsed.
@@ -449,7 +492,7 @@ fn decode_health_check_request(bytes: &[u8]) -> Result<HealthCheckRequest, GrpcS
                     return Err(GrpcStatus::InvalidArgument);
                 };
                 buf = rest;
-            }
+            },
             (_, 2) => {
                 let Some((len, rest)) = decode_varint(buf) else {
                     return Err(GrpcStatus::InvalidArgument);
@@ -459,7 +502,7 @@ fn decode_health_check_request(bytes: &[u8]) -> Result<HealthCheckRequest, GrpcS
                     return Err(GrpcStatus::InvalidArgument);
                 }
                 buf = &rest[len..];
-            }
+            },
             _ => return Err(GrpcStatus::InvalidArgument),
         }
     }
@@ -477,7 +520,7 @@ pub enum ServingStatus {
 /// `grpc.health.v1.HealthCheckResponse { ServingStatus status = 1; }`.
 fn encode_health_check_response(status: ServingStatus) -> Bytes {
     let mut out = BytesMut::new();
-    encode_varint((1 << 3) | 0, &mut out); // field 1, wire type 0 (varint)
+    encode_varint(1 << 3, &mut out); // protobuf tag: field 1 (<<3) | wire type 0 (varint)
     encode_varint(status as u64, &mut out);
     out.freeze()
 }
@@ -567,8 +610,9 @@ pub async fn check_remote_health(addr: &str, service: &str) -> Result<ServingSta
 
     let mut connector = HttpConnector::new();
     connector.enforce_http(false);
-    let client: Client<_, Full<Bytes>> =
-        Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+    let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+        .http2_only(true)
+        .build(connector);
 
     let request_message = encode_health_check_request(service);
     let request_body = encode_grpc_frame(&request_message);
@@ -624,7 +668,8 @@ fn grpc_response(status: GrpcStatus, message: Option<&[u8]>) -> Response {
     trailers.insert("grpc-message", "".parse().unwrap());
     frames.push(Ok(Frame::trailers(trailers)));
 
-    let body: BoxBody<Bytes, Infallible> = BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
+    let body: BoxBody<Bytes, Infallible> =
+        BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
     HyperResponse::builder()
         .status(StatusCode::OK) // gRPC status is orthogonal to the HTTP status -- 200 even on grpc-status != 0
         .header("content-type", "application/grpc+proto")
@@ -648,7 +693,8 @@ fn grpc_streaming_response(status: GrpcStatus, messages: &[Bytes]) -> Response {
     trailers.insert("grpc-message", "".parse().unwrap());
     frames.push(Ok(Frame::trailers(trailers)));
 
-    let body: BoxBody<Bytes, Infallible> = BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
+    let body: BoxBody<Bytes, Infallible> =
+        BodyExt::boxed(StreamBody::new(futures::stream::iter(frames)));
     HyperResponse::builder()
         .status(StatusCode::OK)
         .header("content-type", "application/grpc+proto")
@@ -743,7 +789,7 @@ async fn watch_handler(req: Request) -> Response {
 /// still answered with `UNIMPLEMENTED` -- protobuf extensions aren't a
 /// concept this server's hand-rolled messages use at all, so there is no
 /// meaningful answer to give.
-async fn reflection_handler(req: Request) -> Response {
+async fn reflection_handler(req: Request, admin: bool) -> Response {
     let collected = match req.into_body().collect().await {
         Ok(c) => c.to_bytes(),
         Err(_) => return grpc_response(GrpcStatus::Internal, None),
@@ -753,26 +799,30 @@ async fn reflection_handler(req: Request) -> Response {
         Err(status) => return grpc_response(status, None),
     };
     if request_is_list_services(message) {
-        let response_bytes = encode_list_services_response(KNOWN_SERVICES);
+        let mut services: Vec<&str> = KNOWN_SERVICES.to_vec();
+        if admin {
+            services.push(open_runo_proto::ADMIN_SERVICE);
+        }
+        let response_bytes = encode_list_services_response(&services);
         return grpc_streaming_response(GrpcStatus::Ok, &[response_bytes]);
     }
     if let Some(symbol) = extract_file_containing_symbol(message) {
-        return match resolve_symbol_file_descriptor(&symbol) {
+        return match resolve_symbol_file_descriptor(&symbol, admin) {
             Some(file_descriptor_proto) => {
                 let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
                 grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
-            }
+            },
             // Recognized request kind, unknown symbol -- e.g. asking
             // about a service this server doesn't implement.
             None => grpc_response(GrpcStatus::NotFound, None),
         };
     }
     if let Some(filename) = extract_file_by_filename(message) {
-        return match resolve_filename_file_descriptor(&filename) {
+        return match resolve_filename_file_descriptor(&filename, admin) {
             Some(file_descriptor_proto) => {
                 let response_bytes = encode_file_descriptor_response(&file_descriptor_proto);
                 grpc_streaming_response(GrpcStatus::Ok, &[response_bytes])
-            }
+            },
             // Recognized request kind, unknown filename -- e.g. asking
             // about a .proto file this server doesn't serve.
             None => grpc_response(GrpcStatus::NotFound, None),
@@ -783,12 +833,96 @@ async fn reflection_handler(req: Request) -> Response {
     grpc_response(GrpcStatus::Unimplemented, None)
 }
 
+/// gRPCサーバーの動作オプション。
+#[derive(Debug, Clone, Copy)]
+pub struct GrpcOptions {
+    /// サーバーリフレクション(`grpcurl list`/`describe`)を提供するか。リフレクションはAPIの
+    /// 構造をそのまま外へ見せるので、本番では既定で切る(`proto`は別途配布する)。
+    pub reflection: bool,
+}
+
+impl Default for GrpcOptions {
+    fn default() -> Self {
+        Self { reflection: true }
+    }
+}
+
+/// HTTP/2 Rapid Reset(CVE-2023-44487)などストリーム濫用への備え: 1接続あたりの同時ストリーム数・
+/// リセット済みストリームの滞留数・ローカルエラー由来のリセット数に上限を置く(超えるとGOAWAYで切る)。
+/// 既定値に頼らず明示する。
+fn h2_builder() -> hyper::server::conn::http2::Builder<hyper_util::rt::TokioExecutor> {
+    let mut b = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+    b.max_concurrent_streams(128)
+        .max_pending_accept_reset_streams(Some(20))
+        .max_local_error_reset_streams(Some(1024));
+    b
+}
+
+/// 1接続分のサービス(パスでHealth/Reflection/管理サービスへ振り分ける)。
+fn grpc_service(
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+    opts: GrpcOptions,
+) -> impl hyper::service::Service<
+    Request,
+    Response = Response,
+    Error = Infallible,
+    Future = impl std::future::Future<Output = Result<Response, Infallible>> + Send,
+> + Clone {
+    hyper::service::service_fn(move |req: Request| {
+        let admin = admin.clone();
+        async move {
+            let path = req.uri().path().to_string();
+            let resp = if path == "/grpc.health.v1.Health/Check" {
+                health_check_handler(req).await
+            } else if path == "/grpc.health.v1.Health/Watch" {
+                watch_handler(req).await
+            } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
+                if !opts.reflection {
+                    // 本番ではリフレクションを出さない(存在しないものとして扱う)。
+                    grpc_response(GrpcStatus::Unimplemented, None)
+                } else {
+                    reflection_handler(req, admin.is_some()).await
+                }
+            } else if let (Some(admin), true) = (
+                admin.as_ref(),
+                crate::grpc_admin::method_of(&path).is_some(),
+            ) {
+                crate::grpc_admin::handle_grpc(admin, req).await
+            } else {
+                grpc_response(GrpcStatus::Unimplemented, None)
+            };
+            Ok::<Response, Infallible>(resp)
+        }
+    })
+}
+
 /// Serve the gRPC health-check service over real HTTP/2 (h2c, prior
 /// knowledge -- no TLS required, matching how most internal/dev gRPC
 /// traffic runs). Returns the bound address and a task handle, same
 /// shape as `hyper_compat::serve`/`hyper_compat::tls::serve_tls`.
-pub async fn serve_grpc(addr: std::net::SocketAddr) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
-    use hyper_util::rt::{TokioExecutor, TokioIo};
+pub async fn serve_grpc(
+    addr: std::net::SocketAddr,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    serve_grpc_with(addr, None).await
+}
+
+/// [`serve_grpc`] に管理サービス(`open_runo.admin.v1.Admin`)を載せられる版。
+/// `admin`が`Some`なら、Health/Reflectionに加えて管理サービスを同じポートで提供する
+/// (平文のh2c。本番はTLS1.3必須の[`serve_grpc_tls`]を使う)。
+pub async fn serve_grpc_with(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    serve_grpc_opts(addr, admin, GrpcOptions::default()).await
+}
+
+/// [`serve_grpc_with`]にオプション(リフレクションの有無など)を渡せる版。平文(h2c)。
+pub async fn serve_grpc_opts(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+    opts: GrpcOptions,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    use hyper_util::rt::TokioIo;
     use tokio::net::TcpListener;
 
     let listener = TcpListener::bind(addr).await?;
@@ -801,27 +935,104 @@ pub async fn serve_grpc(addr: std::net::SocketAddr) -> std::io::Result<(std::net
                 Err(_) => continue,
             };
             let io = TokioIo::new(stream);
+            let admin = admin.clone();
             tokio::spawn(async move {
-                let service = hyper::service::service_fn(move |req: Request| async move {
-                    let path = req.uri().path();
-                    let resp = if path == "/grpc.health.v1.Health/Check" {
-                        health_check_handler(req).await
-                    } else if path == "/grpc.health.v1.Health/Watch" {
-                        watch_handler(req).await
-                    } else if path == "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo" {
-                        reflection_handler(req).await
-                    } else {
-                        grpc_response(GrpcStatus::Unimplemented, None)
-                    };
-                    Ok::<Response, Infallible>(resp)
-                });
-                let _ = hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-                    .serve_connection(io, service)
-                    .await;
+                let service = grpc_service(admin, opts);
+                let _ = h2_builder().serve_connection(io, service).await;
             });
         }
     });
 
+    Ok((bound_addr, handle))
+}
+
+/// gRPC用のTLS設定を作る。**TLS 1.3のみ**(1.2以下は使わない)、ALPNは`h2`。
+/// `client_ca_pem`を渡すと**mTLS**(接続の相互認証)になり、そのCAで署名されたクライアント証明書を
+/// 持たない接続はTLSハンドシェイクの時点で拒否される。呼び出しごとの認可は別途`x-api-key`/セッション
+/// (KeyGuardian)で行うので、mTLSは「誰がつないでよいか」、鍵は「何をしてよいか」の二重になる。
+#[cfg(feature = "tls")]
+pub fn grpc_tls_config(
+    cert_pem: &[u8],
+    key_pem: &[u8],
+    client_ca_pem: Option<&[u8]>,
+) -> std::io::Result<tokio_rustls::rustls::ServerConfig> {
+    use std::io::{Error, ErrorKind};
+    use std::sync::Arc;
+    use tokio_rustls::rustls::server::WebPkiClientVerifier;
+    use tokio_rustls::rustls::{self, RootCertStore, ServerConfig};
+
+    let bad = |m: String| Error::new(ErrorKind::InvalidData, m);
+    let certs = rustls_pemfile::certs(&mut &cert_pem[..])
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| bad(format!("bad certificate pem: {e}")))?;
+    if certs.is_empty() {
+        return Err(bad("no certificates found".into()));
+    }
+    let key = rustls_pemfile::private_key(&mut &key_pem[..])
+        .map_err(|e| bad(format!("bad private key pem: {e}")))?
+        .ok_or_else(|| bad("no private key found".into()))?;
+    // ring を明示(aws-lc-rs も依存に入るため、暗黙の既定に頼らない)。
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = ServerConfig::builder_with_provider(Arc::clone(&provider))
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|e| bad(e.to_string()))?;
+    let builder = match client_ca_pem {
+        Some(ca) => {
+            let mut roots = RootCertStore::empty();
+            for c in rustls_pemfile::certs(&mut &ca[..]) {
+                roots
+                    .add(c.map_err(|e| bad(format!("bad client CA pem: {e}")))?)
+                    .map_err(|e| bad(format!("bad client CA: {e}")))?;
+            }
+            let verifier = WebPkiClientVerifier::builder_with_provider(Arc::new(roots), provider)
+                .build()
+                .map_err(|e| bad(e.to_string()))?;
+            builder.with_client_cert_verifier(verifier)
+        },
+        None => builder.with_no_client_auth(),
+    };
+    let mut cfg = builder
+        .with_single_cert(certs, key)
+        .map_err(|e| bad(e.to_string()))?;
+    cfg.alpn_protocols = vec![b"h2".to_vec()];
+    Ok(cfg)
+}
+
+/// TLS 1.3(任意でmTLS)でgRPCを提供する。本番の管理系はこちらを使う。
+#[cfg(feature = "tls")]
+pub async fn serve_grpc_tls(
+    addr: std::net::SocketAddr,
+    admin: Option<crate::grpc_admin::AdminGrpc>,
+    tls_config: tokio_rustls::rustls::ServerConfig,
+    opts: GrpcOptions,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    use hyper_util::rt::TokioIo;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind(addr).await?;
+    let bound_addr = listener.local_addr()?;
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls_config));
+    let handle = tokio::spawn(async move {
+        loop {
+            let (stream, _) = match listener.accept().await {
+                Ok(pair) => pair,
+                Err(_) => continue,
+            };
+            let acceptor = acceptor.clone();
+            let admin = admin.clone();
+            tokio::spawn(async move {
+                // ハンドシェイク失敗(TLS1.2以下、クライアント証明書なし、ポートスキャン等)は切るだけ。
+                let Ok(tls) = acceptor.accept(stream).await else {
+                    return;
+                };
+                let service = grpc_service(admin, opts);
+                let _ = h2_builder()
+                    .serve_connection(TokioIo::new(tls), service)
+                    .await;
+            });
+        }
+    });
     Ok((bound_addr, handle))
 }
 
@@ -850,7 +1061,10 @@ mod tests {
 
     #[test]
     fn decode_grpc_frame_rejects_truncated_input() {
-        assert_eq!(decode_grpc_frame(&[0, 0, 0]), Err(GrpcStatus::InvalidArgument));
+        assert_eq!(
+            decode_grpc_frame(&[0, 0, 0]),
+            Err(GrpcStatus::InvalidArgument)
+        );
     }
 
     #[test]
@@ -962,12 +1176,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // Empty HealthCheckRequest (no `service` field set).
         let request_body = encode_grpc_frame(&[]);
@@ -978,10 +1195,16 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let collected = resp
+            .collect()
+            .await
+            .expect("collecting body+trailers should succeed");
         let trailers = collected.trailers().cloned().unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
@@ -990,7 +1213,8 @@ mod tests {
         );
 
         let body_bytes = collected.to_bytes();
-        let message = decode_grpc_frame(&body_bytes).expect("response should be a valid gRPC frame");
+        let message =
+            decode_grpc_frame(&body_bytes).expect("response should be a valid gRPC frame");
         // HealthCheckResponse { status: SERVING } -> [0x08, 0x01], per the
         // dedicated unit test above.
         assert_eq!(message, &[0x08, 0x01]);
@@ -1003,9 +1227,21 @@ mod tests {
             .uri(format!("http://{addr}/no.such.Service/Method"))
             .body(Full::new(Bytes::new()))
             .unwrap();
-        let resp2 = client.request(req2).await.expect("HTTP/2 request should succeed");
-        let trailers2 = resp2.collect().await.unwrap().trailers().cloned().unwrap_or_default();
-        assert_eq!(trailers2.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+        let resp2 = client
+            .request(req2)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let trailers2 = resp2
+            .collect()
+            .await
+            .unwrap()
+            .trailers()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            trailers2.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("12")
+        ); // UNIMPLEMENTED
     }
 
     /// End-to-end test for the server-streaming `Watch` RPC, over the same
@@ -1019,12 +1255,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         let request_body = encode_grpc_frame(&[]);
         let req = HyperRequest::builder()
@@ -1034,10 +1273,16 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let collected = resp
+            .collect()
+            .await
+            .expect("collecting body+trailers should succeed");
         let trailers = collected.trailers().cloned().unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
@@ -1063,12 +1308,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // HealthCheckRequest { service: "nonexistent.Service" }
         let mut service_field = vec![0x0a, 19]; // tag(field 1, wire 2), len 19
@@ -1082,8 +1330,17 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
-        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let trailers = resp
+            .collect()
+            .await
+            .unwrap()
+            .trailers()
+            .cloned()
+            .unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
             Some("5"), // NOT_FOUND
@@ -1102,12 +1359,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // ServerReflectionRequest { list_services: "" } -> field 7, tag 0x3a, empty string.
         let request_message = [0x3a, 0x00];
@@ -1122,10 +1382,16 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let collected = resp
+            .collect()
+            .await
+            .expect("collecting body+trailers should succeed");
         let trailers = collected.trailers().cloned().unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
@@ -1136,7 +1402,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(
             as_str.contains("grpc.health.v1.Health"),
             "listed services should include the Health service"
@@ -1161,12 +1427,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // ServerReflectionRequest { file_containing_extension: ... } -> field 5.
         let mut request_message = vec![0x2a, 7]; // tag(field 5, wire 2), len 7
@@ -1182,9 +1451,21 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
-        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
-        assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("12")); // UNIMPLEMENTED
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let trailers = resp
+            .collect()
+            .await
+            .unwrap()
+            .trailers()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("12")
+        ); // UNIMPLEMENTED
     }
 
     /// End-to-end: `file_by_filename` for a filename this server actually
@@ -1199,12 +1480,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // ServerReflectionRequest { file_by_filename: "grpc/health/v1/health.proto" } -> field 3.
         let filename = "grpc/health/v1/health.proto";
@@ -1221,10 +1505,16 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let collected = resp
+            .collect()
+            .await
+            .expect("collecting body+trailers should succeed");
         let trailers = collected.trailers().cloned().unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
@@ -1235,7 +1525,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(
             as_str.contains("grpc.health.v1.Health"),
             "file descriptor response should embed the real FileDescriptorProto"
@@ -1252,12 +1542,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         let filename = "no/such/file.proto";
         let mut request_message = vec![0x1a, filename.len() as u8];
@@ -1273,8 +1566,17 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
-        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let trailers = resp
+            .collect()
+            .await
+            .unwrap()
+            .trailers()
+            .cloned()
+            .unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
             Some("5"), // NOT_FOUND
@@ -1289,7 +1591,10 @@ mod tests {
         let symbol = "grpc.health.v1.Health";
         let mut bytes = vec![0x22, symbol.len() as u8];
         bytes.extend_from_slice(symbol.as_bytes());
-        assert_eq!(extract_file_containing_symbol(&bytes).as_deref(), Some(symbol));
+        assert_eq!(
+            extract_file_containing_symbol(&bytes).as_deref(),
+            Some(symbol)
+        );
     }
 
     #[test]
@@ -1302,10 +1607,10 @@ mod tests {
 
     #[test]
     fn resolve_symbol_file_descriptor_recognizes_health_service_and_its_methods() {
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health").is_some());
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check").is_some());
-        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch").is_some());
-        assert!(resolve_symbol_file_descriptor("no.such.Service").is_none());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health", false).is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Check", false).is_some());
+        assert!(resolve_symbol_file_descriptor("grpc.health.v1.Health.Watch", false).is_some());
+        assert!(resolve_symbol_file_descriptor("no.such.Service", false).is_none());
     }
 
     #[test]
@@ -1330,8 +1635,8 @@ mod tests {
 
     #[test]
     fn resolve_filename_file_descriptor_recognizes_the_health_proto_file() {
-        assert!(resolve_filename_file_descriptor("grpc/health/v1/health.proto").is_some());
-        assert!(resolve_filename_file_descriptor("no/such/file.proto").is_none());
+        assert!(resolve_filename_file_descriptor("grpc/health/v1/health.proto", false).is_some());
+        assert!(resolve_filename_file_descriptor("no/such/file.proto", false).is_none());
     }
 
     #[test]
@@ -1366,12 +1671,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         // ServerReflectionRequest { file_containing_symbol: "grpc.health.v1.Health" } -> field 4.
         let symbol = "grpc.health.v1.Health";
@@ -1388,8 +1696,14 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
-        let collected = resp.collect().await.expect("collecting body+trailers should succeed");
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let collected = resp
+            .collect()
+            .await
+            .expect("collecting body+trailers should succeed");
         let trailers = collected.trailers().cloned().unwrap_or_default();
         assert_eq!(
             trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
@@ -1400,7 +1714,7 @@ mod tests {
         let body_bytes = collected.to_bytes();
         let message = decode_grpc_frame(&body_bytes)
             .expect("reflection response should be a valid gRPC-framed message");
-        let as_str = String::from_utf8_lossy(&message);
+        let as_str = String::from_utf8_lossy(message);
         assert!(as_str.contains("Health"));
         assert!(as_str.contains("Check"));
         assert!(as_str.contains("Watch"));
@@ -1417,12 +1731,15 @@ mod tests {
         use hyper_util::client::legacy::Client;
         use hyper_util::rt::TokioExecutor;
 
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let mut connector = HttpConnector::new();
         connector.enforce_http(false);
-        let client: Client<_, Full<Bytes>> =
-            Client::builder(TokioExecutor::new()).http2_only(true).build(connector);
+        let client: Client<_, Full<Bytes>> = Client::builder(TokioExecutor::new())
+            .http2_only(true)
+            .build(connector);
 
         let symbol = "no.such.Service";
         let mut request_message = vec![0x22, symbol.len() as u8];
@@ -1438,9 +1755,21 @@ mod tests {
             .body(Full::new(request_body))
             .unwrap();
 
-        let resp = client.request(req).await.expect("HTTP/2 request should succeed");
-        let trailers = resp.collect().await.unwrap().trailers().cloned().unwrap_or_default();
-        assert_eq!(trailers.get("grpc-status").and_then(|v| v.to_str().ok()), Some("5")); // NOT_FOUND
+        let resp = client
+            .request(req)
+            .await
+            .expect("HTTP/2 request should succeed");
+        let trailers = resp
+            .collect()
+            .await
+            .unwrap()
+            .trailers()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            trailers.get("grpc-status").and_then(|v| v.to_str().ok()),
+            Some("5")
+        ); // NOT_FOUND
     }
 
     /// End-to-end test of `check_remote_health` -- the "Cosmo Connect"
@@ -1451,7 +1780,9 @@ mod tests {
     /// itself in memory.
     #[tokio::test]
     async fn check_remote_health_reports_serving_for_known_service() {
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let status = check_remote_health(&addr.to_string(), "")
             .await
@@ -1461,10 +1792,15 @@ mod tests {
 
     #[tokio::test]
     async fn check_remote_health_errors_for_unknown_service() {
-        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap()).await.expect("bind grpc port");
+        let (addr, _handle) = serve_grpc("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind grpc port");
 
         let result = check_remote_health(&addr.to_string(), "nonexistent.Service").await;
-        assert!(result.is_err(), "checking an unknown service name should surface as an error, not SERVING");
+        assert!(
+            result.is_err(),
+            "checking an unknown service name should surface as an error, not SERVING"
+        );
     }
 
     #[tokio::test]

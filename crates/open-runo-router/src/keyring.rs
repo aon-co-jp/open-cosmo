@@ -150,7 +150,11 @@ impl KeyGuardian {
         roles: Vec<String>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<String> {
-        let plaintext = format!("orn_{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
+        let plaintext = format!(
+            "orn_{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        );
         let record = KeyRecord {
             owner: owner.to_string(),
             roles,
@@ -171,7 +175,7 @@ impl KeyGuardian {
     pub async fn revoke_owner(&self, owner: &str) -> Result<usize> {
         let mut revoked = 0;
         for rec in self.db.list(TABLE).await? {
-            if let Ok(mut record) = serde_json::from_str::<KeyRecord>(&rec.value) {
+            if let Ok(mut record) = sonic_rs::from_str::<KeyRecord>(&rec.value) {
                 if record.owner == owner && !record.revoked {
                     record.revoked = true;
                     if let Ok(json) = serde_json::to_string(&record) {
@@ -187,7 +191,10 @@ impl KeyGuardian {
     /// Verify a plaintext key, learn its usage, and auto-defend.
     pub async fn verify(&self, key: &str, now: DateTime<Utc>) -> KeyDecision {
         // Empty-registry fast path (dev mode).
-        if !self.known_nonempty.load(std::sync::atomic::Ordering::Relaxed) {
+        if !self
+            .known_nonempty
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             match self.db.list(TABLE).await {
                 Ok(records) if records.is_empty() => return KeyDecision::RegistryEmpty,
                 Ok(_) => self
@@ -202,7 +209,7 @@ impl KeyGuardian {
             Ok(Some(raw)) => raw,
             _ => return KeyDecision::Rejected,
         };
-        let record: KeyRecord = match serde_json::from_str(&raw) {
+        let record: KeyRecord = match sonic_rs::from_str(&raw) {
             Ok(r) => r,
             Err(_) => return KeyDecision::Rejected,
         };
@@ -255,7 +262,10 @@ impl KeyGuardian {
         u.requests = u.requests.saturating_add(1);
         u.last_seen = Some(now);
 
-        KeyDecision::Ok { owner: record.owner, roles: record.roles }
+        KeyDecision::Ok {
+            owner: record.owner,
+            roles: record.roles,
+        }
     }
 }
 
@@ -281,25 +291,34 @@ mod tests {
     #[tokio::test]
     async fn empty_registry_stays_permissive() {
         let g = guardian();
-        assert_eq!(g.verify("anything", Utc::now()).await, KeyDecision::RegistryEmpty);
+        assert_eq!(
+            g.verify("anything", Utc::now()).await,
+            KeyDecision::RegistryEmpty
+        );
     }
 
     #[tokio::test]
     async fn issue_verify_roundtrip_with_roles() {
         let g = guardian();
-        let key = g.issue("alice", vec!["developer".into()], None).await.unwrap();
+        let key = g
+            .issue("alice", vec!["developer".into()], None)
+            .await
+            .unwrap();
         assert!(key.starts_with("orn_"));
 
         match g.verify(&key, Utc::now()).await {
             KeyDecision::Ok { owner, roles } => {
                 assert_eq!(owner, "alice");
                 assert_eq!(roles, vec!["developer".to_string()]);
-            }
+            },
             other => panic!("expected Ok, got {other:?}"),
         }
 
         // Once a key exists, unknown keys are rejected (auto-hardening).
-        assert_eq!(g.verify("wrong-key", Utc::now()).await, KeyDecision::Rejected);
+        assert_eq!(
+            g.verify("wrong-key", Utc::now()).await,
+            KeyDecision::Rejected
+        );
     }
 
     #[tokio::test]
@@ -312,7 +331,10 @@ mod tests {
         assert_eq!(g.revoke_owner("bob").await.unwrap(), 2);
         assert_eq!(g.verify(&k1, Utc::now()).await, KeyDecision::Rejected);
         assert_eq!(g.verify(&k2, Utc::now()).await, KeyDecision::Rejected);
-        assert!(matches!(g.verify(&alice, Utc::now()).await, KeyDecision::Ok { .. }));
+        assert!(matches!(
+            g.verify(&alice, Utc::now()).await,
+            KeyDecision::Ok { .. }
+        ));
     }
 
     #[tokio::test]
@@ -336,7 +358,10 @@ mod tests {
         // Warm-up: a steady request every 60 s teaches the normal rate.
         for i in 0..4 {
             let decision = g.verify(&key, t0 + Duration::seconds(60 * i)).await;
-            assert!(matches!(decision, KeyDecision::Ok { .. }), "warmup {i}: {decision:?}");
+            assert!(
+                matches!(decision, KeyDecision::Ok { .. }),
+                "warmup {i}: {decision:?}"
+            );
         }
         let after_warmup = t0 + Duration::seconds(180);
 

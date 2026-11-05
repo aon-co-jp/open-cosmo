@@ -29,11 +29,11 @@ pub fn apply_compatibility(mut payload: Value, rules: &[CompatibilityRule]) -> V
                     if let Some(v) = map.remove(new_name.as_str()) {
                         map.insert(old_name.clone(), v);
                     }
-                }
+                },
                 CompatibilityRule::RemovedFieldDefault { field, default } => {
                     map.entry(field.clone()).or_insert_with(|| default.clone());
-                }
-                CompatibilityRule::Deprecated { .. } => {}
+                },
+                CompatibilityRule::Deprecated { .. } => {},
             }
         }
     }
@@ -46,7 +46,9 @@ pub fn deprecated_fields(rules: &[CompatibilityRule]) -> Vec<(&str, &str)> {
     rules
         .iter()
         .filter_map(|r| match r {
-            CompatibilityRule::Deprecated { field, since } => Some((field.as_str(), since.as_str())),
+            CompatibilityRule::Deprecated { field, since } => {
+                Some((field.as_str(), since.as_str()))
+            },
             _ => None,
         })
         .collect()

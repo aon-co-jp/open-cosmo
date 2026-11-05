@@ -219,14 +219,15 @@ mod tests {
             created_at: "2026-07-11T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&v).unwrap();
-        let back: SchemaVersion = serde_json::from_str(&json).unwrap();
+        let back: SchemaVersion = sonic_rs::from_str(&json).unwrap();
         assert_eq!(v, back);
     }
 
     #[test]
     fn register_schema_request_defaults_stage_and_namespace() {
         let req: RegisterSchemaRequest =
-            serde_json::from_str(r#"{"service_name": "users", "sdl": "type User { id: ID! }"}"#).unwrap();
+            sonic_rs::from_str(r#"{"service_name": "users", "sdl": "type User { id: ID! }"}"#)
+                .unwrap();
         assert_eq!(req.stage, "local");
         assert_eq!(req.namespace, None);
     }
@@ -234,15 +235,18 @@ mod tests {
     #[test]
     fn schema_history_response_wraps_versions() {
         let json = r#"{"versions": []}"#;
-        let resp: SchemaHistoryResponse = serde_json::from_str(json).unwrap();
+        let resp: SchemaHistoryResponse = sonic_rs::from_str(json).unwrap();
         assert!(resp.versions.is_empty());
     }
 
     #[test]
     fn rate_limited_response_roundtrips_through_json() {
-        let r = RateLimitedResponse { error: "rate limit exceeded".to_string(), retry_after_secs: 42 };
+        let r = RateLimitedResponse {
+            error: "rate limit exceeded".to_string(),
+            retry_after_secs: 42,
+        };
         let json = serde_json::to_string(&r).unwrap();
-        let back: RateLimitedResponse = serde_json::from_str(&json).unwrap();
+        let back: RateLimitedResponse = sonic_rs::from_str(&json).unwrap();
         assert_eq!(back.retry_after_secs, 42);
     }
 
@@ -250,8 +254,9 @@ mod tests {
     fn db_record_list_response_includes_table() {
         // This is exactly the field the WASM frontend's independent copy
         // of this shape used to silently drop.
-        let json = r#"{"table": "users", "count": 1, "records": [{"key": "1", "value": {"name": "a"}}]}"#;
-        let resp: DbRecordListResponse = serde_json::from_str(json).unwrap();
+        let json =
+            r#"{"table": "users", "count": 1, "records": [{"key": "1", "value": {"name": "a"}}]}"#;
+        let resp: DbRecordListResponse = sonic_rs::from_str(json).unwrap();
         assert_eq!(resp.table, "users");
         assert_eq!(resp.records[0].key, "1");
     }
@@ -259,7 +264,7 @@ mod tests {
     #[test]
     fn db_record_response_includes_table() {
         let json = r#"{"table": "users", "key": "1", "value": "hello"}"#;
-        let resp: DbRecordResponse = serde_json::from_str(json).unwrap();
+        let resp: DbRecordResponse = sonic_rs::from_str(json).unwrap();
         assert_eq!(resp.table, "users");
         assert_eq!(resp.value, serde_json::json!("hello"));
     }
@@ -268,16 +273,19 @@ mod tests {
     fn db_routing_info_roundtrips_through_json() {
         let info = DbRoutingInfo {
             default_target: "postgresql".to_string(),
-            entries: vec![DbRoutingEntry { table: "sessions".to_string(), target: "postgresql".to_string() }],
+            entries: vec![DbRoutingEntry {
+                table: "sessions".to_string(),
+                target: "postgresql".to_string(),
+            }],
         };
         let json = serde_json::to_string(&info).unwrap();
-        let back: DbRoutingInfo = serde_json::from_str(&json).unwrap();
+        let back: DbRoutingInfo = sonic_rs::from_str(&json).unwrap();
         assert_eq!(back.entries[0].table, "sessions");
     }
 
     #[test]
     fn feature_flag_request_defaults_enabled_and_rollout_and_description() {
-        let req: FeatureFlagRequest = serde_json::from_str(r#"{"name": "new-checkout"}"#).unwrap();
+        let req: FeatureFlagRequest = sonic_rs::from_str(r#"{"name": "new-checkout"}"#).unwrap();
         assert!(req.enabled);
         assert_eq!(req.rollout_percent, 100);
         assert_eq!(req.description, "");
@@ -292,14 +300,14 @@ mod tests {
             description: "canary".to_string(),
         };
         let json = serde_json::to_string(&f).unwrap();
-        let back: FeatureFlagResponse = serde_json::from_str(&json).unwrap();
+        let back: FeatureFlagResponse = sonic_rs::from_str(&json).unwrap();
         assert_eq!(f, back);
     }
 
     #[test]
     fn feature_flag_list_response_wraps_flags() {
         let json = r#"{"flags": []}"#;
-        let resp: FeatureFlagListResponse = serde_json::from_str(json).unwrap();
+        let resp: FeatureFlagListResponse = sonic_rs::from_str(json).unwrap();
         assert!(resp.flags.is_empty());
     }
 

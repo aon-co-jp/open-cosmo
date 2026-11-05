@@ -99,7 +99,7 @@ pub fn mount() {
     };
     let _ = content;
 
-    for page in ["dashboard", "schemas", "federation", "ai-routing", "db", "scim", "persisted-queries", "feature-flags", "cache-backup", "analytics"] {
+    for page in ["dashboard", "schemas", "federation", "ai-routing", "db", "scim", "persisted-queries", "feature-flags", "cache-backup", "analytics", "inspector"] {
         let link_id = format!("nav-{page}");
         on_click(&link_id, move || navigate(page));
     }
@@ -108,6 +108,8 @@ pub fn mount() {
 }
 
 fn navigate(page: &str) {
+    // ページを離れるときはイベント購読を止める(ダッシュボード/Inspectorが開始したもの)。
+    stop_watch();
     let document = document();
     if let Some(nav_list) = document.get_element_by_id("sidebar-nav") {
         let links = nav_list.query_selector_all("a").ok();
@@ -134,6 +136,7 @@ fn navigate(page: &str) {
         "feature-flags" => render_feature_flags(),
         "cache-backup" => render_cache_backup(),
         "analytics" => render_analytics(),
+        "inspector" => render_inspector(),
         _ => {}
     }
 }
@@ -141,8 +144,14 @@ fn navigate(page: &str) {
 fn render_dashboard() {
     let Some(content) = content_el() else { return };
     content.set_inner_html(
-        r#"<h2>Dashboard</h2><p id="health-status">Checking backend health…</p>"#,
+        r#"<h2>Dashboard</h2><p id="health-status">Checking backend health…</p>
+        <fieldset>
+          <legend>Live events (Connect streaming)</legend>
+          <p style="color: var(--muted); font-size: 0.85rem;">スキーマ登録・履歴の増加がここに流れます(サーバーストリーミング)。</p>
+          <ul id="live-events"><li>waiting…</li></ul>
+        </fieldset>"#,
     );
+    start_watch("live-events");
     wasm_bindgen_futures::spawn_local(async move {
         match api::health_check().await {
             Ok(h) => set_text(
@@ -815,8 +824,8 @@ fn render_cache_backup() {
 /// Analytics page (Cosmo Studio parity, `docs/cosmo-parity.md` 4a):
 /// monthly request-count metering + per-operation latency/error-rate,
 /// both served from `open_runo_observability::RequestMetrics`'s
-/// in-process aggregates via Connect `RequestsPerMonth` and
-/// `OperationsSummary`. An operational dashboard, not a
+/// in-process aggregates via `GET /api/analytics/requests-per-month` and
+/// `GET /api/analytics/operations`. An operational dashboard, not a
 /// billing/rate-limit surface -- see those handlers' doc comments.
 fn render_analytics() {
     let Some(content) = content_el() else { return };
@@ -886,4 +895,159 @@ fn render_analytics() {
 
     on_click("analytics-refresh-btn", load);
     load();
+}
+
+// ── イベント購読(サーバーストリーミング)と RPC Inspector ─────────────────
+
+thread_local! {
+    static WATCH: std::cell::RefCell<Option<api::WatchHandle>> = const { std::cell::RefCell::new(None) };
+    static EVENTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+fn stop_watch() {
+    WATCH.with(|w| {
+        if let Some(h) = w.borrow_mut().take() {
+            h.stop();
+        }
+    });
+}
+
+fn render_events(list_id: &str) {
+    let Some(el) = by_id(list_id) else { return };
+    let html = EVENTS.with(|e| {
+        let e = e.borrow();
+        if e.is_empty() {
+            "<li>waiting…</li>".to_string()
+        } else {
+            e.iter().rev().take(50).map(|l| format!("<li>{}</li>", html_escape(l))).collect()
+        }
+    });
+    el.set_inner_html(&html);
+}
+
+/// `list_id`の`<ul>`へイベントを流し込む購読を始める(すでにあれば張り替える)。
+fn start_watch(list_id: &str) {
+    stop_watch();
+    let id = list_id.to_string();
+    let id_end = id.clone();
+    let on_event = move |ev: open_runo_proto::v1::AdminEvent| {
+        use open_runo_proto::v1::admin_event::Event;
+        let line = match ev.event {
+            Some(Event::Schema(s)) => format!("schema: {} @{} ({})", s.service_name, s.stage, s.at),
+            Some(Event::History(h)) => format!("history: {} entries", h.history_len),
+            None => return,
+        };
+        EVENTS.with(|e| e.borrow_mut().push(line));
+        render_events(&id);
+    };
+    let on_end = move |err: String| {
+        if !err.is_empty() {
+            EVENTS.with(|e| e.borrow_mut().push(format!("stream ended: {err}")));
+            render_events(&id_end);
+        }
+    };
+    match api::watch_events(on_event, on_end) {
+        Ok(h) => WATCH.with(|w| *w.borrow_mut() = Some(h)),
+        Err(e) => set_text(list_id, &format!("cannot start stream: {e}")),
+    }
+}
+
+fn render_inspector_table() {
+    let entries = api::log_entries();
+    let rows: String = entries
+        .iter()
+        .rev()
+        .take(100)
+        .map(|e| {
+            let status = if e.grpc_code == 0 { "OK".to_string() } else { open_runo_proto::code::name(e.grpc_code).to_string() };
+            format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{:.0}</td></tr>\
+                 <tr><td colspan=\"5\"><details><summary>request / response</summary>\
+                 <pre>request:  {}\nresponse: {}</pre></details></td></tr>",
+                html_escape(&e.method),
+                e.wire,
+                if e.http_status == 0 { "-".to_string() } else { e.http_status.to_string() },
+                status,
+                e.ms,
+                html_escape(&e.request),
+                html_escape(&e.response),
+            )
+        })
+        .collect();
+    if let Some(body) = by_id("insp-body") {
+        body.set_inner_html(&rows);
+    }
+    set_text("insp-wire", api::current_wire().name());
+    set_text("insp-debug", if api::is_debug() { "ON" } else { "OFF" });
+    set_text("insp-count", &format!("{} calls recorded", entries.len()));
+}
+
+fn render_inspector() {
+    let Some(content) = content_el() else { return };
+    content.set_inner_html(
+        r#"<h2>RPC Inspector</h2>
+        <p style="color: var(--muted); font-size: 0.85rem;">
+          管理画面の通信(Connect / gRPC-web)の記録と診断。<b>Connect</b>ならエラーがHTTPステータスとして
+          開発者ツールのNetworkタブにそのまま見えます。コンソール出力をONにすると、各呼び出しが
+          折りたたみグループで開発者ツールのConsoleにも出ます。
+        </p>
+        <fieldset>
+          <legend>Transport</legend>
+          <p>Wire: <b id="insp-wire"></b> &nbsp; Console log: <b id="insp-debug"></b> &nbsp; <span id="insp-count"></span></p>
+          <button id="insp-toggle-wire">Connect ⇄ gRPC-web</button>
+          <button id="insp-toggle-debug">Console log ON/OFF</button>
+          <button id="insp-refresh">Refresh</button>
+          <button id="insp-clear">Clear</button>
+        </fieldset>
+        <fieldset>
+          <legend>Concurrency</legend>
+          <button id="insp-parallel">20 parallel calls</button>
+          <pre id="insp-parallel-result"></pre>
+        </fieldset>
+        <fieldset>
+          <legend>Event stream (server streaming)</legend>
+          <button id="insp-watch-start">Start</button>
+          <button id="insp-watch-stop">Stop</button>
+          <ul id="insp-events"><li>stopped</li></ul>
+        </fieldset>
+        <fieldset>
+          <legend>Calls (newest first)</legend>
+          <table><thead><tr><th>Method</th><th>Wire</th><th>HTTP</th><th>gRPC</th><th>ms</th></tr></thead>
+          <tbody id="insp-body"></tbody></table>
+        </fieldset>"#,
+    );
+    render_inspector_table();
+    on_click("insp-refresh", render_inspector_table);
+    on_click("insp-clear", || {
+        api::clear_log();
+        render_inspector_table();
+    });
+    on_click("insp-toggle-wire", || {
+        api::set_wire(match api::current_wire() {
+            api::Wire::Connect => api::Wire::GrpcWeb,
+            api::Wire::GrpcWeb => api::Wire::Connect,
+        });
+        render_inspector_table();
+    });
+    on_click("insp-toggle-debug", || {
+        api::set_debug(!api::is_debug());
+        render_inspector_table();
+    });
+    on_click("insp-parallel", || {
+        set_text("insp-parallel-result", "running…");
+        wasm_bindgen_futures::spawn_local(async move {
+            let (ok, ms) = api::concurrency_probe(20).await;
+            set_text("insp-parallel-result", &format!("{ok}/20 succeeded in {ms:.0} ms (all started at once)"));
+            render_inspector_table();
+        });
+    });
+    on_click("insp-watch-start", || start_watch("insp-events"));
+    on_click("insp-watch-stop", || {
+        stop_watch();
+        set_text("insp-events", "stopped");
+    });
 }

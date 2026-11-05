@@ -9,8 +9,8 @@
 use crate::acme::ChallengeStore;
 use crate::session::{SessionBackend, SessionStore};
 use open_runo_db::{DbBackend, InMemoryBackend};
-use open_runo_federation::ComposedSchema;
 use open_runo_feature_flags::FeatureFlagRegistry;
+use open_runo_federation::ComposedSchema;
 use open_runo_history::History;
 use open_runo_observability::{InMemorySink, RequestMetrics};
 use open_runo_schema_registry::SchemaRegistry;
@@ -47,7 +47,10 @@ pub struct AppState {
     /// not durable application data.
     pub feature_flags: Arc<Mutex<FeatureFlagRegistry>>,
     /// Cookie-based sessions, additive to `X-Api-Key` auth (Poem-parity
-    /// gap: Cookie/session management, see `session.rs`).
+    /// gap: Cookie/session management, see `session.rs`). In-memory
+    /// (`SessionStore`) by default; swap in a `redis_backend::
+    /// RedisSessionStore` via [`Self::with_sessions`] for multi-instance
+    /// deployments.
     pub sessions: Arc<dyn SessionBackend>,
     /// Published HTTP-01 challenge responses, served at
     /// `GET /.well-known/acme-challenge/:token` (Poem-parity gap: ACME,
@@ -71,6 +74,14 @@ pub struct AppState {
     /// or billing (see `open_runo_observability::request_metrics` doc
     /// comment).
     pub request_metrics: Arc<RequestMetrics>,
+    /// UDP-IP冗長経路(即時通知)の受信カウンタ(`udp_notice.rs`)。常に
+    /// 存在するが、`OPEN_RUNO_UDP_NOTICE_BIND`未設定ならリスナー自体が
+    /// 起動しないため増えないだけ(他の`Option`系フィールドと同じ既定
+    /// オフの流儀)。
+    pub udp_notice_stats: Arc<crate::udp_notice::NoticeStats>,
+    /// HTMLページキャッシュ。RESTの`/api/cache/*`とGraphQLの`purgeCache*`
+    /// ミューテーションが同じインスタンスを消去できるよう`AppState`が持つ。
+    pub page_cache: Arc<crate::middleware::html_cache::HtmlPageCache>,
 }
 
 impl AppState {
@@ -87,6 +98,8 @@ impl AppState {
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
+            udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
+            page_cache: default_page_cache(),
         }
     }
 
@@ -103,6 +116,8 @@ impl AppState {
             acme_challenges: Arc::new(ChallengeStore::new()),
             edfs_publish: Arc::new(Mutex::new(None)),
             request_metrics: default_request_metrics(),
+            udp_notice_stats: Arc::new(crate::udp_notice::NoticeStats::default()),
+            page_cache: default_page_cache(),
         }
     }
 
@@ -119,7 +134,7 @@ impl AppState {
     /// `build_hyper_app`'s rate-limiter setup, this doesn't connect to
     /// Redis itself; the caller connects (an async operation) and passes
     /// in the already-built `Arc<dyn SessionBackend>`, keeping `AppState`
-    /// construction itself synchronous (used directly by many existing
+    /// construction itself synchronous (used directly by ~150 existing
     /// `#[tokio::test]` call sites that would otherwise all need an
     /// `.await` added for no behavioral benefit in tests).
     pub fn with_sessions(mut self, sessions: Arc<dyn SessionBackend>) -> Self {
@@ -136,6 +151,12 @@ impl AppState {
 /// buffered (so `buffered_len()`/`flush()` behave identically in tests)
 /// but simply accumulate in an `InMemorySink` that nothing ever reads
 /// back out of in production.
+fn default_page_cache() -> Arc<crate::middleware::html_cache::HtmlPageCache> {
+    Arc::new(crate::middleware::html_cache::HtmlPageCache::new(
+        crate::middleware::html_cache::HtmlCacheConfig::from_env(),
+    ))
+}
+
 fn default_request_metrics() -> Arc<RequestMetrics> {
     #[cfg(feature = "clickhouse")]
     if let Ok(url) = std::env::var("OPEN_RUNO_CLICKHOUSE_URL") {

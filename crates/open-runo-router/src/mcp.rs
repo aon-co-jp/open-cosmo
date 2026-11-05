@@ -4,22 +4,24 @@
 //! call a server's capabilities as structured "tools" instead of scraping
 //! its REST API by hand.
 //!
-//! Implements the JSON-RPC 2.0 message layer and the `initialize` /
-//! `tools/list` / `tools/call` methods over a single `POST /mcp` endpoint
-//! (the ["Streamable HTTP" transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)'s
+//! Implements the JSON-RPC 2.0 message layer and all three MCP capability
+//! types -- `tools/list` + `tools/call`, `resources/list` +
+//! `resources/read`, and `prompts/list` + `prompts/get` -- plus
+//! `initialize`, over a single `POST /mcp` endpoint (the
+//! ["Streamable HTTP" transport](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http)'s
 //! simple case: one JSON-RPC request in, one JSON-RPC response out, no
-//! SSE stream -- sufficient for stateless tool calls, which is all this
-//! server exposes). Resources and prompts (the other two MCP capability
-//! types) aren't implemented; only tools. No new dependencies -- this is
-//! JSON-RPC over the same `read_json_body`/`json_response` machinery
-//! every other handler in this crate already uses.
+//! SSE stream -- sufficient for stateless calls, which is all this server
+//! exposes). No new dependencies -- this is JSON-RPC over the same
+//! `read_json_body`/`json_response` machinery every other handler in this
+//! crate already uses.
 //!
-//! Two real tools are exposed, both backed by production code paths (not
-//! MCP-only stubs): `health_check` (same logic as `GET /health`) and
-//! `self_issue_api_key` (same logic as `POST /api/keys/self-issue`) --
-//! letting an MCP client obtain a working API key for this server's REST
-//! API without a human ever typing one, the same "no human key
-//! management" property `KeyGuardian` already provides over HTTP.
+//! Every capability is backed by a production code path, not an
+//! MCP-only stub: the two tools (`health_check`, `self_issue_api_key`)
+//! reuse the same logic as `GET /health` and `POST /api/keys/self-issue`;
+//! the two resources (`openapi://spec`, `health://status`) serve the same
+//! data as `GET /api/openapi.json` and `GET /health`; the one prompt
+//! (`summarize_api`) is rendered from the same live `openapi::spec()` the
+//! `openapi://spec` resource serves.
 
 use crate::hyper_compat::{empty_status, json_response, read_json_body, Handler};
 use crate::keyring::KeyGuardian;
@@ -61,11 +63,24 @@ struct JsonRpcResponse {
 }
 
 fn ok_response(id: Value, result: Value) -> JsonRpcResponse {
-    JsonRpcResponse { jsonrpc: "2.0", id, result: Some(result), error: None }
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: Some(result),
+        error: None,
+    }
 }
 
 fn err_response(id: Value, code: i64, message: impl Into<String>) -> JsonRpcResponse {
-    JsonRpcResponse { jsonrpc: "2.0", id, result: None, error: Some(JsonRpcError { code, message: message.into() }) }
+    JsonRpcResponse {
+        jsonrpc: "2.0",
+        id,
+        result: None,
+        error: Some(JsonRpcError {
+            code,
+            message: message.into(),
+        }),
+    }
 }
 
 /// The `initialize` handshake response: this server's protocol version,
@@ -91,7 +106,7 @@ fn prompts_list_result() -> Value {
         "prompts": [
             {
                 "name": "summarize_api",
-                "description": "Ask the model to summarize this server's REST API surface, sourced from its live OpenAPI 3.0 document.",
+                "description": "Ask the model to summarize this server's remaining non-GraphQL HTTP surface, sourced from its live OpenAPI 3.0 document.",
                 "arguments": [],
             },
         ]
@@ -120,7 +135,7 @@ fn get_prompt(name: &str) -> Result<Value, String> {
                     },
                 }],
             }))
-        }
+        },
         other => Err(format!("unknown prompt: {other}")),
     }
 }
@@ -135,7 +150,7 @@ fn resources_list_result() -> Value {
             {
                 "uri": "openapi://spec",
                 "name": "OpenAPI specification",
-                "description": "This server's REST API described as OpenAPI 3.0 -- the same document GET /api/openapi.json serves.",
+                "description": "The non-GraphQL surface left on this server (health/ACME/MCP/SCIM/internal) as OpenAPI 3.0. Admin operations are GraphQL: POST /graphql, schema at GET /graphql/schema.graphql.",
                 "mimeType": "application/json",
             },
             {
@@ -218,25 +233,34 @@ async fn call_health_check() -> Value {
 async fn call_self_issue_api_key(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>) -> Value {
     let owner = format!("mcp-client-{}", uuid::Uuid::new_v4());
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(SELF_ISSUE_KEY_TTL_HOURS);
-    match guardian.issue(&owner, vec!["developer".to_string()], Some(expires_at)).await {
+    match guardian
+        .issue(&owner, vec!["developer".to_string()], Some(expires_at))
+        .await
+    {
         Ok(api_key) => {
             crate::audit::record(state, "mcp-server", "key.self_issue", owner).await;
             tool_content(&json!({ "api_key": api_key, "expires_at": expires_at.to_rfc3339() }))
-        }
+        },
         Err(e) => tool_error(format!("failed to issue API key: {e}")),
     }
 }
 
-async fn dispatch(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>, req: JsonRpcRequest) -> Option<JsonRpcResponse> {
+async fn dispatch(
+    state: &Arc<AppState>,
+    guardian: &Arc<KeyGuardian>,
+    req: JsonRpcRequest,
+) -> Option<JsonRpcResponse> {
     // A JSON-RPC *notification* has no `id` and must receive no response
     // at all (not even an empty one) -- `notifications/initialized` is
     // the one an MCP client sends after a successful `initialize`.
-    let Some(id) = req.id else {
-        return None;
-    };
+    let id = req.id?;
 
     if req.jsonrpc != "2.0" {
-        return Some(err_response(id, -32600, "invalid request: jsonrpc must be \"2.0\""));
+        return Some(err_response(
+            id,
+            -32600,
+            "invalid request: jsonrpc must be \"2.0\"",
+        ));
     }
 
     Some(match req.method.as_str() {
@@ -255,7 +279,7 @@ async fn dispatch(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>, req: JsonR
                 // equivalent "soft failure" envelope to report it inside.
                 Err(message) => err_response(id, -32602, message),
             }
-        }
+        },
         "prompts/list" => ok_response(id, prompts_list_result()),
         "prompts/get" => {
             let Some(name) = req.params.get("name").and_then(Value::as_str) else {
@@ -265,7 +289,7 @@ async fn dispatch(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>, req: JsonR
                 Ok(result) => ok_response(id, result),
                 Err(message) => err_response(id, -32602, message),
             }
-        }
+        },
         "tools/call" => {
             let Some(name) = req.params.get("name").and_then(Value::as_str) else {
                 return Some(err_response(id, -32602, "invalid params: missing \"name\""));
@@ -276,7 +300,7 @@ async fn dispatch(state: &Arc<AppState>, guardian: &Arc<KeyGuardian>, req: JsonR
                 other => tool_error(format!("unknown tool: {other}")),
             };
             ok_response(id, result)
-        }
+        },
         other => err_response(id, -32601, format!("method not found: {other}")),
     })
 }
@@ -314,14 +338,19 @@ mod tests {
     use hyper::Method;
 
     fn guardian(state: &Arc<AppState>) -> Arc<KeyGuardian> {
-        Arc::new(KeyGuardian::new(Arc::clone(&state.db), GuardianConfig::from_env()))
+        Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ))
     }
 
     async fn start() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
         let state = Arc::new(AppState::new());
         let guardian = guardian(&state);
         let router = Router::new().route(Method::POST, "/mcp", mcp_handler(state, guardian));
-        serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port")
+        serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port")
     }
 
     #[tokio::test]
@@ -380,7 +409,10 @@ mod tests {
             .expect("request should succeed");
         let body: Value = resp.json().await.unwrap();
         let resources = body["result"]["resources"].as_array().unwrap();
-        let uris: Vec<&str> = resources.iter().map(|r| r["uri"].as_str().unwrap()).collect();
+        let uris: Vec<&str> = resources
+            .iter()
+            .map(|r| r["uri"].as_str().unwrap())
+            .collect();
         assert!(uris.contains(&"openapi://spec"));
         assert!(uris.contains(&"health://status"));
     }
@@ -460,7 +492,9 @@ mod tests {
         assert_eq!(body["result"]["isError"], false);
         let text = body["result"]["content"][0]["text"].as_str().unwrap();
         let inner: Value = serde_json::from_str(text).unwrap();
-        let api_key = inner["api_key"].as_str().expect("api_key should be a string");
+        let api_key = inner["api_key"]
+            .as_str()
+            .expect("api_key should be a string");
         assert!(!api_key.is_empty());
     }
 
@@ -476,7 +510,11 @@ mod tests {
             .send()
             .await
             .expect("request should succeed");
-        assert_eq!(resp.status(), reqwest::StatusCode::OK, "an unknown tool is a tool-level error, not an HTTP-level one");
+        assert_eq!(
+            resp.status(),
+            reqwest::StatusCode::OK,
+            "an unknown tool is a tool-level error, not an HTTP-level one"
+        );
         let body: Value = resp.json().await.unwrap();
         assert_eq!(body["result"]["isError"], true);
     }

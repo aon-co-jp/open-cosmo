@@ -14,7 +14,12 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+pub mod appserver_processes;
+pub mod appserver_tenants;
+pub mod demo;
 pub mod graphql_hyper;
+pub mod remote_subgraphs;
+pub mod security;
 pub mod ssr;
 
 use async_graphql::{Context, Object, Schema, SimpleObject, Subscription};
@@ -46,6 +51,26 @@ struct FederationStatusGql {
     type_names: Vec<String>,
 }
 
+/// Result of the `grpcHealthCheck` field -- the "Cosmo Connect"
+/// Cosmo-parity gap (`docs/cosmo-parity.md` §4a): bringing an existing
+/// gRPC service (this server's own, or a genuinely external one) into
+/// the GraphQL layer as a queryable field via
+/// `open_runo_router::grpc::check_remote_health`.
+#[derive(SimpleObject)]
+struct GrpcHealthCheckGql {
+    /// The `host:port` that was queried.
+    endpoint: String,
+    /// The gRPC service name that was checked (empty string means
+    /// "overall server health", per the `grpc.health.v1.Health` spec).
+    service: String,
+    /// `true` iff the remote service reported `SERVING`.
+    serving: bool,
+    /// Present (and `serving: false`) if the call failed outright
+    /// (connection refused, malformed response, unknown service, etc.)
+    /// rather than returning a non-SERVING status.
+    error: Option<String>,
+}
+
 fn stage_name(stage: Stage) -> &'static str {
     match stage {
         Stage::Local => "local",
@@ -64,6 +89,7 @@ fn parse_stage(s: &str) -> Stage {
     }
 }
 
+/// 公開Query(認証なし)。管理操作はgRPC(`open_runo.admin.v1.Admin`)へ移したのでここには無い。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueryRoot;
 
@@ -73,6 +99,38 @@ impl QueryRoot {
     /// endpoint without touching domain data.
     async fn health(&self) -> &'static str {
         "ok"
+    }
+
+    /// "Cosmo Connect" parity field (`docs/cosmo-parity.md` §4a): call
+    /// `grpc.health.v1.Health/Check` against any gRPC service at
+    /// `endpoint` (`host:port`, h2c/no TLS) and surface its status
+    /// through GraphQL, so a client doesn't need to speak gRPC directly
+    /// to bring an existing gRPC service's health into a federated
+    /// query. `service` defaults to the empty string ("overall server
+    /// health"). Connection/protocol failures are reported via `error`
+    /// rather than as a GraphQL-level error, since "the remote service is
+    /// unreachable" is itself meaningful health information, not a query
+    /// execution failure.
+    async fn grpc_health_check(
+        &self,
+        endpoint: String,
+        service: Option<String>,
+    ) -> GrpcHealthCheckGql {
+        let service = service.unwrap_or_default();
+        match open_runo_router::grpc::check_remote_health(&endpoint, &service).await {
+            Ok(status) => GrpcHealthCheckGql {
+                endpoint,
+                service,
+                serving: status == open_runo_router::grpc::ServingStatus::Serving,
+                error: None,
+            },
+            Err(error) => GrpcHealthCheckGql {
+                endpoint,
+                service,
+                serving: false,
+                error: Some(error),
+            },
+        }
     }
 
     /// Latest schema for `service_name` at `stage` (defaults to `local`).
@@ -89,17 +147,23 @@ impl QueryRoot {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        registry.latest(&service_name, stage).map(|v| SchemaVersionGql {
-            id: v.id.to_string(),
-            service_name: v.service_name.clone(),
-            sdl: v.sdl.clone(),
-            stage: stage_name(v.stage).to_string(),
-            created_at: v.created_at.to_rfc3339(),
-        })
+        registry
+            .latest(&service_name, stage)
+            .map(|v| SchemaVersionGql {
+                id: v.id.to_string(),
+                service_name: v.service_name.clone(),
+                sdl: v.sdl.clone(),
+                stage: stage_name(v.stage).to_string(),
+                created_at: v.created_at.to_rfc3339(),
+            })
     }
 
     /// Full version history for `service_name`, oldest first.
-    async fn schema_history(&self, ctx: &Context<'_>, service_name: String) -> Vec<SchemaVersionGql> {
+    async fn schema_history(
+        &self,
+        ctx: &Context<'_>,
+        service_name: String,
+    ) -> Vec<SchemaVersionGql> {
         let state = ctx.data_unchecked::<Arc<AppState>>();
         let registry = state
             .schema_registry
@@ -153,11 +217,13 @@ impl SubscriptionRoot {
     async fn schema_events(
         &self,
         ctx: &Context<'_>,
-    ) -> impl futures::Stream<Item = SchemaEventGql> {
+    ) -> async_graphql::Result<impl futures::Stream<Item = SchemaEventGql>> {
+        // 認証必須(`X-Api-Key`かconnection_initのペイロード)。
+        require_actor(ctx)?;
         let state = ctx.data_unchecked::<Arc<AppState>>();
         let rx = state.events.subscribe();
 
-        futures::stream::unfold(rx, |mut rx| async move {
+        Ok(futures::stream::unfold(rx, |mut rx| async move {
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
@@ -169,21 +235,42 @@ impl SubscriptionRoot {
                             },
                             rx,
                         ));
-                    }
+                    },
                     // Slow consumer: skip the gap, keep streaming.
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
                 }
             }
-        })
+        }))
+    }
+}
+
+/// 購読は認証済みの呼び出し元だけ(`connection_init`の`x-api-key`等で`Actor`が渡される)。
+fn require_actor(ctx: &Context<'_>) -> async_graphql::Result<()> {
+    match ctx.data_opt::<open_runo_router::auth_hyper::Actor>() {
+        Some(_) => Ok(()),
+        None => Err(async_graphql::Error::new(
+            "authentication required (x-api-key)",
+        )),
     }
 }
 
 /// Build the [`OpenRunoSchema`], injecting `state` as query context data.
 pub fn build_schema(state: Arc<AppState>) -> OpenRunoSchema {
-    Schema::build(QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot)
+    build_schema_with(state, &security::GraphqlSecurity::from_env())
+}
+
+/// [`build_schema`]に防御設定(深さ・複雑さの上限、イントロスペクション)を明示して渡す版。
+/// 上限は検証段階(実行前)で効くので、超える問い合わせは一部も実行されない。
+pub fn build_schema_with(state: Arc<AppState>, sec: &security::GraphqlSecurity) -> OpenRunoSchema {
+    let mut builder = Schema::build(QueryRoot, async_graphql::EmptyMutation, SubscriptionRoot)
         .data(state)
-        .finish()
+        .limit_depth(sec.max_depth)
+        .limit_complexity(sec.max_complexity);
+    if !sec.introspection {
+        builder = builder.disable_introspection();
+    }
+    builder.finish()
 }
 
 /// Response-cache configuration for the `/graphql` endpoint
@@ -206,15 +293,24 @@ impl CacheConfig {
             .ok()
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(30);
-        Self { enabled, ttl: chrono::Duration::seconds(ttl_secs.max(1)) }
+        Self {
+            enabled,
+            ttl: chrono::Duration::seconds(ttl_secs.max(1)),
+        }
     }
 
     pub fn disabled() -> Self {
-        Self { enabled: false, ttl: chrono::Duration::seconds(30) }
+        Self {
+            enabled: false,
+            ttl: chrono::Duration::seconds(30),
+        }
     }
 
     pub fn enabled_with_ttl_secs(secs: i64) -> Self {
-        Self { enabled: true, ttl: chrono::Duration::seconds(secs.max(1)) }
+        Self {
+            enabled: true,
+            ttl: chrono::Duration::seconds(secs.max(1)),
+        }
     }
 }
 
@@ -245,15 +341,7 @@ fn is_cacheable_query(document: &str) -> bool {
 /// `OPEN_RUNO_PQ_MODE` → [`EnforcementMode`]:
 /// `disabled` / `allow` (default) / `enforce` (Trusted Documents).
 pub fn pq_mode_from_env() -> EnforcementMode {
-    match std::env::var("OPEN_RUNO_PQ_MODE")
-        .unwrap_or_default()
-        .to_lowercase()
-        .as_str()
-    {
-        "disabled" => EnforcementMode::Disabled,
-        "enforce" => EnforcementMode::Enforce,
-        _ => EnforcementMode::Allow,
-    }
+    security::GraphqlSecurity::from_env().pq_mode
 }
 
 /// Pull `extensions.persistedQuery.sha256Hash` out of a GraphQL request
@@ -294,17 +382,21 @@ async fn graphql_handler(
                     async_graphql::ServerError::new(e.to_string(), None),
                 ])
                 .into();
-            }
+            },
         }
     }
 
     // Response cache: queries only, keyed by document+variables+operation.
     let use_cache = cache.config.enabled && is_cacheable_query(&request.query);
-    let key = if use_cache { Some(cache_key(&request)) } else { None };
+    let key = if use_cache {
+        Some(cache_key(&request))
+    } else {
+        None
+    };
 
     if let Some(key) = &key {
         if let Ok(Some(cached)) = cache.store.get(key).await {
-            if let Ok(response) = serde_json::from_str::<async_graphql::Response>(&cached) {
+            if let Ok(response) = sonic_rs::from_str::<async_graphql::Response>(&cached) {
                 return response.into();
             }
         }
@@ -368,7 +460,10 @@ pub fn graphql_route_with(
     Route::new()
         .at("/", get(graphiql).post(graphql_handler))
         // GraphQL Subscriptions over WebSocket (graphql-ws protocol).
-        .at("/ws", get(async_graphql_poem::GraphQLSubscription::new(schema.clone())))
+        .at(
+            "/ws",
+            get(async_graphql_poem::GraphQLSubscription::new(schema.clone())),
+        )
         .data(schema)
         .data(store)
         .data(cache)
@@ -399,11 +494,11 @@ mod tests {
     #[tokio::test]
     async fn schema_query_returns_registered_version() {
         let state = Arc::new(AppState::new());
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         let client = TestClient::new(graphql_route(state));
         let resp = client
@@ -516,11 +611,11 @@ mod tests {
         assert_eq!(body["data"]["schemaHistory"].as_array().unwrap().len(), 0);
 
         // Register a schema AFTER the first call.
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         // 2nd call within TTL: served from cache → still empty (stale by design).
         let resp = client.post("/").body_json(&q).send().await;
@@ -538,13 +633,18 @@ mod tests {
         ));
 
         let q = json!({ "query": "{ schemaHistory(serviceName: \"users\") { serviceName } }" });
-        client.post("/").body_json(&q).send().await.assert_status_is_ok();
+        client
+            .post("/")
+            .body_json(&q)
+            .send()
+            .await
+            .assert_status_is_ok();
 
-        state
-            .schema_registry
-            .lock()
-            .unwrap()
-            .register("users", "type User { id: ID! }", Stage::Local);
+        state.schema_registry.lock().unwrap().register(
+            "users",
+            "type User { id: ID! }",
+            Stage::Local,
+        );
 
         let resp = client.post("/").body_json(&q).send().await;
         let body: serde_json::Value = resp.json().await.value().deserialize();
@@ -570,9 +670,16 @@ mod tests {
         let state = Arc::new(AppState::new());
         let schema = build_schema(Arc::clone(&state));
 
-        let mut stream = schema.execute_stream(async_graphql::Request::new(
-            "subscription { schemaEvents { serviceName stage } }",
-        ));
+        // 購読は認証必須(RESTの`/api/ws-events`と同じ)。HTTP層が渡す`Actor`を模す。
+        let actor = open_runo_router::auth_hyper::Actor {
+            owner: "test".into(),
+            roles: vec![],
+            via_session: false,
+        };
+        let mut stream = schema.execute_stream(
+            async_graphql::Request::new("subscription { schemaEvents { serviceName stage } }")
+                .data(actor),
+        );
 
         // Publish an event once the subscriber is polling.
         let publisher = Arc::clone(&state);
@@ -594,5 +701,27 @@ mod tests {
         assert_eq!(data["schemaEvents"]["serviceName"], "users");
         assert_eq!(data["schemaEvents"]["stage"], "local");
     }
-}
 
+    #[tokio::test]
+    async fn subscription_requires_authentication() {
+        use futures::StreamExt;
+
+        let state = Arc::new(AppState::new());
+        let schema = build_schema(Arc::clone(&state));
+        let mut stream = schema.execute_stream(async_graphql::Request::new(
+            "subscription { schemaEvents { serviceName } }",
+        ));
+        let response = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+            .await
+            .expect("timed out")
+            .expect("stream ended");
+        assert!(
+            response
+                .errors
+                .iter()
+                .any(|e| e.message.contains("authentication required")),
+            "{:?}",
+            response.errors
+        );
+    }
+}

@@ -12,7 +12,10 @@ fn service(name: &str, type_name: &str, fields: &[&str]) -> ServiceSchema {
     let mut types = BTreeMap::new();
     types.insert(
         type_name.to_string(),
-        fields.iter().map(|f| f.to_string()).collect::<BTreeSet<_>>(),
+        fields
+            .iter()
+            .map(|f| f.to_string())
+            .collect::<BTreeSet<_>>(),
     );
     ServiceSchema {
         service_name: name.to_string(),

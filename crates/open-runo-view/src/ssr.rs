@@ -130,7 +130,10 @@ mod tests {
             !html.contains("</script><script>alert"),
             "raw </script> must not survive: {html}"
         );
-        assert!(html.contains(r#"\u003c/script>"#), "escaped form must be present: {html}");
+        assert!(
+            html.contains(r#"\u003c/script>"#),
+            "escaped form must be present: {html}"
+        );
         assert!(html.contains("window.__OPEN_RUNO_STATE__ = {"));
     }
 

@@ -14,10 +14,10 @@ fn main() -> open_runo_core::Result<()> {
     let v2_sdl = "type User {\n  id: ID!\n  name: String\n}";
 
     let v1 = registry.register("users-service", v1_sdl, Stage::Local);
-    println!("registered {} at {:?} (id={})", "users-service", v1.stage, v1.id);
+    println!("registered users-service at {:?} (id={})", v1.stage, v1.id);
 
     let v2 = registry.register("users-service", v2_sdl, Stage::Local);
-    println!("registered {} at {:?} (id={})", "users-service", v2.stage, v2.id);
+    println!("registered users-service at {:?} (id={})", v2.stage, v2.id);
 
     let diff = registry.diff(v1_sdl, v2_sdl)?;
     println!("diff between v1 and v2:");
@@ -37,7 +37,10 @@ fn main() -> open_runo_core::Result<()> {
         "full history has {} versions",
         registry.history("users-service").len()
     );
-    assert!(Stage::Local < Stage::Production, "stage ordering enables promotion gating");
+    assert!(
+        Stage::Local < Stage::Production,
+        "stage ordering enables promotion gating"
+    );
 
     Ok(())
 }

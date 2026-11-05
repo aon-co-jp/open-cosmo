@@ -12,6 +12,7 @@ description = "open-runo SCIM 2.0 (RFC 7643/7644) user provisioning core, stored
 workspace = true
 
 [dependencies]
+sonic-rs = "0.5"
 open-runo-core = { workspace = true }
 open-runo-db   = { workspace = true }
 serde         = { workspace = true }

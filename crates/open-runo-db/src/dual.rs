@@ -52,7 +52,10 @@ pub struct RoutingTable {
 
 impl RoutingTable {
     pub fn new(default: DatabaseTarget) -> Self {
-        Self { entries: HashMap::new(), default }
+        Self {
+            entries: HashMap::new(),
+            default,
+        }
     }
 
     /// Override the target for a specific table name.
@@ -70,29 +73,29 @@ impl RoutingTable {
 pub fn default_routing() -> RoutingTable {
     RoutingTable::new(DatabaseTarget::Postgres)
         // Schema registry and change history go to aruaru-db for Git-on-SQL
-        .route("schemas",        DatabaseTarget::Both)
+        .route("schemas", DatabaseTarget::Both)
         .route("schema_history", DatabaseTarget::Aruaru)
         .route("change_records", DatabaseTarget::Aruaru)
-        .route("audit_log",      DatabaseTarget::Aruaru)
+        .route("audit_log", DatabaseTarget::Aruaru)
         // Backup metadata in both for durability
-        .route("backup_jobs",    DatabaseTarget::Both)
+        .route("backup_jobs", DatabaseTarget::Both)
         // Persisted queries (trusted documents) in both for durability
         .route("persisted_queries", DatabaseTarget::Both)
         // AI learned model in both: the framework's intelligence survives
         // the loss of either database
-        .route("ai_model",       DatabaseTarget::Both)
+        .route("ai_model", DatabaseTarget::Both)
         // OLTP tables stay in PostgreSQL
-        .route("sessions",       DatabaseTarget::Postgres)
-        .route("api_keys",       DatabaseTarget::Postgres)
-        .route("rate_limits",    DatabaseTarget::Postgres)
+        .route("sessions", DatabaseTarget::Postgres)
+        .route("api_keys", DatabaseTarget::Postgres)
+        .route("rate_limits", DatabaseTarget::Postgres)
 }
 
 /// Routes database operations to PostgreSQL, aruaru-db, or both.
 #[derive(Debug, Clone)]
 pub struct DualBackend {
     postgres: Arc<dyn DbBackend>,
-    aruaru:   Arc<dyn DbBackend>,
-    routing:  RoutingTable,
+    aruaru: Arc<dyn DbBackend>,
+    routing: RoutingTable,
 }
 
 impl DualBackend {
@@ -101,14 +104,15 @@ impl DualBackend {
         aruaru: Arc<dyn DbBackend>,
         routing: RoutingTable,
     ) -> Self {
-        Self { postgres, aruaru, routing }
+        Self {
+            postgres,
+            aruaru,
+            routing,
+        }
     }
 
     /// Build with the default open-runo routing table.
-    pub fn with_default_routing(
-        postgres: Arc<dyn DbBackend>,
-        aruaru: Arc<dyn DbBackend>,
-    ) -> Self {
+    pub fn with_default_routing(postgres: Arc<dyn DbBackend>, aruaru: Arc<dyn DbBackend>) -> Self {
         Self::new(postgres, aruaru, default_routing())
     }
 
@@ -190,7 +194,7 @@ impl DualBackend {
                             kind: "missing_in_aruaru".into(),
                             healed_from: "postgres".into(),
                         });
-                    }
+                    },
                     (None, Some(v)) => {
                         self.postgres.put(&table, key, v).await?;
                         found.push(Discrepancy {
@@ -199,7 +203,7 @@ impl DualBackend {
                             kind: "missing_in_postgres".into(),
                             healed_from: "aruaru-db".into(),
                         });
-                    }
+                    },
                     (Some(x), Some(y)) if x != y => {
                         let x_ok = serde_json::from_str::<serde_json::Value>(x).is_ok();
                         let y_ok = serde_json::from_str::<serde_json::Value>(y).is_ok();
@@ -220,8 +224,8 @@ impl DualBackend {
                             kind: kind.into(),
                             healed_from: from.into(),
                         });
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
         }
@@ -231,8 +235,8 @@ impl DualBackend {
     fn resolve(&self, table: &str) -> (&dyn DbBackend, Option<&dyn DbBackend>) {
         match self.routing.resolve(table) {
             DatabaseTarget::Postgres => (self.postgres.as_ref(), None),
-            DatabaseTarget::Aruaru   => (self.aruaru.as_ref(),   None),
-            DatabaseTarget::Both     => (self.postgres.as_ref(), Some(self.aruaru.as_ref())),
+            DatabaseTarget::Aruaru => (self.aruaru.as_ref(), None),
+            DatabaseTarget::Both => (self.postgres.as_ref(), Some(self.aruaru.as_ref())),
         }
     }
 }
@@ -250,13 +254,13 @@ impl DbBackend for DualBackend {
     async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
         match self.routing.resolve(table) {
             DatabaseTarget::Postgres => self.postgres.put(table, key, value).await,
-            DatabaseTarget::Aruaru   => self.aruaru.put(table, key, value).await,
+            DatabaseTarget::Aruaru => self.aruaru.put(table, key, value).await,
             DatabaseTarget::Both => {
                 // Write to both; surface the first error but still attempt both.
                 let r1 = self.postgres.put(table, key, value).await;
                 let r2 = self.aruaru.put(table, key, value).await;
                 r1.and(r2)
-            }
+            },
         }
     }
 
@@ -268,7 +272,7 @@ impl DbBackend for DualBackend {
             Some(v) => Ok(Some(v)),
             None => match secondary {
                 Some(sec) => sec.get(table, key).await,
-                None      => Ok(None),
+                None => Ok(None),
             },
         }
     }
@@ -276,12 +280,12 @@ impl DbBackend for DualBackend {
     async fn delete(&self, table: &str, key: &str) -> Result<()> {
         match self.routing.resolve(table) {
             DatabaseTarget::Postgres => self.postgres.delete(table, key).await,
-            DatabaseTarget::Aruaru   => self.aruaru.delete(table, key).await,
+            DatabaseTarget::Aruaru => self.aruaru.delete(table, key).await,
             DatabaseTarget::Both => {
                 let r1 = self.postgres.delete(table, key).await;
                 let r2 = self.aruaru.delete(table, key).await;
                 r1.and(r2)
-            }
+            },
         }
     }
 
@@ -313,7 +317,9 @@ mod tests {
     async fn oltp_table_routes_to_postgres_only() {
         let db = dual();
         // "sessions" → Postgres only
-        db.put("sessions", "s1", r#"{"user":"alice"}"#).await.unwrap();
+        db.put("sessions", "s1", r#"{"user":"alice"}"#)
+            .await
+            .unwrap();
         assert!(db.postgres.get("sessions", "s1").await.unwrap().is_some());
         assert!(db.aruaru.get("sessions", "s1").await.unwrap().is_none());
     }
@@ -322,7 +328,9 @@ mod tests {
     async fn schema_table_writes_to_both() {
         let db = dual();
         // "schemas" → Both
-        db.put("schemas", "users", r#"{"sdl":"type User{}"}"#).await.unwrap();
+        db.put("schemas", "users", r#"{"sdl":"type User{}"}"#)
+            .await
+            .unwrap();
         assert!(db.postgres.get("schemas", "users").await.unwrap().is_some());
         assert!(db.aruaru.get("schemas", "users").await.unwrap().is_some());
     }
@@ -331,16 +339,31 @@ mod tests {
     async fn versioned_table_routes_to_aruaru_only() {
         let db = dual();
         // "change_records" → aruaru-db only
-        db.put("change_records", "c1", r#"{"author":"bob"}"#).await.unwrap();
-        assert!(db.aruaru.get("change_records", "c1").await.unwrap().is_some());
-        assert!(db.postgres.get("change_records", "c1").await.unwrap().is_none());
+        db.put("change_records", "c1", r#"{"author":"bob"}"#)
+            .await
+            .unwrap();
+        assert!(db
+            .aruaru
+            .get("change_records", "c1")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(db
+            .postgres
+            .get("change_records", "c1")
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
     async fn get_falls_back_to_secondary_when_primary_empty() {
         let db = dual();
         // Manually insert into aruaru-db only for a "Both" table
-        db.aruaru.put("schemas", "orphan", r#"{"sdl":"type X{}"}"#).await.unwrap();
+        db.aruaru
+            .put("schemas", "orphan", r#"{"sdl":"type X{}"}"#)
+            .await
+            .unwrap();
         // get should find it via fallback
         let val = db.get("schemas", "orphan").await.unwrap();
         assert!(val.is_some());
@@ -355,9 +378,15 @@ mod tests {
         assert_eq!(db.backend_name(), "dual(single)");
 
         // Every routing target lands in the same backend.
-        db.put("sessions", "s1", r#"{"user":"alice"}"#).await.unwrap();       // Postgres route
-        db.put("change_records", "c1", r#"{"author":"bob"}"#).await.unwrap(); // Aruaru route
-        db.put("schemas", "users", r#"{"sdl":"type User{}"}"#).await.unwrap(); // Both route
+        db.put("sessions", "s1", r#"{"user":"alice"}"#)
+            .await
+            .unwrap(); // Postgres route
+        db.put("change_records", "c1", r#"{"author":"bob"}"#)
+            .await
+            .unwrap(); // Aruaru route
+        db.put("schemas", "users", r#"{"sdl":"type User{}"}"#)
+            .await
+            .unwrap(); // Both route
 
         assert!(inner.get("sessions", "s1").await.unwrap().is_some());
         assert!(inner.get("change_records", "c1").await.unwrap().is_some());
@@ -378,8 +407,8 @@ mod tests {
 
     #[tokio::test]
     async fn routing_table_default_and_override() {
-        let rt = RoutingTable::new(DatabaseTarget::Postgres)
-            .route("audit_log", DatabaseTarget::Aruaru);
+        let rt =
+            RoutingTable::new(DatabaseTarget::Postgres).route("audit_log", DatabaseTarget::Aruaru);
         assert_eq!(rt.resolve("anything"), DatabaseTarget::Postgres);
         assert_eq!(rt.resolve("audit_log"), DatabaseTarget::Aruaru);
     }
@@ -389,15 +418,29 @@ mod tests {
         let db = dual();
 
         // Normal write lands on both sides.
-        db.put("schemas", "ok", r#"{"sdl":"type A{}"}"#).await.unwrap();
+        db.put("schemas", "ok", r#"{"sdl":"type A{}"}"#)
+            .await
+            .unwrap();
 
         // Simulate: replica lost a record…
-        db.postgres.put("schemas", "lost", r#"{"sdl":"type B{}"}"#).await.unwrap();
+        db.postgres
+            .put("schemas", "lost", r#"{"sdl":"type B{}"}"#)
+            .await
+            .unwrap();
         // …primary record got corrupted (not JSON)…
-        db.postgres.put("schemas", "bad", "%%corrupt%%").await.unwrap();
-        db.aruaru.put("schemas", "bad", r#"{"sdl":"type C{}"}"#).await.unwrap();
+        db.postgres
+            .put("schemas", "bad", "%%corrupt%%")
+            .await
+            .unwrap();
+        db.aruaru
+            .put("schemas", "bad", r#"{"sdl":"type C{}"}"#)
+            .await
+            .unwrap();
         // …and primary is missing one the replica has.
-        db.aruaru.put("schemas", "only-b", r#"{"sdl":"type D{}"}"#).await.unwrap();
+        db.aruaru
+            .put("schemas", "only-b", r#"{"sdl":"type D{}"}"#)
+            .await
+            .unwrap();
 
         let report = db.consistency_check_and_heal().await.unwrap();
         assert_eq!(report.len(), 3);
@@ -412,7 +455,12 @@ mod tests {
             r#"{"sdl":"type C{}"}"#
         );
         assert!(db.aruaru.get("schemas", "lost").await.unwrap().is_some());
-        assert!(db.postgres.get("schemas", "only-b").await.unwrap().is_some());
+        assert!(db
+            .postgres
+            .get("schemas", "only-b")
+            .await
+            .unwrap()
+            .is_some());
 
         // A second pass finds nothing: the system healed itself.
         assert!(db.consistency_check_and_heal().await.unwrap().is_empty());
@@ -425,4 +473,3 @@ mod tests {
         assert!(db.consistency_check_and_heal().await.unwrap().is_empty());
     }
 }
-

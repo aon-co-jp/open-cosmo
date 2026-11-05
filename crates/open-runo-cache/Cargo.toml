@@ -12,13 +12,14 @@ description = "open-runo cache layer: TTL response/entity cache with in-memory a
 workspace = true
 
 [dependencies]
+sonic-rs = "0.5"
 open-runo-core = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 chrono      = { workspace = true }
 
 # Redis / KeyDB / DragonflyDB backend
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+redis = { version = "1.8", features = ["tokio-comp", "connection-manager"], optional = true }
 
 [features]
 default = []

@@ -52,13 +52,18 @@ pub fn compose(services: &[ServiceSchema]) -> Result<ComposedSchema> {
     let mut composed = ComposedSchema::default();
 
     for service in services {
-        if composed.contributing_services.contains(&service.service_name) {
+        if composed
+            .contributing_services
+            .contains(&service.service_name)
+        {
             return Err(AppError::Conflict(format!(
                 "service '{}' registered more than once",
                 service.service_name
             )));
         }
-        composed.contributing_services.push(service.service_name.clone());
+        composed
+            .contributing_services
+            .push(service.service_name.clone());
 
         for (type_name, fields) in &service.types {
             composed
@@ -74,10 +79,7 @@ pub fn compose(services: &[ServiceSchema]) -> Result<ComposedSchema> {
 
 /// Detects fields present in `previous` but missing in `next` for the same
 /// type — a breaking change from the Federation Engine's point of view.
-pub fn detect_breaking_changes(
-    previous: &ComposedSchema,
-    next: &ComposedSchema,
-) -> Vec<String> {
+pub fn detect_breaking_changes(previous: &ComposedSchema, next: &ComposedSchema) -> Vec<String> {
     let mut breaking = Vec::new();
     for (type_name, fields) in &previous.types {
         let next_fields = next.types.get(type_name);
@@ -100,8 +102,14 @@ mod tests {
 
     fn svc(name: &str, ty: &str, fields: &[&str]) -> ServiceSchema {
         let mut types = BTreeMap::new();
-        types.insert(ty.to_string(), fields.iter().map(|s| s.to_string()).collect());
-        ServiceSchema { service_name: name.to_string(), types }
+        types.insert(
+            ty.to_string(),
+            fields.iter().map(|s| s.to_string()).collect(),
+        );
+        ServiceSchema {
+            service_name: name.to_string(),
+            types,
+        }
     }
 
     #[test]

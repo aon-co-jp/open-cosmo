@@ -48,8 +48,8 @@
 //! accepted, mainly for tests and quick local trials of a routing table
 //! before pointing it at real databases.
 
-use crate::{DbBackend, InMemoryBackend};
 use crate::federated::FederatedBackend;
+use crate::{DbBackend, InMemoryBackend};
 use open_runo_core::{AppError, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -93,8 +93,7 @@ pub struct FederatedConfig {
 impl FederatedConfig {
     /// Parse a federation config from a TOML string.
     pub fn from_toml_str(s: &str) -> Result<Self> {
-        toml::from_str(s)
-            .map_err(|e| AppError::Config(format!("invalid federation config: {e}")))
+        toml::from_str(s).map_err(|e| AppError::Config(format!("invalid federation config: {e}")))
     }
 
     /// Load and parse a federation config from a file on disk.
@@ -148,44 +147,60 @@ async fn connect_member(member: &MemberConfig) -> Result<Arc<dyn DbBackend>> {
         "in-memory" | "memory" => return Ok(Arc::new(InMemoryBackend::new())),
         #[cfg(feature = "postgres")]
         "postgres" | "postgresql" => {
-            return Ok(Arc::new(crate::postgres::PostgresBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::postgres::PostgresBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "mysql")]
         "mysql" => {
-            return Ok(Arc::new(crate::mysql::MySqlBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::mysql::MySqlBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "sqlite")]
         "sqlite" => {
-            return Ok(Arc::new(crate::sqlite::SqliteBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::sqlite::SqliteBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "aruaru")]
         "aruaru-db" | "aruaru" => {
-            return Ok(Arc::new(crate::aruaru::AruaruDbBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::aruaru::AruaruDbBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "cockroach")]
         "cockroachdb" | "cockroach" => {
-            return Ok(Arc::new(crate::cockroach::CockroachBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::cockroach::CockroachBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "yugabyte")]
         "yugabytedb" | "yugabyte" => {
-            return Ok(Arc::new(crate::yugabyte::YugabyteBackend::connect(&member.url).await?));
-        }
+            return Ok(Arc::new(
+                crate::yugabyte::YugabyteBackend::connect(&member.url).await?,
+            ));
+        },
         #[cfg(feature = "mongodb")]
         "mongodb" | "mongo" => {
             let db_name = member.database.as_deref().unwrap_or("open_runo");
             return Ok(Arc::new(
                 crate::mongo::MongoBackend::connect(&member.url, db_name).await?,
             ));
-        }
+        },
         #[cfg(feature = "redis")]
         "redis" => {
-            return Ok(Arc::new(crate::redis_backend::RedisBackend::connect(&member.url)?));
-        }
+            return Ok(Arc::new(crate::redis_backend::RedisBackend::connect(
+                &member.url,
+            )?));
+        },
         #[cfg(feature = "clickhouse")]
         "clickhouse" => {
-            return Ok(Arc::new(crate::clickhouse_backend::ClickHouseBackend::connect(&member.url)));
-        }
-        _ => {}
+            return Ok(Arc::new(
+                crate::clickhouse_backend::ClickHouseBackend::connect(&member.url),
+            ));
+        },
+        _ => {},
     }
     Err(AppError::Config(format!(
         "member '{}': unknown or feature-disabled backend kind '{}' \
@@ -237,11 +252,23 @@ mod tests {
         let fed = cfg.connect().await.unwrap();
 
         fed.put("orders", "o1", "d1").await.unwrap();
-        assert!(fed.member("osaka").unwrap().get("orders", "o1").await.unwrap().is_some());
+        assert!(fed
+            .member("osaka")
+            .unwrap()
+            .get("orders", "o1")
+            .await
+            .unwrap()
+            .is_some());
 
         fed.put("schemas", "svc", "sdl").await.unwrap();
         for name in ["tokyo", "osaka", "archive"] {
-            assert!(fed.member(name).unwrap().get("schemas", "svc").await.unwrap().is_some());
+            assert!(fed
+                .member(name)
+                .unwrap()
+                .get("schemas", "svc")
+                .await
+                .unwrap()
+                .is_some());
         }
     }
 

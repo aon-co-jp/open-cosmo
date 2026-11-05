@@ -7,9 +7,9 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::collections::HashMap;
 
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig;
@@ -17,12 +17,12 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod request_metrics;
-pub use request_metrics::{
-    InMemorySink, MetricsSink, MonthlyCount, OperationStat, RequestMetricRow, RequestMetrics,
-    spawn_periodic_flush,
-};
 #[cfg(feature = "clickhouse")]
 pub use request_metrics::clickhouse_sink::ClickHouseSink;
+pub use request_metrics::{
+    spawn_periodic_flush, InMemorySink, MetricsSink, MonthlyCount, OperationStat, RequestMetricRow,
+    RequestMetrics,
+};
 
 /// Initialize a JSON-structured `tracing` subscriber reading its level
 /// from `log_level` (e.g. `"info"`, `"debug"`). Safe to call once per
@@ -40,11 +40,14 @@ pub fn init_tracing(log_level: &str) {
 /// telemetry export is a diagnostic aid, not a hard dependency for the
 /// service to run.
 pub fn init_tracing_with_otlp(log_level: &str, otlp_endpoint: Option<&str>, service_name: &str) {
-    let env_filter = tracing_subscriber::EnvFilter::new(log_level.to_string());
+    let env_filter = tracing_subscriber::EnvFilter::new(log_level);
     let fmt_layer = tracing_subscriber::fmt::layer().json();
 
     let Some(endpoint) = otlp_endpoint else {
-        let _ = tracing_subscriber::registry().with(env_filter).with(fmt_layer).try_init();
+        let _ = tracing_subscriber::registry()
+            .with(env_filter)
+            .with(fmt_layer)
+            .try_init();
         return;
     };
 
@@ -56,14 +59,20 @@ pub fn init_tracing_with_otlp(log_level: &str, otlp_endpoint: Option<&str>, serv
     let exporter = match exporter {
         Ok(exporter) => exporter,
         Err(error) => {
-            let _ = tracing_subscriber::registry().with(env_filter).with(fmt_layer).try_init();
+            let _ = tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt_layer)
+                .try_init();
             tracing::warn!(%error, endpoint, "failed to build OTLP exporter; continuing with console-only tracing");
             return;
-        }
+        },
     };
 
     let resource = opentelemetry_sdk::Resource::builder()
-        .with_attribute(opentelemetry::KeyValue::new("service.name", service_name.to_string()))
+        .with_attribute(opentelemetry::KeyValue::new(
+            "service.name",
+            service_name.to_string(),
+        ))
         .build();
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
@@ -96,7 +105,10 @@ impl Counters {
         // A poisoned lock still holds a valid (if possibly inconsistent)
         // map; recovering it is preferable to panicking a whole service
         // over a metrics counter.
-        let mut values = self.values.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut values = self
+            .values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         values
             .entry(name.to_string())
             .or_insert_with(|| AtomicU64::new(0))
@@ -104,8 +116,14 @@ impl Counters {
     }
 
     pub fn get(&self, name: &str) -> u64 {
-        let values = self.values.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        values.get(name).map(|c| c.load(Ordering::Relaxed)).unwrap_or(0)
+        let values = self
+            .values
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        values
+            .get(name)
+            .map(|c| c.load(Ordering::Relaxed))
+            .unwrap_or(0)
     }
 }
 

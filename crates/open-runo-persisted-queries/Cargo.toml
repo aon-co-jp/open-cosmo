@@ -12,6 +12,7 @@ description = "open-runo Persisted Queries / Trusted Documents: Cosmo paid-tier 
 workspace = true
 
 [dependencies]
+sonic-rs = "0.5"
 open-runo-core = { workspace = true }
 open-runo-db   = { workspace = true }
 serde         = { workspace = true }

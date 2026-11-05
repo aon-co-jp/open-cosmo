@@ -145,7 +145,10 @@ struct CachedPage {
 impl CachedPage {
     /// Age as a fraction of TTL (0.0 = fresh, 1.0 = expiring).
     fn age_fraction(&self) -> f64 {
-        let age = (chrono::Utc::now() - self.stored_at).num_milliseconds().max(0) as f64 / 1000.0;
+        let age = (chrono::Utc::now() - self.stored_at)
+            .num_milliseconds()
+            .max(0) as f64
+            / 1000.0;
         age / (self.ttl_secs.max(1) as f64)
     }
 }
@@ -294,7 +297,10 @@ impl<E: Endpoint + 'static> Middleware<E> for HtmlCacheMiddleware {
     type Output = HtmlCacheEndpoint<E>;
 
     fn transform(&self, ep: E) -> Self::Output {
-        HtmlCacheEndpoint { inner: Arc::new(ep), cache: Arc::clone(&self.0) }
+        HtmlCacheEndpoint {
+            inner: Arc::new(ep),
+            cache: Arc::clone(&self.0),
+        }
     }
 }
 
@@ -352,7 +358,11 @@ impl<E: Endpoint + 'static> Endpoint for HtmlCacheEndpoint<E> {
 
         // ── Not admitted (yet): render normally, uncached ────────────────
         if !admit {
-            let resp = self.inner.call(req).await.map(IntoResponse::into_response)?;
+            let resp = self
+                .inner
+                .call(req)
+                .await
+                .map(IntoResponse::into_response)?;
             return Ok(with_cache_header(resp, "COLD"));
         }
 
@@ -371,7 +381,11 @@ impl<E: Endpoint + 'static> Endpoint for HtmlCacheEndpoint<E> {
         }
 
         let started = std::time::Instant::now();
-        let resp = self.inner.call(req).await.map(IntoResponse::into_response)?;
+        let resp = self
+            .inner
+            .call(req)
+            .await
+            .map(IntoResponse::into_response)?;
         // Server-load signal: how expensive was this render?
         if let Some(p) = self.cache.predictor.as_ref() {
             p.observe_render(&key, &path, started.elapsed().as_secs_f64());
@@ -405,14 +419,14 @@ impl<E: Endpoint + 'static> Endpoint for HtmlCacheEndpoint<E> {
                     }
                     let rebuilt = Response::from_parts(parts, poem::Body::from_string(text));
                     return Ok(with_cache_header(rebuilt, "MISS"));
-                }
+                },
                 // Non-UTF-8 body (images etc.): pass through uncached.
                 Err(_) => {
                     return Ok(with_cache_header(
                         Response::from_parts(parts, poem::Body::empty()),
                         "UNCACHEABLE",
                     ));
-                }
+                },
             }
         }
 
@@ -423,7 +437,7 @@ impl<E: Endpoint + 'static> Endpoint for HtmlCacheEndpoint<E> {
 impl<E: Endpoint + 'static> HtmlCacheEndpoint<E> {
     async fn lookup(&self, key: &str) -> Option<(Response, f64)> {
         let raw = self.cache.store.get(key).await.ok().flatten()?;
-        let page: CachedPage = serde_json::from_str(&raw).ok()?;
+        let page: CachedPage = sonic_rs::from_str(&raw).ok()?;
         let age = page.age_fraction();
         Some((
             Response::builder()
@@ -580,9 +594,21 @@ mod tests {
                 .with(HtmlCacheMiddleware(fresh_cache(2))),
         );
 
-        client.get("/page").send().await.assert_header("x-cache", "COLD");
-        client.get("/page").send().await.assert_header("x-cache", "MISS");
-        client.get("/page").send().await.assert_header("x-cache", "HIT");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "COLD");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "MISS");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "HIT");
         assert_eq!(RENDERS_C.load(Ordering::SeqCst), 2);
     }
 
@@ -648,12 +674,24 @@ mod tests {
                 .with(HtmlCacheMiddleware(Arc::clone(&cache))),
         );
 
-        client.get("/page").send().await.assert_header("x-cache", "MISS");
-        client.get("/page").send().await.assert_header("x-cache", "HIT");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "MISS");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "HIT");
 
         cache.purge("/page").await;
 
-        client.get("/page").send().await.assert_header("x-cache", "MISS");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "MISS");
         assert_eq!(RENDERS_E.load(Ordering::SeqCst), 2);
     }
 
@@ -688,12 +726,24 @@ mod tests {
         );
 
         // 1st request: nothing learned yet → conservative COLD.
-        client.get("/page").send().await.assert_header("x-cache", "COLD");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "COLD");
         // 2nd request arrives immediately → arrival rate is clearly hot,
         // the predictor admits it → rendered once more and stored.
-        client.get("/page").send().await.assert_header("x-cache", "MISS");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "MISS");
         // 3rd request: served from memory.
-        client.get("/page").send().await.assert_header("x-cache", "HIT");
+        client
+            .get("/page")
+            .send()
+            .await
+            .assert_header("x-cache", "HIT");
 
         assert_eq!(RENDERS_F.load(Ordering::SeqCst), 2);
 

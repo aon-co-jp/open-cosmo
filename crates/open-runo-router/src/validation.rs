@@ -6,6 +6,14 @@
 //! either trusting the body blindly or hand-rolling field checks per
 //! handler.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used)]
+
 use jsonschema::Validator;
 use once_cell::sync::Lazy;
 use serde_json::Value;
@@ -59,13 +67,16 @@ pub static FEATURE_FLAG_REQUEST: Lazy<Validator> = Lazy::new(|| {
 pub fn validate(validator: &Validator, body: &Value) -> Result<(), String> {
     let errors: Vec<String> = validator
         .iter_errors(body)
-        .map(|e| format!("{} (at {})", e, e.instance_path))
+        .map(|e| format!("{} (at {})", e, e.instance_path()))
         .collect();
 
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(format!("request body failed validation: {}", errors.join("; ")))
+        Err(format!(
+            "request body failed validation: {}",
+            errors.join("; ")
+        ))
     }
 }
 
@@ -106,6 +117,10 @@ mod tests {
 
     #[test]
     fn feature_flag_request_rejects_rollout_percent_over_100() {
-        assert!(validate(&FEATURE_FLAG_REQUEST, &json!({ "name": "f", "rollout_percent": 101 })).is_err());
+        assert!(validate(
+            &FEATURE_FLAG_REQUEST,
+            &json!({ "name": "f", "rollout_percent": 101 })
+        )
+        .is_err());
     }
 }

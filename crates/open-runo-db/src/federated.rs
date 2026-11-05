@@ -23,8 +23,8 @@
 //! want it — zero downtime, no big-bang cutover.
 
 use crate::{DbBackend, Record};
-use open_runo_core::{AppError, Result};
 use async_trait::async_trait;
+use open_runo_core::{AppError, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -55,7 +55,8 @@ impl FederatedBuilder {
     /// Route `table` to the member called `name`.
     #[must_use]
     pub fn route(mut self, table: impl Into<String>, name: impl Into<String>) -> Self {
-        self.placements.insert(table.into(), Placement::Member(name.into()));
+        self.placements
+            .insert(table.into(), Placement::Member(name.into()));
         self
     }
 
@@ -76,7 +77,9 @@ impl FederatedBuilder {
 
     pub fn build(self) -> Result<FederatedBackend> {
         if self.members.is_empty() {
-            return Err(AppError::Validation("federation needs at least one member".into()));
+            return Err(AppError::Validation(
+                "federation needs at least one member".into(),
+            ));
         }
         let default_member = self
             .default_member
@@ -235,9 +238,27 @@ mod tests {
         f.put("orders", "o1", "osaka-data").await.unwrap();
         f.put("sessions", "s1", "tokyo-data").await.unwrap(); // default
 
-        assert!(f.member("osaka").unwrap().get("orders", "o1").await.unwrap().is_some());
-        assert!(f.member("tokyo").unwrap().get("orders", "o1").await.unwrap().is_none());
-        assert!(f.member("tokyo").unwrap().get("sessions", "s1").await.unwrap().is_some());
+        assert!(f
+            .member("osaka")
+            .unwrap()
+            .get("orders", "o1")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(f
+            .member("tokyo")
+            .unwrap()
+            .get("orders", "o1")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(f
+            .member("tokyo")
+            .unwrap()
+            .get("sessions", "s1")
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -246,7 +267,12 @@ mod tests {
         f.put("schemas", "svc", "sdl").await.unwrap();
         for name in ["tokyo", "osaka", "archive"] {
             assert!(
-                f.member(name).unwrap().get("schemas", "svc").await.unwrap().is_some(),
+                f.member(name)
+                    .unwrap()
+                    .get("schemas", "svc")
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "missing on {name}"
             );
         }
@@ -256,7 +282,11 @@ mod tests {
     async fn reads_fall_back_across_the_federation() {
         let f = fed();
         // A legacy record sits on the "wrong" member (pre-consolidation).
-        f.member("archive").unwrap().put("orders", "legacy", "old").await.unwrap();
+        f.member("archive")
+            .unwrap()
+            .put("orders", "legacy", "old")
+            .await
+            .unwrap();
         // The federation still finds it.
         assert_eq!(f.get("orders", "legacy").await.unwrap().unwrap(), "old");
         // And list() surfaces it too.
@@ -276,8 +306,16 @@ mod tests {
     async fn consolidation_via_migrate_transfer() {
         let f = fed();
         // Legacy data on osaka; consolidate "orders" onto tokyo.
-        f.member("osaka").unwrap().put("orders", "o1", "d1").await.unwrap();
-        f.member("osaka").unwrap().put("orders", "o2", "d2").await.unwrap();
+        f.member("osaka")
+            .unwrap()
+            .put("orders", "o1", "d1")
+            .await
+            .unwrap();
+        f.member("osaka")
+            .unwrap()
+            .put("orders", "o2", "d2")
+            .await
+            .unwrap();
 
         let (report, issues) = crate::migrate::transfer_verified(
             f.member("osaka").unwrap().as_ref(),

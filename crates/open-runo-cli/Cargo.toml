@@ -17,9 +17,9 @@ workspace = true
 
 [dependencies]
 clap = { workspace = true }
-reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 open-runo-api-types = { workspace = true }
+open-runo-proto = { workspace = true, features = ["client"] }

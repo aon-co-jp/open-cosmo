@@ -89,6 +89,34 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
         )))
     }
 
+    /// VersionLessAPI + Git-on-SQL hybrid write side: write `value` and, on
+    /// Git-on-SQL-backed stores, atomically create a real commit for it,
+    /// returning the resulting commit ID.
+    ///
+    /// **正直な開示(2026-07-22発見)**: これまで`put()`は`AruaruDbBackend`
+    /// 上でも素の`INSERT ... ON CONFLICT`のみを実行し、aruaru-dbが実際に
+    /// コミット履歴を刻むには別途明示的な`SELECT aruaru_commit(message)`
+    /// 呼び出しが必要という事実を、この経路のどのハンドラも呼んでいな
+    /// かった(`open-runo-db/tests/aruaru_as_of_commit.rs`のテストコード
+    /// では手動で`aruaru_commit`を呼んでいたが、本番HTTPハンドラ
+    /// (`handlers_hyper::db_put_handler`)は一度も呼んでいなかった)。
+    /// つまり、通常のHTTP書き込み経路を通る限り、`AruaruDbBackend`を
+    /// 使っていても実際にはGit-on-SQLのコミット履歴が一切作られておらず、
+    /// 「書き込み側は既に機能済み」というこれまでの記録は不正確だった。
+    /// この新メソッドはその欠落を埋める——デフォルト実装は既存の`put`と
+    /// 同じ挙動を保ちつつ、コミットIDという概念自体を持たないバックエンド
+    /// では正直に`None`を返す(存在しないコミットを捏造しない)。
+    async fn put_versioned(
+        &self,
+        table: &str,
+        key: &str,
+        value: &str,
+        _commit_message: &str,
+    ) -> Result<Option<String>> {
+        self.put(table, key, value).await?;
+        Ok(None)
+    }
+
     /// RustJSON server-side partial extraction (Phase 2, 2026-07-14): fetch
     /// just `path` (see `open_runo_rustjson::extract_path`'s doc comment for
     /// the path language) out of `(table, key)`'s value, instead of the
@@ -98,12 +126,7 @@ pub trait DbBackend: Send + Sync + std::fmt::Debug {
     /// other backend keeps the default, which reports the operation as
     /// unsupported rather than attempting to string-search a value that
     /// might not even be JSON.
-    async fn get_field(
-        &self,
-        _table: &str,
-        _key: &str,
-        _path: &str,
-    ) -> Result<Option<String>> {
+    async fn get_field(&self, _table: &str, _key: &str, _path: &str) -> Result<Option<String>> {
         Err(AppError::Validation(format!(
             "field extraction is not supported by the '{}' backend",
             self.backend_name()
@@ -118,31 +141,49 @@ pub struct InMemoryBackend {
     store: Mutex<HashMap<(String, String), String>>,
 }
 impl InMemoryBackend {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 #[async_trait]
 impl DbBackend for InMemoryBackend {
-    fn backend_name(&self) -> &'static str { "in-memory" }
+    fn backend_name(&self) -> &'static str {
+        "in-memory"
+    }
     async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-        self.store.lock().map_err(|_| AppError::Internal("lock".into()))?
+        self.store
+            .lock()
+            .map_err(|_| AppError::Internal("lock".into()))?
             .insert((table.into(), key.into()), value.into());
         Ok(())
     }
     async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-        Ok(self.store.lock().map_err(|_| AppError::Internal("lock".into()))?
-            .get(&(table.into(), key.into())).cloned())
+        Ok(self
+            .store
+            .lock()
+            .map_err(|_| AppError::Internal("lock".into()))?
+            .get(&(table.into(), key.into()))
+            .cloned())
     }
     async fn delete(&self, table: &str, key: &str) -> Result<()> {
-        self.store.lock().map_err(|_| AppError::Internal("lock".into()))?
+        self.store
+            .lock()
+            .map_err(|_| AppError::Internal("lock".into()))?
             .remove(&(table.into(), key.into()));
         Ok(())
     }
     async fn list(&self, table: &str) -> Result<Vec<Record>> {
-        Ok(self.store.lock().map_err(|_| AppError::Internal("lock".into()))?
+        Ok(self
+            .store
+            .lock()
+            .map_err(|_| AppError::Internal("lock".into()))?
             .iter()
             .filter(|((t, _), _)| t == table)
-            .map(|((_, k), v)| Record { key: k.clone(), value: v.clone() })
+            .map(|((_, k), v)| Record {
+                key: k.clone(),
+                value: v.clone(),
+            })
             .collect())
     }
 }
@@ -211,8 +252,9 @@ pub mod rustjson_backend {
         /// JSON regardless of how leniently the value was originally
         /// authored.
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            let parsed = open_runo_rustjson::parse(value)
-                .map_err(|e| AppError::Validation(format!("invalid RustJSON for {table}/{key}: {e}")))?;
+            let parsed = open_runo_rustjson::parse(value).map_err(|e| {
+                AppError::Validation(format!("invalid RustJSON for {table}/{key}: {e}"))
+            })?;
             let canonical = open_runo_rustjson::to_string(&parsed);
             self.store
                 .lock()
@@ -245,7 +287,10 @@ pub mod rustjson_backend {
                 .map_err(|_| AppError::Internal("lock".into()))?
                 .iter()
                 .filter(|((t, _), _)| t == table)
-                .map(|((_, k), v)| Record { key: k.clone(), value: v.clone() })
+                .map(|((_, k), v)| Record {
+                    key: k.clone(),
+                    value: v.clone(),
+                })
                 .collect())
         }
     }
@@ -260,10 +305,16 @@ pub mod rustjson_backend {
             // Trailing comma + comment + unquoted key + single-quoted
             // string -- all four RustJSON extensions in one write.
             let lenient = "{ /* item */ name: 'sword', qty: 3, }";
-            backend.put("items", "sword", lenient).await.expect("valid RustJSON should be accepted");
+            backend
+                .put("items", "sword", lenient)
+                .await
+                .expect("valid RustJSON should be accepted");
 
             let stored = backend.get("items", "sword").await.unwrap().unwrap();
-            assert!(!stored.contains("//"), "stored value must be canonical JSON, not the raw lenient input");
+            assert!(
+                !stored.contains("//"),
+                "stored value must be canonical JSON, not the raw lenient input"
+            );
             assert!(!stored.contains("/*"));
             let value: serde_json::Value = serde_json::from_str(&stored).unwrap();
             assert_eq!(value, serde_json::json!({"name": "sword", "qty": 3}));
@@ -272,14 +323,22 @@ pub mod rustjson_backend {
         #[tokio::test]
         async fn put_rejects_genuinely_malformed_input() {
             let backend = RustJsonBackend::new();
-            let result = backend.put("items", "broken", "{ this is not json at all").await;
-            assert!(result.is_err(), "malformed input must be rejected at write time, never silently stored");
+            let result = backend
+                .put("items", "broken", "{ this is not json at all")
+                .await;
+            assert!(
+                result.is_err(),
+                "malformed input must be rejected at write time, never silently stored"
+            );
         }
 
         #[tokio::test]
         async fn strict_json_is_accepted_unchanged_since_rustjson_is_a_superset() {
             let backend = RustJsonBackend::new();
-            backend.put("items", "shield", r#"{"name":"shield","qty":1}"#).await.expect("strict JSON is valid RustJSON");
+            backend
+                .put("items", "shield", r#"{"name":"shield","qty":1}"#)
+                .await
+                .expect("strict JSON is valid RustJSON");
             let stored = backend.get("items", "shield").await.unwrap().unwrap();
             let value: serde_json::Value = serde_json::from_str(&stored).unwrap();
             assert_eq!(value, serde_json::json!({"name": "shield", "qty": 1}));
@@ -293,7 +352,11 @@ pub mod rustjson_backend {
             backend.put("other", "c", "{x: 3}").await.unwrap();
 
             let items = backend.list("items").await.unwrap();
-            assert_eq!(items.len(), 2, "list must only return the requested table's records");
+            assert_eq!(
+                items.len(),
+                2,
+                "list must only return the requested table's records"
+            );
 
             backend.delete("items", "a").await.unwrap();
             assert!(backend.get("items", "a").await.unwrap().is_none());
@@ -301,6 +364,7 @@ pub mod rustjson_backend {
         }
     }
 }
+
 // ── PostgreSQL :5432 ───────────────────────────────────────────────────────────
 
 #[cfg(feature = "postgres")]
@@ -310,46 +374,69 @@ pub mod postgres {
     use sqlx::PgPool;
 
     #[derive(Debug, Clone)]
-    pub struct PostgresBackend { pool: PgPool }
+    pub struct PostgresBackend {
+        pool: PgPool,
+    }
     impl PostgresBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = PgPool::connect(url).await
+            let pool = PgPool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("PostgreSQL connect: {e}")))?;
             tracing::info!(url, "connected to PostgreSQL :5432");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &PgPool { &self.pool }
+        pub fn pool(&self) -> &PgPool {
+            &self.pool
+        }
     }
     #[async_trait]
     impl DbBackend for PostgresBackend {
-        fn backend_name(&self) -> &'static str { "postgresql" }
+        fn backend_name(&self) -> &'static str {
+            "postgresql"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             sqlx::query(
                 "INSERT INTO kv_store (table_name,key,value) VALUES ($1,$2,$3)
                  ON CONFLICT (table_name,key) DO UPDATE SET value=EXCLUDED.value",
-            ).bind(table).bind(key).bind(value).execute(&self.pool).await
+            )
+            .bind(table)
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("PostgreSQL put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=$1 AND key=$2",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("PostgreSQL get: {e}")))?;
+            let row: Option<(String,)> =
+                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=$1 AND key=$2")
+                    .bind(table)
+                    .bind(key)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("PostgreSQL get: {e}")))?;
             Ok(row.map(|(v,)| v))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             sqlx::query("DELETE FROM kv_store WHERE table_name=$1 AND key=$2")
-                .bind(table).bind(key).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("PostgreSQL delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
-                "SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key",
-            ).bind(table).fetch_all(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("PostgreSQL list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key")
+                    .bind(table)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("PostgreSQL list: {e}")))?;
+            Ok(rows
+                .into_iter()
+                .map(|(key, value)| Record { key, value })
+                .collect())
         }
     }
 }
@@ -363,46 +450,70 @@ pub mod mysql {
     use sqlx::MySqlPool;
 
     #[derive(Debug, Clone)]
-    pub struct MySqlBackend { pool: MySqlPool }
+    pub struct MySqlBackend {
+        pool: MySqlPool,
+    }
     impl MySqlBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = MySqlPool::connect(url).await
+            let pool = MySqlPool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("MySQL connect: {e}")))?;
             tracing::info!(url, "connected to MySQL/MariaDB :3306");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &MySqlPool { &self.pool }
+        pub fn pool(&self) -> &MySqlPool {
+            &self.pool
+        }
     }
     #[async_trait]
     impl DbBackend for MySqlBackend {
-        fn backend_name(&self) -> &'static str { "mysql" }
+        fn backend_name(&self) -> &'static str {
+            "mysql"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             sqlx::query(
                 "INSERT INTO kv_store (table_name,`key`,value) VALUES (?,?,?)
                  ON DUPLICATE KEY UPDATE value=VALUES(value)",
-            ).bind(table).bind(key).bind(value).execute(&self.pool).await
+            )
+            .bind(table)
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("MySQL put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=? AND `key`=?",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("MySQL get: {e}")))?;
+            let row: Option<(String,)> =
+                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=? AND `key`=?")
+                    .bind(table)
+                    .bind(key)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("MySQL get: {e}")))?;
             Ok(row.map(|(v,)| v))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             sqlx::query("DELETE FROM kv_store WHERE table_name=? AND `key`=?")
-                .bind(table).bind(key).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("MySQL delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
+            let rows: Vec<(String, String)> = sqlx::query_as(
                 "SELECT `key`,value FROM kv_store WHERE table_name=? ORDER BY `key`",
-            ).bind(table).fetch_all(&self.pool).await
+            )
+            .bind(table)
+            .fetch_all(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("MySQL list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            Ok(rows
+                .into_iter()
+                .map(|(key, value)| Record { key, value })
+                .collect())
         }
     }
 }
@@ -416,46 +527,69 @@ pub mod sqlite {
     use sqlx::SqlitePool;
 
     #[derive(Debug, Clone)]
-    pub struct SqliteBackend { pool: SqlitePool }
+    pub struct SqliteBackend {
+        pool: SqlitePool,
+    }
     impl SqliteBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = SqlitePool::connect(url).await
+            let pool = SqlitePool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("SQLite connect: {e}")))?;
             tracing::info!(url, "connected to SQLite");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &SqlitePool { &self.pool }
+        pub fn pool(&self) -> &SqlitePool {
+            &self.pool
+        }
     }
     #[async_trait]
     impl DbBackend for SqliteBackend {
-        fn backend_name(&self) -> &'static str { "sqlite" }
+        fn backend_name(&self) -> &'static str {
+            "sqlite"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             sqlx::query(
                 "INSERT INTO kv_store (table_name,key,value) VALUES (?,?,?)
                  ON CONFLICT(table_name,key) DO UPDATE SET value=excluded.value",
-            ).bind(table).bind(key).bind(value).execute(&self.pool).await
+            )
+            .bind(table)
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("SQLite put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=? AND key=?",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("SQLite get: {e}")))?;
+            let row: Option<(String,)> =
+                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=? AND key=?")
+                    .bind(table)
+                    .bind(key)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("SQLite get: {e}")))?;
             Ok(row.map(|(v,)| v))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             sqlx::query("DELETE FROM kv_store WHERE table_name=? AND key=?")
-                .bind(table).bind(key).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("SQLite delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
-                "SELECT key,value FROM kv_store WHERE table_name=? ORDER BY key",
-            ).bind(table).fetch_all(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("SQLite list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key,value FROM kv_store WHERE table_name=? ORDER BY key")
+                    .bind(table)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("SQLite list: {e}")))?;
+            Ok(rows
+                .into_iter()
+                .map(|(key, value)| Record { key, value })
+                .collect())
         }
     }
 }
@@ -479,28 +613,43 @@ pub mod aruaru {
     }
 
     #[derive(Debug, Clone)]
-    pub struct AruaruDbBackend { pool: PgPool }
+    pub struct AruaruDbBackend {
+        pool: PgPool,
+    }
     impl AruaruDbBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = PgPool::connect(url).await
+            let pool = PgPool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("aruaru-db connect: {e}")))?;
             tracing::info!(url, "connected to aruaru-db (pgwire :5433)");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &PgPool { &self.pool }
+        pub fn pool(&self) -> &PgPool {
+            &self.pool
+        }
         /// Build directly from an already-established pool (tests /
         /// callers that manage their own connection lifecycle).
-        pub fn from_pool(pool: PgPool) -> Self { Self { pool } }
+        pub fn from_pool(pool: PgPool) -> Self {
+            Self { pool }
+        }
     }
     #[async_trait]
     impl DbBackend for AruaruDbBackend {
-        fn backend_name(&self) -> &'static str { "aruaru-db" }
+        fn backend_name(&self) -> &'static str {
+            "aruaru-db"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             let pk = crate::migration::aruaru_pk(table, key);
             sqlx::query(
                 "INSERT INTO kv_store (pk,table_name,key,value) VALUES ($1,$2,$3,$4)
                  ON CONFLICT (pk) DO UPDATE SET value=EXCLUDED.value",
-            ).bind(pk).bind(table).bind(key).bind(value).execute(&self.pool).await
+            )
+            .bind(pk)
+            .bind(table)
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("aruaru-db put: {e}")))?;
             Ok(())
         }
@@ -524,74 +673,122 @@ pub mod aruaru {
         /// manually via `sql_escape` instead of binding them.
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
             let pk = sql_escape(&crate::migration::aruaru_pk(table, key));
-            let mut rows = sqlx::raw_sql(&format!("SELECT value FROM kv_store WHERE pk = '{pk}'"))
-                .fetch_all(&self.pool).await
-                .map_err(|e| AppError::Internal(format!("aruaru-db get: {e}")))?;
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "SELECT value FROM kv_store WHERE pk = '{pk}'"
+            )))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("aruaru-db get: {e}")))?;
             Ok(match rows.pop() {
-                Some(row) => Some(row.try_get::<String, _>(0)
-                    .map_err(|e| AppError::Internal(format!("aruaru-db get: decode: {e}")))?),
+                Some(row) => Some(
+                    row.try_get::<String, _>(0)
+                        .map_err(|e| AppError::Internal(format!("aruaru-db get: decode: {e}")))?,
+                ),
                 None => None,
             })
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             let pk = crate::migration::aruaru_pk(table, key);
             sqlx::query("DELETE FROM kv_store WHERE pk=$1")
-                .bind(pk).execute(&self.pool).await
+                .bind(pk)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("aruaru-db delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
             let table_esc = sql_escape(table);
-            let rows = sqlx::raw_sql(&format!(
+            let rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
                 "SELECT key,value FROM kv_store WHERE table_name = '{table_esc}' ORDER BY key"
-            )).fetch_all(&self.pool).await
+            )))
+            .fetch_all(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("aruaru-db list: {e}")))?;
-            rows.into_iter().map(|row| {
-                let key = row.try_get::<String, _>(0)
-                    .map_err(|e| AppError::Internal(format!("aruaru-db list: decode key: {e}")))?;
-                let value = row.try_get::<String, _>(1)
-                    .map_err(|e| AppError::Internal(format!("aruaru-db list: decode value: {e}")))?;
-                Ok(Record { key, value })
-            }).collect()
+            rows.into_iter()
+                .map(|row| {
+                    let key = row.try_get::<String, _>(0).map_err(|e| {
+                        AppError::Internal(format!("aruaru-db list: decode key: {e}"))
+                    })?;
+                    let value = row.try_get::<String, _>(1).map_err(|e| {
+                        AppError::Internal(format!("aruaru-db list: decode value: {e}"))
+                    })?;
+                    Ok(Record { key, value })
+                })
+                .collect()
         }
 
         /// `SELECT value FROM kv_store WHERE pk = '<table\u{1}key>' AS OF
         /// COMMIT '<commit_id>'` — the commit-ID read-side query, wired
         /// through to aruaru-db's real `AS OF COMMIT` SQL support
-        /// (`aruaru-query::engine::QueryEngine::select_as_of`, added
-        /// 2026-07-13). Uses the same synthetic `pk` this backend's
-        /// `put`/`get`/`delete` already rely on, since aruaru-db's engine
-        /// only matches a single first-column equality predicate — see
+        /// (`aruaru-query::engine::QueryEngine::select_as_of`). Uses the
+        /// same synthetic `pk` this backend's `put`/`get`/`delete` already
+        /// rely on, since aruaru-db's engine only matches a single
+        /// first-column equality predicate — see
         /// `migration::KV_STORE_DDL_ARUARU`'s doc comment.
         ///
         /// **`select_as_of` ignores the requested column list and always
         /// returns the full historical row** (`aruaru-query::engine::
         /// QueryEngine::select_as_of` reconstructs the row from the
         /// Prolly Tree and returns it verbatim — it doesn't re-run
-        /// column projection the way a normal `SELECT` does). Discovered
-        /// via this backend's real pgwire round-trip test
-        /// (`tests/aruaru_as_of_commit.rs`): the query's own `SELECT
-        /// value` clause is honored for column *naming* but not for
-        /// projection, so the row that comes back is
-        /// `(pk, table_name, key, value)` in `kv_store`'s declared column
-        /// order — the `value` this method wants is therefore at index
-        /// 3, not 0.
-        async fn get_at_commit(&self, table: &str, key: &str, commit_id: &str) -> Result<Option<String>> {
+        /// column projection the way a normal `SELECT` does). So the row
+        /// that comes back is `(pk, table_name, key, value)` in
+        /// `kv_store`'s declared column order — the `value` this method
+        /// wants is therefore at index 3, not 0.
+        async fn get_at_commit(
+            &self,
+            table: &str,
+            key: &str,
+            commit_id: &str,
+        ) -> Result<Option<String>> {
             const VALUE_COLUMN_INDEX: usize = 3; // kv_store: pk, table_name, key, value
             let pk = sql_escape(&crate::migration::aruaru_pk(table, key));
             let commit_esc = sql_escape(commit_id);
-            let sql = format!(
-                "SELECT value FROM kv_store WHERE pk = '{pk}' AS OF COMMIT '{commit_esc}'"
-            );
-            let mut rows = sqlx::raw_sql(&sql)
+            let sql =
+                format!("SELECT value FROM kv_store WHERE pk = '{pk}' AS OF COMMIT '{commit_esc}'");
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
                 .fetch_all(&self.pool)
                 .await
                 .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: {e}")))?;
             Ok(match rows.pop() {
-                Some(row) => Some(row.try_get::<String, _>(VALUE_COLUMN_INDEX)
-                    .map_err(|e| AppError::Internal(format!("aruaru-db get_at_commit: decode: {e}")))?),
+                Some(row) => Some(row.try_get::<String, _>(VALUE_COLUMN_INDEX).map_err(|e| {
+                    AppError::Internal(format!("aruaru-db get_at_commit: decode: {e}"))
+                })?),
                 None => None,
             })
+        }
+
+        /// `put`のINSERTに続けて`SELECT aruaru_commit(message)`を実行し、
+        /// 実際にGit-on-SQLのコミット履歴へ反映してから、確定した
+        /// コミットIDを呼び出し元へ返す。以前は`put`単体しか呼ばれておらず
+        /// (このモジュールdoc冒頭の「正直な開示」参照)、この経路を通る
+        /// までは実際に誰も`aruaru_commit`を呼んでいなかった。
+        async fn put_versioned(
+            &self,
+            table: &str,
+            key: &str,
+            value: &str,
+            commit_message: &str,
+        ) -> Result<Option<String>> {
+            self.put(table, key, value).await?;
+            use sqlx::Row;
+            let message_esc = sql_escape(commit_message);
+            let mut rows = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+                "SELECT aruaru_commit('{message_esc}')"
+            )))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::Internal(format!("aruaru-db put_versioned: aruaru_commit: {e}"))
+            })?;
+            let row = rows.pop().ok_or_else(|| {
+                AppError::Internal(
+                    "aruaru-db put_versioned: aruaru_commit returned no row".to_string(),
+                )
+            })?;
+            let commit_id = row.try_get::<String, _>(0).map_err(|e| {
+                AppError::Internal(format!("aruaru-db put_versioned: decode commit_id: {e}"))
+            })?;
+            Ok(Some(commit_id))
         }
     }
 }
@@ -605,44 +802,66 @@ pub mod cockroach {
     use sqlx::PgPool;
 
     #[derive(Debug, Clone)]
-    pub struct CockroachBackend { pool: PgPool }
+    pub struct CockroachBackend {
+        pool: PgPool,
+    }
     impl CockroachBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = PgPool::connect(url).await
+            let pool = PgPool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("CockroachDB connect: {e}")))?;
             tracing::info!(url, "connected to CockroachDB :26257");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &PgPool { &self.pool }
+        pub fn pool(&self) -> &PgPool {
+            &self.pool
+        }
     }
     #[async_trait]
     impl DbBackend for CockroachBackend {
-        fn backend_name(&self) -> &'static str { "cockroachdb" }
+        fn backend_name(&self) -> &'static str {
+            "cockroachdb"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             sqlx::query("UPSERT INTO kv_store (table_name,key,value) VALUES ($1,$2,$3)")
-                .bind(table).bind(key).bind(value).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .bind(value)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("CockroachDB put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=$1 AND key=$2",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("CockroachDB get: {e}")))?;
+            let row: Option<(String,)> =
+                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=$1 AND key=$2")
+                    .bind(table)
+                    .bind(key)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("CockroachDB get: {e}")))?;
             Ok(row.map(|(v,)| v))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             sqlx::query("DELETE FROM kv_store WHERE table_name=$1 AND key=$2")
-                .bind(table).bind(key).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("CockroachDB delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
-                "SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key",
-            ).bind(table).fetch_all(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("CockroachDB list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key")
+                    .bind(table)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("CockroachDB list: {e}")))?;
+            Ok(rows
+                .into_iter()
+                .map(|(key, value)| Record { key, value })
+                .collect())
         }
     }
 }
@@ -656,46 +875,69 @@ pub mod yugabyte {
     use sqlx::PgPool;
 
     #[derive(Debug, Clone)]
-    pub struct YugabyteBackend { pool: PgPool }
+    pub struct YugabyteBackend {
+        pool: PgPool,
+    }
     impl YugabyteBackend {
         pub async fn connect(url: &str) -> Result<Self> {
-            let pool = PgPool::connect(url).await
+            let pool = PgPool::connect(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("YugabyteDB connect: {e}")))?;
             tracing::info!(url, "connected to YugabyteDB");
             Ok(Self { pool })
         }
-        pub fn pool(&self) -> &PgPool { &self.pool }
+        pub fn pool(&self) -> &PgPool {
+            &self.pool
+        }
     }
     #[async_trait]
     impl DbBackend for YugabyteBackend {
-        fn backend_name(&self) -> &'static str { "yugabytedb" }
+        fn backend_name(&self) -> &'static str {
+            "yugabytedb"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             sqlx::query(
                 "INSERT INTO kv_store (table_name,key,value) VALUES ($1,$2,$3)
                  ON CONFLICT (table_name,key) DO UPDATE SET value=EXCLUDED.value",
-            ).bind(table).bind(key).bind(value).execute(&self.pool).await
+            )
+            .bind(table)
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await
             .map_err(|e| AppError::Internal(format!("YugabyteDB put: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let row: Option<(String,)> = sqlx::query_as(
-                "SELECT value FROM kv_store WHERE table_name=$1 AND key=$2",
-            ).bind(table).bind(key).fetch_optional(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("YugabyteDB get: {e}")))?;
+            let row: Option<(String,)> =
+                sqlx::query_as("SELECT value FROM kv_store WHERE table_name=$1 AND key=$2")
+                    .bind(table)
+                    .bind(key)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("YugabyteDB get: {e}")))?;
             Ok(row.map(|(v,)| v))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             sqlx::query("DELETE FROM kv_store WHERE table_name=$1 AND key=$2")
-                .bind(table).bind(key).execute(&self.pool).await
+                .bind(table)
+                .bind(key)
+                .execute(&self.pool)
+                .await
                 .map_err(|e| AppError::Internal(format!("YugabyteDB delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows: Vec<(String,String)> = sqlx::query_as(
-                "SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key",
-            ).bind(table).fetch_all(&self.pool).await
-            .map_err(|e| AppError::Internal(format!("YugabyteDB list: {e}")))?;
-            Ok(rows.into_iter().map(|(key,value)| Record { key, value }).collect())
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key,value FROM kv_store WHERE table_name=$1 ORDER BY key")
+                    .bind(table)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| AppError::Internal(format!("YugabyteDB list: {e}")))?;
+            Ok(rows
+                .into_iter()
+                .map(|(key, value)| Record { key, value })
+                .collect())
         }
     }
 }
@@ -713,22 +955,30 @@ pub mod mongo {
     };
 
     #[derive(Debug, Clone)]
-    pub struct MongoBackend { collection: Collection<Document> }
+    pub struct MongoBackend {
+        collection: Collection<Document>,
+    }
     impl MongoBackend {
         pub async fn connect(url: &str, db_name: &str) -> Result<Self> {
-            let opts = ClientOptions::parse(url).await
+            let opts = ClientOptions::parse(url)
+                .await
                 .map_err(|e| AppError::Internal(format!("MongoDB url: {e}")))?;
             let col = Client::with_options(opts)
                 .map_err(|e| AppError::Internal(format!("MongoDB client: {e}")))?
-                .database(db_name).collection::<Document>("kv_store");
+                .database(db_name)
+                .collection::<Document>("kv_store");
             tracing::info!(url, db = db_name, "connected to MongoDB :27017");
             Ok(Self { collection: col })
         }
-        fn doc_id(table: &str, key: &str) -> String { format!("{table}/{key}") }
+        fn doc_id(table: &str, key: &str) -> String {
+            format!("{table}/{key}")
+        }
     }
     #[async_trait]
     impl DbBackend for MongoBackend {
-        fn backend_name(&self) -> &'static str { "mongodb" }
+        fn backend_name(&self) -> &'static str {
+            "mongodb"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
             let id = Self::doc_id(table, key);
             let d = doc! { "_id": &id, "table": table, "key": key, "value": value };
@@ -741,29 +991,41 @@ pub mod mongo {
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
             let id = Self::doc_id(table, key);
-            Ok(self.collection.find_one(doc! { "_id": &id }).await
+            Ok(self
+                .collection
+                .find_one(doc! { "_id": &id })
+                .await
                 .map_err(|e| AppError::Internal(format!("MongoDB get: {e}")))?
                 .and_then(|d| d.get_str("value").ok().map(String::from)))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             self.collection
-                .delete_one(doc! { "_id": Self::doc_id(table, key) }).await
+                .delete_one(doc! { "_id": Self::doc_id(table, key) })
+                .await
                 .map_err(|e| AppError::Internal(format!("MongoDB delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let mut cur = self.collection
+            let mut cur = self
+                .collection
                 .find(doc! { "table": table })
                 .sort(doc! { "key": 1 })
                 .await
                 .map_err(|e| AppError::Internal(format!("MongoDB list: {e}")))?;
             let mut out = Vec::new();
-            while cur.advance().await
-                .map_err(|e| AppError::Internal(format!("MongoDB cursor: {e}")))? {
-                let d = cur.deserialize_current()
+            while cur
+                .advance()
+                .await
+                .map_err(|e| AppError::Internal(format!("MongoDB cursor: {e}")))?
+            {
+                let d = cur
+                    .deserialize_current()
                     .map_err(|e| AppError::Internal(format!("MongoDB deser: {e}")))?;
                 if let (Ok(k), Ok(v)) = (d.get_str("key"), d.get_str("value")) {
-                    out.push(Record { key: k.into(), value: v.into() });
+                    out.push(Record {
+                        key: k.into(),
+                        value: v.into(),
+                    });
                 }
             }
             Ok(out)
@@ -781,7 +1043,9 @@ pub mod redis_backend {
     use redis::AsyncCommands;
 
     #[derive(Debug, Clone)]
-    pub struct RedisBackend { pool: Pool }
+    pub struct RedisBackend {
+        pool: Pool,
+    }
     impl RedisBackend {
         pub fn connect(url: &str) -> Result<Self> {
             let pool = Config::from_url(url)
@@ -790,49 +1054,80 @@ pub mod redis_backend {
             tracing::info!(url, "created Redis connection pool");
             Ok(Self { pool })
         }
-        fn rk(table: &str, key: &str) -> String { format!("open-runo:{table}:{key}") }
-        fn sk(table: &str) -> String { format!("open-runo:{table}:_keys") }
+        fn rk(table: &str, key: &str) -> String {
+            format!("open-runo:{table}:{key}")
+        }
+        fn sk(table: &str) -> String {
+            format!("open-runo:{table}:_keys")
+        }
     }
     #[async_trait]
     impl DbBackend for RedisBackend {
-        fn backend_name(&self) -> &'static str { "redis" }
+        fn backend_name(&self) -> &'static str {
+            "redis"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            let mut c = self.pool.get().await
+            let mut c = self
+                .pool
+                .get()
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis conn: {e}")))?;
-            c.set::<_,_,()>(Self::rk(table,key), value).await
+            c.set::<_, _, ()>(Self::rk(table, key), value)
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis SET: {e}")))?;
-            c.sadd::<_,_,()>(Self::sk(table), key).await
+            c.sadd::<_, _, ()>(Self::sk(table), key)
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis SADD: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let mut c = self.pool.get().await
+            let mut c = self
+                .pool
+                .get()
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis conn: {e}")))?;
-            Ok(c.get(Self::rk(table,key)).await
+            Ok(c.get(Self::rk(table, key))
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis GET: {e}")))?)
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
-            let mut c = self.pool.get().await
+            let mut c = self
+                .pool
+                .get()
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis conn: {e}")))?;
-            c.del::<_,()>(Self::rk(table,key)).await
+            c.del::<_, ()>(Self::rk(table, key))
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis DEL: {e}")))?;
-            c.srem::<_,_,()>(Self::sk(table), key).await
+            c.srem::<_, _, ()>(Self::sk(table), key)
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis SREM: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let mut c = self.pool.get().await
+            let mut c = self
+                .pool
+                .get()
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis conn: {e}")))?;
-            let keys: Vec<String> = c.smembers(Self::sk(table)).await
+            let keys: Vec<String> = c
+                .smembers(Self::sk(table))
+                .await
                 .map_err(|e| AppError::Internal(format!("Redis SMEMBERS: {e}")))?;
             let mut out = Vec::new();
             for k in &keys {
-                if let Some(v) = c.get::<_,Option<String>>(Self::rk(table,k)).await
-                    .map_err(|e| AppError::Internal(format!("Redis GET: {e}")))? {
-                    out.push(Record { key: k.clone(), value: v });
+                if let Some(v) = c
+                    .get::<_, Option<String>>(Self::rk(table, k))
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Redis GET: {e}")))?
+                {
+                    out.push(Record {
+                        key: k.clone(),
+                        value: v,
+                    });
                 }
             }
-            out.sort_by(|a,b| a.key.cmp(&b.key));
+            out.sort_by(|a, b| a.key.cmp(&b.key));
             Ok(out)
         }
     }
@@ -848,7 +1143,9 @@ pub mod clickhouse_backend {
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone)]
-    pub struct ClickHouseBackend { client: Client }
+    pub struct ClickHouseBackend {
+        client: Client,
+    }
 
     // `clickhouse::Client` doesn't implement `Debug`, so it can't be
     // `#[derive(Debug)]`d directly; a manual impl that just names the type
@@ -861,49 +1158,77 @@ pub mod clickhouse_backend {
     }
 
     #[derive(clickhouse::Row, Serialize, Deserialize, Debug)]
-    struct KvRow { key: String, value: String }
+    struct KvRow {
+        key: String,
+        value: String,
+    }
 
     impl ClickHouseBackend {
         pub fn connect(url: &str) -> Self {
             tracing::info!(url, "created ClickHouse client");
-            Self { client: Client::default().with_url(url) }
+            Self {
+                client: Client::default().with_url(url),
+            }
         }
     }
     #[async_trait]
     impl DbBackend for ClickHouseBackend {
-        fn backend_name(&self) -> &'static str { "clickhouse" }
+        fn backend_name(&self) -> &'static str {
+            "clickhouse"
+        }
         async fn put(&self, table: &str, key: &str, value: &str) -> Result<()> {
-            let mut ins = self.client.insert(table)
+            let mut ins = self
+                .client
+                .insert::<KvRow>(table)
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse insert: {e}")))?;
-            ins.write(&KvRow { key: key.into(), value: value.into() }).await
-                .map_err(|e| AppError::Internal(format!("ClickHouse write: {e}")))?;
-            ins.end().await
+            ins.write(&KvRow {
+                key: key.into(),
+                value: value.into(),
+            })
+            .await
+            .map_err(|e| AppError::Internal(format!("ClickHouse write: {e}")))?;
+            ins.end()
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse end: {e}")))?;
             Ok(())
         }
         async fn get(&self, table: &str, key: &str) -> Result<Option<String>> {
-            let rows = self.client
+            let rows = self
+                .client
                 .query(&format!(
                     "SELECT key,value FROM `{table}` WHERE key=? \
                      ORDER BY _version DESC LIMIT 1"
                 ))
-                .bind(key).fetch_all::<KvRow>().await
+                .bind(key)
+                .fetch_all::<KvRow>()
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse get: {e}")))?;
             Ok(rows.into_iter().next().map(|r| r.value))
         }
         async fn delete(&self, table: &str, key: &str) -> Result<()> {
             self.client
                 .query(&format!("ALTER TABLE `{table}` DELETE WHERE key=?"))
-                .bind(key).execute().await
+                .bind(key)
+                .execute()
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse delete: {e}")))?;
             Ok(())
         }
         async fn list(&self, table: &str) -> Result<Vec<Record>> {
-            let rows = self.client
+            let rows = self
+                .client
                 .query(&format!("SELECT key,value FROM `{table}` ORDER BY key"))
-                .fetch_all::<KvRow>().await
+                .fetch_all::<KvRow>()
+                .await
                 .map_err(|e| AppError::Internal(format!("ClickHouse list: {e}")))?;
-            Ok(rows.into_iter().map(|r| Record { key: r.key, value: r.value }).collect())
+            Ok(rows
+                .into_iter()
+                .map(|r| Record {
+                    key: r.key,
+                    value: r.value,
+                })
+                .collect())
         }
     }
 }
@@ -917,18 +1242,21 @@ mod tests {
     #[tokio::test]
     async fn put_get_delete_roundtrip() {
         let b = InMemoryBackend::new();
-        b.put("users","u1",r#"{"name":"alice"}"#).await.unwrap();
-        assert_eq!(b.get("users","u1").await.unwrap(), Some(r#"{"name":"alice"}"#.into()));
-        b.delete("users","u1").await.unwrap();
-        assert_eq!(b.get("users","u1").await.unwrap(), None);
+        b.put("users", "u1", r#"{"name":"alice"}"#).await.unwrap();
+        assert_eq!(
+            b.get("users", "u1").await.unwrap(),
+            Some(r#"{"name":"alice"}"#.into())
+        );
+        b.delete("users", "u1").await.unwrap();
+        assert_eq!(b.get("users", "u1").await.unwrap(), None);
     }
 
     #[tokio::test]
     async fn list_returns_only_matching_table() {
         let b = InMemoryBackend::new();
-        b.put("schemas","svc_a","{}").await.unwrap();
-        b.put("schemas","svc_b","{}").await.unwrap();
-        b.put("other","x","{}").await.unwrap();
+        b.put("schemas", "svc_a", "{}").await.unwrap();
+        b.put("schemas", "svc_b", "{}").await.unwrap();
+        b.put("other", "x", "{}").await.unwrap();
         let recs = b.list("schemas").await.unwrap();
         assert_eq!(recs.len(), 2);
         assert!(recs.iter().all(|r| r.key.starts_with("svc_")));

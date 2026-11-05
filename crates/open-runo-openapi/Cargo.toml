@@ -1,0 +1,19 @@
+[package]
+name = "open-runo-openapi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "型(schemars)からOpenAPI 3.0文書を自動生成する、フレームワーク非依存のビルダー。Swagger UI/ReDoc配信HTML、Cosmo(WunderGraph)向けGraphQL SDL、Tauri向けinvokeマニフェスト/TypeScriptクライアントも同じ定義から出力する(poem-openapi相当)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+schemars = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }

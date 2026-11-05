@@ -92,10 +92,8 @@ impl DomMount {
                     }
                 }
             });
-            root_el.add_event_listener_with_callback(
-                event_name,
-                closure.as_ref().unchecked_ref(),
-            )?;
+            root_el
+                .add_event_listener_with_callback(event_name, closure.as_ref().unchecked_ref())?;
             listeners.push(closure);
         }
         Ok(Self {
@@ -129,44 +127,48 @@ impl DomMount {
                     parent.replace_child(&created, &old)?;
                 }
                 Ok(())
-            }
+            },
             Patch::SetText { path, text } => {
                 let n = self.node_at(path)?;
                 n.set_text_content(Some(text));
                 Ok(())
-            }
+            },
             Patch::SetAttr { path, name, value } => {
                 let el = self.element_at(path)?;
                 el.set_attribute(name, value)?;
                 Ok(())
-            }
+            },
             Patch::RemoveAttr { path, name } => {
                 let el = self.element_at(path)?;
                 el.remove_attribute(name)?;
                 Ok(())
-            }
-            Patch::SetHandler { path, event, handler_id } => {
+            },
+            Patch::SetHandler {
+                path,
+                event,
+                handler_id,
+            } => {
                 let el = self.element_at(path)?;
                 el.set_attribute(&event_attr_name(event), &handler_id.to_string())?;
                 Ok(())
-            }
+            },
             Patch::RemoveHandler { path, event } => {
                 let el = self.element_at(path)?;
                 el.remove_attribute(&event_attr_name(event))?;
                 Ok(())
-            }
+            },
             Patch::Append { path, node } => {
                 let parent = self.node_at(path)?;
                 let created = self.create_node(node)?;
                 parent.append_child(&created)?;
                 Ok(())
-            }
+            },
             Patch::RemoveChild { path, index } => {
                 let parent = self.node_at(path)?;
                 let child = nth_child(&parent, *index).ok_or(DomError::BadPath)?;
                 parent.remove_child(&child)?;
                 Ok(())
-            }
+            },
             Patch::MoveChild { path, from, to } => {
                 let parent = self.node_at(path)?;
                 let moving = nth_child(&parent, *from).ok_or(DomError::BadPath)?;
@@ -174,13 +176,13 @@ impl DomMount {
                 match nth_child(&parent, *to) {
                     Some(anchor) => {
                         parent.insert_before(&moving, Some(&anchor))?;
-                    }
+                    },
                     None => {
                         parent.append_child(&moving)?;
-                    }
+                    },
                 }
                 Ok(())
-            }
+            },
         }
     }
 
@@ -222,7 +224,7 @@ impl DomMount {
                     el.append_child(&self.create_node(c)?)?;
                 }
                 el.into()
-            }
+            },
         })
     }
 }

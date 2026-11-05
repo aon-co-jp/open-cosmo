@@ -14,8 +14,8 @@ name = "open-runo-tray"
 path = "src/main.rs"
 
 [dependencies]
-tray-icon = "0.19"
-tao = "0.30"
+tray-icon = "0.26"
+tao = "0.37"
 notify-rust = "4"
 
 [profile.release]

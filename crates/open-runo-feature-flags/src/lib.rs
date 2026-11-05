@@ -43,7 +43,12 @@ impl FeatureFlag {
     /// A new flag, enabled at 100% rollout by default (the common case:
     /// "on" or "off", with percentage rollout as an opt-in refinement).
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), enabled: true, rollout_percent: 100, description: String::new() }
+        Self {
+            name: name.into(),
+            enabled: true,
+            rollout_percent: 100,
+            description: String::new(),
+        }
     }
 
     #[must_use]
@@ -66,7 +71,9 @@ impl FeatureFlag {
 
     fn validate(&self) -> Result<()> {
         if self.name.trim().is_empty() {
-            return Err(AppError::Validation("feature flag name must not be empty".into()));
+            return Err(AppError::Validation(
+                "feature flag name must not be empty".into(),
+            ));
         }
         if self.rollout_percent > 100 {
             return Err(AppError::Validation(format!(
@@ -160,14 +167,21 @@ mod tests {
     #[test]
     fn upsert_rejects_percent_over_100() {
         let mut reg = FeatureFlagRegistry::new();
-        let err = reg.upsert(FeatureFlag::new("new-checkout").rollout_percent(101)).unwrap_err();
+        let err = reg
+            .upsert(FeatureFlag::new("new-checkout").rollout_percent(101))
+            .unwrap_err();
         assert!(err.to_string().contains("rollout_percent"));
     }
 
     #[test]
     fn upsert_then_get_roundtrips() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("new-checkout").rollout_percent(25).description("canary")).unwrap();
+        reg.upsert(
+            FeatureFlag::new("new-checkout")
+                .rollout_percent(25)
+                .description("canary"),
+        )
+        .unwrap();
         let flag = reg.get("new-checkout").expect("flag should exist");
         assert_eq!(flag.rollout_percent, 25);
         assert_eq!(flag.description, "canary");
@@ -176,8 +190,10 @@ mod tests {
     #[test]
     fn upsert_replaces_existing_flag_of_the_same_name() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(10)).unwrap();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(90)).unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(10))
+            .unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(90))
+            .unwrap();
         assert_eq!(reg.get("f").unwrap().rollout_percent, 90);
         assert_eq!(reg.list().len(), 1);
     }
@@ -209,14 +225,16 @@ mod tests {
     #[test]
     fn evaluate_disabled_flag_is_always_false() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").enabled(false).rollout_percent(100)).unwrap();
+        reg.upsert(FeatureFlag::new("f").enabled(false).rollout_percent(100))
+            .unwrap();
         assert_eq!(reg.evaluate("f", "any-user"), Some(false));
     }
 
     #[test]
     fn evaluate_full_rollout_is_always_true() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(100)).unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(100))
+            .unwrap();
         for key in ["a", "b", "c", "very-different-key"] {
             assert_eq!(reg.evaluate("f", key), Some(true));
         }
@@ -225,7 +243,8 @@ mod tests {
     #[test]
     fn evaluate_zero_rollout_is_always_false() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(0)).unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(0))
+            .unwrap();
         for key in ["a", "b", "c", "very-different-key"] {
             assert_eq!(reg.evaluate("f", key), Some(false));
         }
@@ -234,7 +253,8 @@ mod tests {
     #[test]
     fn evaluate_is_deterministic_for_the_same_key() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(50)).unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(50))
+            .unwrap();
         let first = reg.evaluate("f", "user-42");
         for _ in 0..20 {
             assert_eq!(reg.evaluate("f", "user-42"), first);
@@ -244,20 +264,29 @@ mod tests {
     #[test]
     fn evaluate_distribution_roughly_matches_rollout_percentage() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("f").rollout_percent(30)).unwrap();
+        reg.upsert(FeatureFlag::new("f").rollout_percent(30))
+            .unwrap();
         let total = 5_000;
-        let on = (0..total).filter(|i| reg.evaluate("f", &format!("user-{i}")) == Some(true)).count();
+        let on = (0..total)
+            .filter(|i| reg.evaluate("f", &format!("user-{i}")) == Some(true))
+            .count();
         let ratio = on as f64 / total as f64;
         // Hash-based bucketing over 5000 samples should land close to 30%;
         // generous tolerance keeps this test non-flaky.
-        assert!((0.24..=0.36).contains(&ratio), "expected ~30% rollout, got {:.1}%", ratio * 100.0);
+        assert!(
+            (0.24..=0.36).contains(&ratio),
+            "expected ~30% rollout, got {:.1}%",
+            ratio * 100.0
+        );
     }
 
     #[test]
     fn different_flags_bucket_the_same_key_independently() {
         let mut reg = FeatureFlagRegistry::new();
-        reg.upsert(FeatureFlag::new("flag-a").rollout_percent(50)).unwrap();
-        reg.upsert(FeatureFlag::new("flag-b").rollout_percent(50)).unwrap();
+        reg.upsert(FeatureFlag::new("flag-a").rollout_percent(50))
+            .unwrap();
+        reg.upsert(FeatureFlag::new("flag-b").rollout_percent(50))
+            .unwrap();
         // Not asserting a specific relationship (that would be flaky by
         // construction) -- just that the bucketing key includes the flag
         // name, i.e. two flags don't always agree for every user.
@@ -267,6 +296,9 @@ mod tests {
                 reg.evaluate("flag-a", &key) == reg.evaluate("flag-b", &key)
             })
             .count();
-        assert!(agreements < 200, "flag-a and flag-b should not always agree");
+        assert!(
+            agreements < 200,
+            "flag-a and flag-b should not always agree"
+        );
     }
 }

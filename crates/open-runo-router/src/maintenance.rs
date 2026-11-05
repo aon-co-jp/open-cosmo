@@ -53,7 +53,9 @@ pub const ALL_TABLES: &[&str] = &[
 
 /// Save the predictor's learned model into the database (both sides).
 pub async fn save_model(state: &AppState, cache: &HtmlPageCache) -> bool {
-    let Some(predictor) = cache.predictor() else { return false };
+    let Some(predictor) = cache.predictor() else {
+        return false;
+    };
     let snapshot = predictor.snapshot();
     match serde_json::to_string(&snapshot) {
         Ok(json) => match state.db.put(MODEL_TABLE, MODEL_KEY, &json).await {
@@ -61,29 +63,31 @@ pub async fn save_model(state: &AppState, cache: &HtmlPageCache) -> bool {
             Err(e) => {
                 tracing::warn!(error = %e, "AI model save failed");
                 false
-            }
+            },
         },
         Err(e) => {
             tracing::warn!(error = %e, "AI model serialization failed");
             false
-        }
+        },
     }
 }
 
 /// Restore the learned model from the database (warm start after reboot).
 pub async fn restore_model(state: &AppState, cache: &HtmlPageCache) -> bool {
-    let Some(predictor) = cache.predictor() else { return false };
+    let Some(predictor) = cache.predictor() else {
+        return false;
+    };
     match state.db.get(MODEL_TABLE, MODEL_KEY).await {
-        Ok(Some(json)) => match serde_json::from_str::<Snapshot>(&json) {
+        Ok(Some(json)) => match sonic_rs::from_str::<Snapshot>(&json) {
             Ok(snapshot) => {
                 predictor.restore(snapshot);
                 tracing::info!("AI model restored: the framework woke up smart");
                 true
-            }
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "stored AI model unreadable; starting fresh");
                 false
-            }
+            },
         },
         _ => false,
     }
@@ -144,8 +148,7 @@ pub async fn export_backup(
         if rows.is_empty() {
             continue;
         }
-        let map: HashMap<String, String> =
-            rows.into_iter().map(|r| (r.key, r.value)).collect();
+        let map: HashMap<String, String> = rows.into_iter().map(|r| (r.key, r.value)).collect();
         records += map.len();
         tables.insert((*table).to_string(), map);
     }
@@ -161,18 +164,31 @@ pub async fn export_backup(
         Utc::now().format("%Y%m%d-%H%M%S")
     );
 
-    let mut written = Vec::new();
-    for dir in std::iter::once(&config.dir).chain(config.mirror_dir.iter()) {
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            tracing::warn!(dir = %dir.display(), error = %e, "backup dir unavailable");
-            continue;
+    // File I/O is genuinely blocking (create_dir_all + write, potentially to
+    // two locations); running it inline on the async executor would stall
+    // whichever tokio worker thread picked up this request, starving other
+    // concurrent requests on that worker. Offload to the blocking thread
+    // pool via `spawn_blocking` (tokio's dedicated pool for exactly this).
+    let dirs: Vec<PathBuf> = std::iter::once(config.dir.clone())
+        .chain(config.mirror_dir.clone())
+        .collect();
+    let written = tokio::task::spawn_blocking(move || {
+        let mut written = Vec::new();
+        for dir in &dirs {
+            if let Err(e) = std::fs::create_dir_all(dir) {
+                tracing::warn!(dir = %dir.display(), error = %e, "backup dir unavailable");
+                continue;
+            }
+            let path = dir.join(&name);
+            match std::fs::write(&path, &json) {
+                Ok(()) => written.push(path.display().to_string()),
+                Err(e) => tracing::warn!(path = %path.display(), error = %e, "backup write failed"),
+            }
         }
-        let path = dir.join(&name);
-        match std::fs::write(&path, &json) {
-            Ok(()) => written.push(path.display().to_string()),
-            Err(e) => tracing::warn!(path = %path.display(), error = %e, "backup write failed"),
-        }
-    }
+        written
+    })
+    .await
+    .map_err(|e| format!("backup write task panicked: {e}"))?;
 
     if written.is_empty() {
         return Err("no backup location was writable".into());
@@ -181,12 +197,15 @@ pub async fn export_backup(
 }
 
 /// Import a portable backup file (restore after a move / disaster).
-pub async fn import_backup(
-    state: &AppState,
-    path: &str,
-) -> std::result::Result<usize, String> {
-    let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-    let file: BackupFile = serde_json::from_str(&json).map_err(|e| format!("parse: {e}"))?;
+pub async fn import_backup(state: &AppState, path: &str) -> std::result::Result<usize, String> {
+    // Same rationale as `export_backup`: keep synchronous disk I/O off the
+    // async worker thread.
+    let path_owned = path.to_string();
+    let json = tokio::task::spawn_blocking(move || std::fs::read_to_string(&path_owned))
+        .await
+        .map_err(|e| format!("backup read task panicked: {e}"))?
+        .map_err(|e| format!("read {path}: {e}"))?;
+    let file: BackupFile = sonic_rs::from_str(&json).map_err(|e| format!("parse: {e}"))?;
     if file.format != "open-runo-backup/v1" {
         return Err(format!("unknown backup format: {}", file.format));
     }
@@ -204,12 +223,25 @@ pub async fn import_backup(
     Ok(restored)
 }
 
+/// Async, non-blocking-executor-friendly wrapper around
+/// [`find_latest_backup`] for callers already on a tokio worker thread
+/// (e.g. HTTP handlers) — directory scanning + per-entry `metadata()` calls
+/// are blocking syscalls, so this offloads them via `spawn_blocking`.
+pub async fn find_latest_backup_async(config: BackupConfig) -> Option<PathBuf> {
+    tokio::task::spawn_blocking(move || find_latest_backup(&config))
+        .await
+        .unwrap_or(None)
+}
+
 /// Find the newest portable backup across the primary and mirror dirs
-/// (簡単復活: no need to remember file names).
+/// (簡単復活: no need to remember file names). Synchronous — prefer
+/// [`find_latest_backup_async`] from async/handler code.
 pub fn find_latest_backup(config: &BackupConfig) -> Option<PathBuf> {
     let mut newest: Option<(std::time::SystemTime, PathBuf)> = None;
     for dir in std::iter::once(&config.dir).chain(config.mirror_dir.iter()) {
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
@@ -217,8 +249,10 @@ pub fn find_latest_backup(config: &BackupConfig) -> Option<PathBuf> {
                 continue;
             }
             let Ok(meta) = entry.metadata() else { continue };
-            let Ok(modified) = meta.modified() else { continue };
-            if newest.as_ref().map_or(true, |(t, _)| modified > *t) {
+            let Ok(modified) = meta.modified() else {
+                continue;
+            };
+            if newest.as_ref().is_none_or(|(t, _)| modified > *t) {
                 newest = Some((modified, path));
             }
         }
@@ -247,7 +281,10 @@ fn sql_escape(v: &str) -> String {
 
 /// Render every table into one loadable SQL script. The data lands in a
 /// single generic KV table, so the script runs on any SQL engine.
-pub async fn export_sql(state: &AppState, dialect: SqlDialect) -> std::result::Result<String, String> {
+pub async fn export_sql(
+    state: &AppState,
+    dialect: SqlDialect,
+) -> std::result::Result<String, String> {
     let mut out = String::new();
     out.push_str("-- open-runo portable dump (open_runo_kv)\n");
     out.push_str(
@@ -320,6 +357,19 @@ pub fn write_to_backup_dirs(
     Ok(written)
 }
 
+/// Async wrapper around [`write_to_backup_dirs`] for handler call sites —
+/// offloads the `create_dir_all`/`write` syscalls to `spawn_blocking` so an
+/// export request does not block the tokio worker thread it landed on.
+pub async fn write_to_backup_dirs_async(
+    config: BackupConfig,
+    name: String,
+    content: String,
+) -> std::result::Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || write_to_backup_dirs(&config, &name, &content))
+        .await
+        .map_err(|e| format!("export write task panicked: {e}"))?
+}
+
 // ── Background self-maintenance loops ───────────────────────────────────────
 
 fn env_secs(key: &str, default: u64) -> u64 {
@@ -332,7 +382,9 @@ fn env_secs(key: &str, default: u64) -> u64 {
 /// Spawn the self-maintenance tasks (no-ops outside a tokio runtime, e.g.
 /// in sync unit tests). Called by `build_app`.
 pub fn spawn(state: Arc<AppState>, cache: Arc<HtmlPageCache>) {
-    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
 
     // 1. Restore the learned model once, then save it periodically.
     let persist_secs = env_secs("OPEN_RUNO_AI_PERSIST_SECS", 300);
@@ -341,8 +393,7 @@ pub fn spawn(state: Arc<AppState>, cache: Arc<HtmlPageCache>) {
         let cache_c = Arc::clone(&cache);
         handle.spawn(async move {
             restore_model(&state_c, &cache_c).await;
-            let mut tick =
-                tokio::time::interval(std::time::Duration::from_secs(persist_secs));
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(persist_secs));
             tick.tick().await; // first tick fires immediately; skip it
             loop {
                 tick.tick().await;
@@ -356,8 +407,7 @@ pub fn spawn(state: Arc<AppState>, cache: Arc<HtmlPageCache>) {
     if integrity_secs > 0 {
         let state_c = Arc::clone(&state);
         handle.spawn(async move {
-            let mut tick =
-                tokio::time::interval(std::time::Duration::from_secs(integrity_secs));
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(integrity_secs));
             tick.tick().await;
             loop {
                 tick.tick().await;
@@ -369,12 +419,15 @@ pub fn spawn(state: Arc<AppState>, cache: Arc<HtmlPageCache>) {
                                 &state_c,
                                 "integrity-guardian",
                                 "integrity.heal",
-                                format!("{}/{} {} (from {})", d.table, d.key, d.kind, d.healed_from),
+                                format!(
+                                    "{}/{} {} (from {})",
+                                    d.table, d.key, d.kind, d.healed_from
+                                ),
                             )
                             .await;
                         }
-                    }
-                    Ok(_) => {}
+                    },
+                    Ok(_) => {},
                     Err(e) => tracing::warn!(error = %e, "integrity check failed"),
                 }
             }
@@ -386,15 +439,14 @@ pub fn spawn(state: Arc<AppState>, cache: Arc<HtmlPageCache>) {
     if backup_secs > 0 {
         let config = BackupConfig::from_env();
         handle.spawn(async move {
-            let mut tick =
-                tokio::time::interval(std::time::Duration::from_secs(backup_secs));
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(backup_secs));
             tick.tick().await;
             loop {
                 tick.tick().await;
                 match export_backup(&state, &cache, &config).await {
                     Ok((paths, records)) => {
                         tracing::info!(?paths, records, "periodic backup written");
-                    }
+                    },
                     Err(e) => tracing::warn!(error = %e, "periodic backup failed"),
                 }
             }
@@ -444,7 +496,11 @@ mod tests {
         let cache = ai_cache();
 
         // Some data + some learning.
-        state.db.put("schemas", "users", r#"{"sdl":"type U{}"}"#).await.unwrap();
+        state
+            .db
+            .put("schemas", "users", r#"{"sdl":"type U{}"}"#)
+            .await
+            .unwrap();
         cache
             .predictor()
             .unwrap()
@@ -473,7 +529,11 @@ mod tests {
     async fn import_rejects_unknown_format() {
         let state = AppState::new();
         let path = std::env::temp_dir().join(format!("orn-bad-{}.json", uuid::Uuid::new_v4()));
-        std::fs::write(&path, r#"{"format":"other/v9","created_at":"x","tables":{}}"#).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"format":"other/v9","created_at":"x","tables":{}}"#,
+        )
+        .unwrap();
         assert!(import_backup(&state, path.to_str().unwrap()).await.is_err());
         let _ = std::fs::remove_file(&path);
     }
@@ -485,7 +545,10 @@ mod tests {
         state.db.put("schemas", "s", "v").await.unwrap();
 
         let base = std::env::temp_dir().join(format!("orn-latest-{}", uuid::Uuid::new_v4()));
-        let config = BackupConfig { dir: base.clone(), mirror_dir: None };
+        let config = BackupConfig {
+            dir: base.clone(),
+            mirror_dir: None,
+        };
 
         export_backup(&state, &cache, &config).await.unwrap();
         let found = find_latest_backup(&config).expect("backup discovered");
@@ -524,4 +587,3 @@ mod tests {
         assert!(csv.contains("\"say \"\"hi\"\", world\""));
     }
 }
-

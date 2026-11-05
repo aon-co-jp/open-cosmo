@@ -1,0 +1,277 @@
+// open-runo 管理用 gRPC サービス(REST全廃・gRPC移行、CLAUDE.md「2026-11-01追記」)。
+//
+// このファイルが管理操作の唯一の正(旧 /api/openapi* の代わり)。サーバー(open-runo-router)、
+// CLI、管理画面(WASM、gRPC-web)、呼び出し側(open-web-server 等)が同じ定義を使う。
+// リフレクション(grpcurl <addr> describe open_runo.admin.v1.Admin)でも取得できる。
+//
+// 認証: gRPC メタデータ(HTTPヘッダ)の `x-api-key`、またはセッション(`cookie` + `x-csrf-token`)。
+// `SelfIssueKey` と `SessionLogin` の入口だけは鍵なしで呼べる。権限はREST時代と同じ(認証済みなら実行可)。
+// エラーは gRPC ステータス: 400/422=INVALID_ARGUMENT(3), 401=UNAUTHENTICATED(16), 404=NOT_FOUND(5),
+// 409=ALREADY_EXISTS(6), 429=RESOURCE_EXHAUSTED(8), 501=UNIMPLEMENTED(12), 500=INTERNAL(13)。
+syntax = "proto3";
+
+package open_runo.admin.v1;
+
+import "google/protobuf/struct.proto";
+
+service Admin {
+  // ── 認証 / セッション / キー発行 ──
+  rpc SelfIssueKey(Empty) returns (SelfIssued);
+  // 要求メタデータの x-api-key をセッションCookie+CSRFへ交換する。Cookie は応答ヘッダの set-cookie。
+  rpc SessionLogin(Empty) returns (SessionLoginResponse);
+  rpc SessionLogout(Empty) returns (Empty);
+
+  // ── スキーマレジストリ / Federation ──
+  rpc RegisterSchema(RegisterSchemaRequest) returns (SchemaVersion);
+  rpc GetSchema(GetSchemaRequest) returns (SchemaVersion);
+  rpc SchemaHistory(SchemaHistoryRequest) returns (SchemaHistoryResponse);
+  rpc FederationStatus(Empty) returns (FederationStatusResponse);
+  rpc ComposeFederation(ComposeRequest) returns (ComposeResponse);
+
+  // ── フィーチャーフラグ ──
+  rpc UpsertFeatureFlag(UpsertFeatureFlagRequest) returns (FeatureFlag);
+  rpc ListFeatureFlags(Empty) returns (ListFeatureFlagsResponse);
+  rpc GetFeatureFlag(FlagName) returns (FeatureFlag);
+  rpc DeleteFeatureFlag(FlagName) returns (Empty);
+  rpc EvaluateFeatureFlag(EvaluateFlagRequest) returns (FlagEvaluation);
+
+  // ── 永続クエリ / キャッシュ ──
+  rpc RegisterPersistedQuery(RegisterPersistedQueryRequest) returns (PersistedQuery);
+  rpc GetPersistedQuery(PersistedQueryHash) returns (PersistedQuery);
+  rpc PurgeCache(PurgeRequest) returns (PurgeResponse);
+  rpc PurgeAllCache(Empty) returns (PurgeResponse);
+  rpc CacheAiStats(Empty) returns (google.protobuf.Struct);
+
+  // ── DB(応答は REST 時代と同じ JSON 形を Struct で返す) ──
+  rpc DbStatus(Empty) returns (google.protobuf.Struct);
+  rpc DbRouting(Empty) returns (google.protobuf.Struct);
+  rpc DbList(DbTable) returns (google.protobuf.Struct);
+  rpc DbGet(DbKey) returns (google.protobuf.Struct);
+  rpc DbGetAtCommit(DbAtCommit) returns (google.protobuf.Struct);
+  rpc DbPut(DbPutRequest) returns (google.protobuf.Struct);
+  rpc DbDelete(DbKey) returns (google.protobuf.Struct);
+
+  // ── バックアップ / 移行 / 整合性 ──
+  rpc BackupExport(Empty) returns (google.protobuf.Struct);
+  rpc BackupImport(BackupImportRequest) returns (google.protobuf.Struct);
+  rpc BackupRestoreLatest(Empty) returns (google.protobuf.Struct);
+  rpc MigrateExportSql(MigrateExportSqlRequest) returns (google.protobuf.Struct);
+  rpc MigrateExportCsv(Empty) returns (google.protobuf.Struct);
+  rpc IntegrityCheck(Empty) returns (google.protobuf.Struct);
+
+  // ── 分析 / AI 経路 ──
+  rpc AnalyticsRequestsPerMonth(Empty) returns (google.protobuf.Struct);
+  rpc AnalyticsOperations(Empty) returns (google.protobuf.Struct);
+  rpc AiRoute(AiRouteRequest) returns (google.protobuf.Struct);
+
+  // ── SCIM ユーザー(管理画面用。IdP 向けの /scim/v2/* 標準プロトコルは別) ──
+  rpc ScimListUsers(ScimListRequest) returns (google.protobuf.Struct);
+  rpc ScimCreateUser(ScimCreateUserRequest) returns (google.protobuf.Struct);
+  rpc ScimDeleteUser(ScimUserId) returns (Empty);
+
+  // ── イベント(旧 /api/events・/api/ws-events の置き換え。サーバーストリーミング) ──
+  rpc WatchEvents(Empty) returns (stream AdminEvent);
+}
+
+message Empty {}
+
+message SelfIssued {
+  string api_key = 1;
+  string expires_at = 2;
+}
+
+message SessionLoginResponse {
+  string owner = 1;
+  string csrf_token = 2;
+  int64 expires_in_secs = 3;
+}
+
+message SchemaVersion {
+  string id = 1;
+  string namespace = 2;
+  string service_name = 3;
+  string sdl = 4;
+  string stage = 5;
+  string created_at = 6;
+}
+
+message RegisterSchemaRequest {
+  string service_name = 1;
+  string sdl = 2;
+  // 省略時は "local"。
+  optional string stage = 3;
+  optional string namespace = 4;
+}
+
+message GetSchemaRequest {
+  string service_name = 1;
+  optional string stage = 2;
+  optional string namespace = 3;
+}
+
+message SchemaHistoryRequest {
+  string service_name = 1;
+  optional string namespace = 2;
+}
+
+message SchemaHistoryResponse {
+  repeated SchemaVersion versions = 1;
+}
+
+message FederationStatusResponse {
+  repeated string contributing_services = 1;
+  uint64 type_count = 2;
+  uint64 field_count = 3;
+}
+
+message FieldList {
+  repeated string fields = 1;
+}
+
+message ComposeService {
+  string service_name = 1;
+  // 型名 → フィールド名(sdl があれば不要)。
+  map<string, FieldList> types = 2;
+  optional string sdl = 3;
+}
+
+message ComposeRequest {
+  repeated ComposeService services = 1;
+}
+
+message ComposeResponse {
+  repeated string contributing_services = 1;
+  map<string, FieldList> types = 2;
+  repeated string breaking_changes = 3;
+}
+
+message FeatureFlag {
+  string name = 1;
+  bool enabled = 2;
+  uint32 rollout_percent = 3;
+  string description = 4;
+}
+
+message UpsertFeatureFlagRequest {
+  string name = 1;
+  // 省略時 true / 100 / ""。
+  optional bool enabled = 2;
+  optional uint32 rollout_percent = 3;
+  optional string description = 4;
+}
+
+message ListFeatureFlagsResponse {
+  repeated FeatureFlag flags = 1;
+}
+
+message FlagName {
+  string name = 1;
+}
+
+message EvaluateFlagRequest {
+  string name = 1;
+  string bucket_key = 2;
+}
+
+message FlagEvaluation {
+  string name = 1;
+  string bucket_key = 2;
+  bool enabled = 3;
+}
+
+message RegisterPersistedQueryRequest {
+  string query = 1;
+}
+
+message PersistedQueryHash {
+  string hash = 1;
+}
+
+message PersistedQuery {
+  string hash = 1;
+  string query = 2;
+  string registered_at = 3;
+}
+
+message PurgeRequest {
+  string path = 1;
+}
+
+message PurgeResponse {
+  string purged = 1;
+}
+
+message DbTable {
+  string table = 1;
+}
+
+message DbKey {
+  string table = 1;
+  string key = 2;
+}
+
+message DbAtCommit {
+  string table = 1;
+  string key = 2;
+  string commit_id = 3;
+}
+
+message DbPutRequest {
+  string table = 1;
+  string key = 2;
+  google.protobuf.Value value = 3;
+}
+
+message BackupImportRequest {
+  string path = 1;
+}
+
+message MigrateExportSqlRequest {
+  // postgres / mysql / generic
+  string dialect = 1;
+}
+
+message RouteCandidate {
+  string provider = 1;
+  double estimated_cost_usd_per_1k_tokens = 2;
+  uint32 estimated_latency_ms = 3;
+  bool is_local = 4;
+  uint32 context_length = 5;
+}
+
+message AiRouteRequest {
+  string policy = 1;
+  optional uint32 min_context_length = 2;
+  repeated RouteCandidate candidates = 3;
+}
+
+message ScimListRequest {
+  // 例: userName eq "alice@example.com"
+  optional string filter = 1;
+}
+
+message ScimCreateUserRequest {
+  string user_name = 1;
+  repeated string roles = 2;
+}
+
+message ScimUserId {
+  string id = 1;
+}
+
+message AdminEvent {
+  oneof event {
+    SchemaEvent schema = 1;
+    HistoryEvent history = 2;
+  }
+}
+
+message SchemaEvent {
+  string service_name = 1;
+  string stage = 2;
+  string at = 3;
+}
+
+message HistoryEvent {
+  uint64 history_len = 1;
+}

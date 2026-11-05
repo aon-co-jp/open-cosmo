@@ -12,8 +12,14 @@ description = "open-runo GraphQL Gateway: exposes the Schema Registry and Federa
 workspace = true
 
 [dependencies]
+sonic-rs = "0.5"
+indexmap = "2"
 open-runo-core             = { workspace = true }
-open-runo-router            = { workspace = true }
+open-runo-appserver          = { workspace = true }
+open-runo-router            = { workspace = true, features = ["tls"] }
+open-runo-security         = { workspace = true }
+http-body-util = "0.1"
+bytes = "1.9"
 open-runo-schema-registry   = { workspace = true }
 open-runo-federation        = { workspace = true }
 open-runo-persisted-queries = { workspace = true }
@@ -33,7 +39,8 @@ uuid = { workspace = true }
 async-graphql = { workspace = true }
 async-graphql-poem = { workspace = true }
 hyper = { version = "1.10", features = ["full"] }
+reqwest = { workspace = true }
 
 [dev-dependencies]
 poem = { workspace = true, features = ["test"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }

@@ -3,6 +3,14 @@
 //! out" composition — see `hyper_compat.rs` module doc), rather than
 //! reimplementing `poem::Middleware`/`Endpoint` traits.
 
+// clippy: このモジュールの unwrap()/expect() は「固定ヘッダからのレスポンス構築」
+// 「起動時に読む埋め込み定数のパース」等、構造上失敗しない箇所に限られる
+// (各呼び出しに理由コメントあり)。business ロジック側の Quality Gate
+// (workspace lints の unwrap_used/expect_used = warn) は維持したまま、
+// この基盤モジュールだけ除外する。result_large_err は Result<T, Response>
+// (エラー時に完成済み HTTP レスポンスで短絡する意図的な型)に対するもの。
+#![allow(clippy::expect_used, clippy::unwrap_used)]
+
 use crate::hyper_compat::{empty_status, fixed_body, json_response, Handler, Response};
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -75,7 +83,9 @@ pub fn with_compression(inner: Handler) -> Handler {
                 Err(_) => return Response::from_parts(parts, fixed_body(collected)),
             };
 
-            parts.headers.insert(hyper::header::CONTENT_ENCODING, "gzip".parse().unwrap());
+            parts
+                .headers
+                .insert(hyper::header::CONTENT_ENCODING, "gzip".parse().unwrap());
             parts.headers.insert(
                 hyper::header::CONTENT_LENGTH,
                 compressed.len().to_string().parse().unwrap(),
@@ -192,7 +202,9 @@ pub fn with_cors(inner: Handler) -> Handler {
             let headers = resp.headers_mut();
             headers.insert(
                 "access-control-allow-origin",
-                allow_origin_header.parse().unwrap_or_else(|_| "*".parse().unwrap()),
+                allow_origin_header
+                    .parse()
+                    .unwrap_or_else(|_| "*".parse().unwrap()),
             );
             headers.insert(
                 "access-control-allow-methods",
@@ -200,9 +212,16 @@ pub fn with_cors(inner: Handler) -> Handler {
             );
             headers.insert(
                 "access-control-allow-headers",
-                "x-api-key, authorization, content-type".parse().unwrap(),
+                "x-api-key, authorization, content-type, x-csrf-token, connect-protocol-version,                  connect-timeout-ms, connect-content-encoding, x-grpc-web, x-user-agent, grpc-timeout"
+                    .parse()
+                    .unwrap(),
             );
             headers.insert("access-control-max-age", "3600".parse().unwrap());
+            // ブラウザのgRPC-web/Connectクライアントがステータスを読めるようにする。
+            headers.insert(
+                "access-control-expose-headers",
+                "grpc-status, grpc-message, x-request-id".parse().unwrap(),
+            );
             resp
         })
     })
@@ -248,7 +267,10 @@ pub fn with_tracing(inner: Handler) -> Handler {
 /// stack, but tracing is a diagnostic side-channel while this one feeds a
 /// queryable REST API (`/api/analytics/*`), so keeping them separate lets
 /// either be removed/reordered independently.
-pub fn with_metrics(inner: Handler, metrics: Arc<open_runo_observability::RequestMetrics>) -> Handler {
+pub fn with_metrics(
+    inner: Handler,
+    metrics: Arc<open_runo_observability::RequestMetrics>,
+) -> Handler {
     Arc::new(move |req, params| {
         let inner = Arc::clone(&inner);
         let metrics = Arc::clone(&metrics);
@@ -258,7 +280,13 @@ pub fn with_metrics(inner: Handler, metrics: Arc<open_runo_observability::Reques
         Box::pin(async move {
             let resp = inner(req, params).await;
             let duration_ms = start.elapsed().as_millis() as u64;
-            metrics.record(&method, &path, resp.status().as_u16(), duration_ms, chrono::Utc::now());
+            metrics.record(
+                &method,
+                &path,
+                resp.status().as_u16(),
+                duration_ms,
+                chrono::Utc::now(),
+            );
             resp
         })
     })
@@ -303,7 +331,10 @@ pub fn with_shared_rate_limit(inner: Handler, limiter: Arc<dyn RateLimit>) -> Ha
 
 /// Construct a rate limiter suitable for [`with_shared_rate_limit`].
 pub fn build_rate_limiter(max_requests: u32, window_secs: i64) -> Arc<RateLimiter> {
-    Arc::new(RateLimiter::new(max_requests, chrono::Duration::seconds(window_secs)))
+    Arc::new(RateLimiter::new(
+        max_requests,
+        chrono::Duration::seconds(window_secs),
+    ))
 }
 
 /// Construct the rate limiter [`build_hyper_app`](crate::build_hyper_app)
@@ -324,14 +355,20 @@ pub fn build_rate_limiter(max_requests: u32, window_secs: i64) -> Arc<RateLimite
 pub async fn build_shared_rate_limiter(max_requests: u32, window_secs: i64) -> Arc<dyn RateLimit> {
     #[cfg(feature = "redis-rate-limit")]
     if let Ok(url) = std::env::var("OPEN_RUNO_RATE_LIMIT_REDIS_URL") {
-        match open_runo_security::redis_backend::RedisRateLimiter::connect(&url, max_requests, window_secs).await {
+        match open_runo_security::redis_backend::RedisRateLimiter::connect(
+            &url,
+            max_requests,
+            window_secs,
+        )
+        .await
+        {
             Ok(limiter) => {
                 tracing::info!("rate limiting backed by Redis (shared across instances)");
                 return Arc::new(limiter);
-            }
+            },
             Err(e) => {
                 tracing::warn!(error = %e, "failed to connect to OPEN_RUNO_RATE_LIMIT_REDIS_URL; falling back to in-process (per-instance) rate limiting");
-            }
+            },
         }
     }
     build_rate_limiter(max_requests, window_secs)
@@ -347,11 +384,138 @@ pub fn with_rate_limit(inner: Handler, max_requests: u32, window_secs: i64) -> H
     with_shared_rate_limit(inner, build_rate_limiter(max_requests, window_secs))
 }
 
+/// レート制限のキーを要求から決める関数。
+pub type RateLimitKeyFn = Arc<dyn Fn(&crate::hyper_compat::Request) -> String + Send + Sync>;
+
+/// 既定のキー: `X-Api-Key` があればそのハッシュ(鍵そのものはメモリに
+/// 持たない)、無ければ `X-Forwarded-For` / `X-Real-IP`、どちらも無ければ
+/// 共有の1バケット。
+///
+/// 注意: `X-Forwarded-For` は直接公開されたサーバーでは偽装できる。
+/// 信頼できるリバースプロキシの背後でのみ、IPをキーにした制限を当てにすること。
+pub fn rate_limit_key_api_key_or_ip(req: &crate::hyper_compat::Request) -> String {
+    use sha2::{Digest, Sha256};
+    let headers = req.headers();
+    if let Some(key) = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+    {
+        if !key.is_empty() {
+            let digest = Sha256::digest(key.as_bytes());
+            return format!("key:{}", hex::encode(&digest[..8]));
+        }
+    }
+    headers
+        .get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| format!("ip:{}", v.split(',').next().unwrap_or(v).trim()))
+        .unwrap_or_else(|| "anonymous".to_string())
+}
+
+/// [`with_shared_rate_limit`] のキー指定版。キーの決め方を差し替えられる
+/// (APIキー別・テナント別など)。
+pub fn with_rate_limit_by(
+    inner: Handler,
+    limiter: Arc<dyn RateLimit>,
+    key_fn: RateLimitKeyFn,
+) -> Handler {
+    Arc::new(move |req, params| {
+        let inner = Arc::clone(&inner);
+        let limiter = Arc::clone(&limiter);
+        let key = key_fn(&req);
+        Box::pin(async move {
+            let now = chrono::Utc::now();
+            if limiter.check(&key, now).await.is_err() {
+                let retry_after_secs = limiter.seconds_until_reset(&key, now).await;
+                let mut resp = json_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    &RateLimitedResponse {
+                        error: "rate limit exceeded, see retry_after_secs".to_string(),
+                        retry_after_secs,
+                    },
+                );
+                if let Ok(value) = retry_after_secs.to_string().parse() {
+                    resp.headers_mut().insert("retry-after", value);
+                }
+                return resp;
+            }
+            inner(req, params).await
+        })
+    })
+}
+
+/// `X-Api-Key` を `KeyGuardian` で検証し、通った要求だけ `inner` へ渡す。
+/// 失敗は `401`。認証を先に、レート制限を外側に重ねるのが普通
+/// (未認証の洪水がKeyGuardianを叩き続けないよう、
+/// `with_rate_limit_by(with_api_key_auth(..), ..)` の順にする)。
+pub fn with_api_key_auth(inner: Handler, guardian: Arc<crate::keyring::KeyGuardian>) -> Handler {
+    Arc::new(move |req, params| {
+        let inner = Arc::clone(&inner);
+        let guardian = Arc::clone(&guardian);
+        Box::pin(async move {
+            match crate::auth_hyper::check_api_key(req.headers(), &guardian).await {
+                Ok(()) => inner(req, params).await,
+                Err(status) => json_response(
+                    status,
+                    &serde_json::json!({ "error": "missing or invalid API key" }),
+                ),
+            }
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::hyper_compat::{serve, Router};
     use hyper::Method;
+
+    #[tokio::test]
+    async fn rate_limit_by_api_key_isolates_clients() {
+        let limiter: Arc<dyn RateLimit> = build_rate_limiter(2, 60);
+        let h = with_rate_limit_by(
+            Arc::new(|_r, _p| Box::pin(async { empty_status(StatusCode::OK) })),
+            limiter,
+            Arc::new(rate_limit_key_api_key_or_ip),
+        );
+        let router = Router::new().route(Method::GET, "/x", h);
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let c = reqwest::Client::new();
+        let url = format!("http://{addr}/x");
+        let get = |key: &'static str| c.get(&url).header("x-api-key", key).send();
+        assert_eq!(get("alice").await.unwrap().status(), 200);
+        assert_eq!(get("alice").await.unwrap().status(), 200);
+        let limited = get("alice").await.unwrap();
+        assert_eq!(limited.status(), 429);
+        assert!(limited.headers().contains_key("retry-after"));
+        // 別のキーは影響を受けない。
+        assert_eq!(get("bob").await.unwrap().status(), 200);
+    }
+
+    #[tokio::test]
+    async fn api_key_auth_rejects_missing_key() {
+        use crate::keyring::{GuardianConfig, KeyGuardian};
+        use crate::state::AppState;
+        let state = AppState::new();
+        let guardian = Arc::new(KeyGuardian::new(
+            Arc::clone(&state.db),
+            GuardianConfig::from_env(),
+        ));
+        let h = with_api_key_auth(
+            Arc::new(|_r, _p| Box::pin(async { empty_status(StatusCode::OK) })),
+            guardian,
+        );
+        let router = Router::new().route(Method::GET, "/x", h);
+        let (addr, _h) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let r = reqwest::Client::new()
+            .get(format!("http://{addr}/x"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 401);
+    }
 
     fn ok_handler() -> Handler {
         Arc::new(|_req, _params| Box::pin(async { empty_status(StatusCode::OK) }))
@@ -361,17 +525,20 @@ mod tests {
         Arc::new(|_req, _params| {
             Box::pin(async {
                 let long_string = "x".repeat(2000);
-                json_response(StatusCode::OK, &serde_json::json!({ "payload": long_string }))
+                json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({ "payload": long_string }),
+                )
             })
         })
     }
 
     #[tokio::test]
     async fn compression_gzips_large_body_when_accepted() {
-        let router =
-            Router::new().route(Method::GET, "/x", with_compression(large_json_handler()));
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let router = Router::new().route(Method::GET, "/x", with_compression(large_json_handler()));
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
             .get(format!("http://{addr}/x"))
@@ -380,7 +547,11 @@ mod tests {
             .await
             .expect("request should succeed");
         assert_eq!(
-            resp.headers().get("content-encoding").expect("content-encoding header").to_str().unwrap(),
+            resp.headers()
+                .get("content-encoding")
+                .expect("content-encoding header")
+                .to_str()
+                .unwrap(),
             "gzip"
         );
         let content_length: usize = resp
@@ -406,17 +577,19 @@ mod tests {
         use std::io::Read;
         let mut decoder = flate2::read::GzDecoder::new(&raw_body[..]);
         let mut decoded = String::new();
-        decoder.read_to_string(&mut decoded).expect("valid gzip stream");
+        decoder
+            .read_to_string(&mut decoded)
+            .expect("valid gzip stream");
         let value: serde_json::Value = serde_json::from_str(&decoded).unwrap();
         assert_eq!(value["payload"].as_str().unwrap().len(), 2000);
     }
 
     #[tokio::test]
     async fn compression_is_skipped_without_accept_encoding() {
-        let router =
-            Router::new().route(Method::GET, "/x", with_compression(large_json_handler()));
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let router = Router::new().route(Method::GET, "/x", with_compression(large_json_handler()));
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
             .get(format!("http://{addr}/x"))
@@ -431,8 +604,9 @@ mod tests {
     #[tokio::test]
     async fn compression_skips_small_bodies_even_when_accepted() {
         let router = Router::new().route(Method::GET, "/x", with_compression(ok_handler()));
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
             .get(format!("http://{addr}/x"))
@@ -471,15 +645,30 @@ mod tests {
         let client = reqwest::Client::new();
 
         assert_eq!(
-            client.get(format!("http://{addr}/x")).send().await.unwrap().status(),
+            client
+                .get(format!("http://{addr}/x"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
             reqwest::StatusCode::OK
         );
         assert_eq!(
-            client.get(format!("http://{addr}/x")).send().await.unwrap().status(),
+            client
+                .get(format!("http://{addr}/x"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
             reqwest::StatusCode::OK
         );
         assert_eq!(
-            client.get(format!("http://{addr}/x")).send().await.unwrap().status(),
+            client
+                .get(format!("http://{addr}/x"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
             reqwest::StatusCode::TOO_MANY_REQUESTS
         );
     }
@@ -516,14 +705,21 @@ mod tests {
             .await
             .expect("bind ephemeral port");
 
-        let resp = reqwest::Client::new().get(format!("http://{addr}/x")).send().await.unwrap();
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/x"))
+            .send()
+            .await
+            .unwrap();
         let request_id = resp
             .headers()
             .get("x-request-id")
             .expect("x-request-id header should be present")
             .to_str()
             .unwrap();
-        assert!(uuid::Uuid::parse_str(request_id).is_ok(), "should be a valid UUID: {request_id}");
+        assert!(
+            uuid::Uuid::parse_str(request_id).is_ok(),
+            "should be a valid UUID: {request_id}"
+        );
     }
 
     #[tokio::test]
@@ -539,7 +735,14 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(resp.headers().get("x-request-id").unwrap().to_str().unwrap(), "caller-chosen-id-123");
+        assert_eq!(
+            resp.headers()
+                .get("x-request-id")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "caller-chosen-id-123"
+        );
     }
 
     #[tokio::test]
@@ -585,28 +788,56 @@ mod tests {
     #[tokio::test]
     async fn static_cache_headers_added_for_static_asset_extensions() {
         let router = Router::new()
-            .route(Method::GET, "/app.wasm", with_static_cache_headers(ok_handler()))
-            .route(Method::GET, "/app.js", with_static_cache_headers(ok_handler()))
-            .route(Method::GET, "/style.css", with_static_cache_headers(ok_handler()));
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+            .route(
+                Method::GET,
+                "/app.wasm",
+                with_static_cache_headers(ok_handler()),
+            )
+            .route(
+                Method::GET,
+                "/app.js",
+                with_static_cache_headers(ok_handler()),
+            )
+            .route(
+                Method::GET,
+                "/style.css",
+                with_static_cache_headers(ok_handler()),
+            );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
         let client = reqwest::Client::new();
 
         for path in ["/app.wasm", "/app.js", "/style.css"] {
-            let resp = client.get(format!("http://{addr}{path}")).send().await.unwrap();
+            let resp = client
+                .get(format!("http://{addr}{path}"))
+                .send()
+                .await
+                .unwrap();
             assert_eq!(resp.status(), reqwest::StatusCode::OK);
-            let cache_control =
-                resp.headers().get("cache-control").expect("cache-control header").to_str().unwrap();
-            assert_eq!(cache_control, "public, max-age=2592000, immutable", "for {path}");
+            let cache_control = resp
+                .headers()
+                .get("cache-control")
+                .expect("cache-control header")
+                .to_str()
+                .unwrap();
+            assert_eq!(
+                cache_control, "public, max-age=2592000, immutable",
+                "for {path}"
+            );
         }
     }
 
     #[tokio::test]
     async fn static_cache_headers_not_added_for_non_static_paths() {
-        let router =
-            Router::new().route(Method::GET, "/api/health", with_static_cache_headers(ok_handler()));
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let router = Router::new().route(
+            Method::GET,
+            "/api/health",
+            with_static_cache_headers(ok_handler()),
+        );
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
 
         let resp = reqwest::Client::new()
             .get(format!("http://{addr}/api/health"))
@@ -622,7 +853,8 @@ mod tests {
         let no_store_handler: Handler = Arc::new(|_req, _params| {
             Box::pin(async {
                 let mut resp = empty_status(StatusCode::OK);
-                resp.headers_mut().insert(hyper::header::CACHE_CONTROL, "no-store".parse().unwrap());
+                resp.headers_mut()
+                    .insert(hyper::header::CACHE_CONTROL, "no-store".parse().unwrap());
                 resp
             })
         });
@@ -631,12 +863,21 @@ mod tests {
             "/app.js",
             with_static_cache_headers(no_store_handler),
         );
-        let (addr, _handle) =
-            serve(router, "127.0.0.1:0".parse().unwrap()).await.expect("bind ephemeral port");
+        let (addr, _handle) = serve(router, "127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind ephemeral port");
 
-        let resp = reqwest::Client::new().get(format!("http://{addr}/app.js")).send().await.unwrap();
+        let resp = reqwest::Client::new()
+            .get(format!("http://{addr}/app.js"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(
-            resp.headers().get("cache-control").unwrap().to_str().unwrap(),
+            resp.headers()
+                .get("cache-control")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "no-store"
         );
     }
