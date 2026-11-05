@@ -9,7 +9,9 @@
 - **open-cosmo だけの差(意図的)**: 兄弟リポジトリへの path 依存を持たない方針のため、RPoem の `open-web-server-wire` を使う UDP 通知リスナー(`udp_notice.rs`)は **無効化**(カウンタ型と `spawn_from_env`=常に `None` だけ残した)。`tests/ledger_fusion.rs`(open-web-server との融合テスト)も除いた。UDP 通知が要るなら RPoem 側のルーターを使う。
 - **例外(移さない)**: `/health`・ACME・`/mcp`・SCIM・`/graphql`(Cosmo 互換)・静的ファイル・Webhook など、相手の規格が形を決めるもの。
 - **確認**: `cargo test --workspace` 全通過(appserver のテストは先に `cargo build -p open-runo-appserver --bins` が要る)。gateway 実バイナリで、旧REST 404・認証なし401・不正JSON400・不明メソッド501・DbStatus 200 を確認。`apps/desktop-wasm` は wasm32 の `cargo check` まで。
-- **既知の差・未了**: RPoem の Connect 層は JSON の **重複キーを拒否しない**(`DbPut` の重複キー本文が 200)。方針(RS-JSON の `parse_secure`)に合わせる修正は RPoem 側で行い、こちらへ同期する。ブラウザでの管理画面の通し操作(新構成)は未実施。VPS では open-cosmo は稼働していない。
+- **重複キー拒否(open-cosmo で追加)**: `open-runo-connect-server` の JSON 入口で、proto3-JSON へ変換する前に RS-JSON の `parse_secure`(8 MiB・深さ64・重複キー拒否)で検査する(`rust-json` を git 依存)。テスト追加(`tests.rs`)。**RPoem 側には未反映**(RPoem の connect-server に同じ変更を入れて同期するのが筋)。
+- **実機確認(2026-11-05)**: gateway 実バイナリに curl — 旧REST 404 / 認証なし401 / 不正JSON400 / 重複キー400 / 正常200。ブラウザ(WASM 新ビルド)で 10 ページすべて表示(白画面・エラーなし)、Db の Put→Get→Delete→Get(404)・フラグ保存が Connect で成功。落とし穴: 以前のビルドが**ブラウザにキャッシュ**されていると旧 `open_cosmo.admin.v1.Admin` を呼んで 404 になる(`www/pkg` は gitignore の生成物。`make wasm-frontend` で再生成し、強制再読み込み)。
+- **未了**: VPS では open-cosmo は稼働していない(置かない、ユーザー判断)。
 - `docs/*.md`・`README-*.md` の旧 `/api/...` の記述は順次更新。
 
 ## 1. 比較的新しい言語・フレームワークの参照資料一覧

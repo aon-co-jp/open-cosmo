@@ -239,6 +239,14 @@ fn json_to_proto(info: &MethodInfo, body: &[u8]) -> Result<Vec<u8>, Status> {
         ));
     };
     let text: &[u8] = if body.is_empty() { b"{}" } else { body };
+    // 先に RS-JSON の安全モードで検査する(上限: 8 MiB・深さ64、重複キーは拒否)。
+    {
+        let limits = rust_json::Limits { max_bytes: 8 * 1024 * 1024, max_depth: 64, reject_duplicate_keys: true };
+        let s = std::str::from_utf8(text)
+            .map_err(|_| Status::new(code::INVALID_ARGUMENT, "bad JSON request: body is not valid UTF-8"))?;
+        rust_json::parse_secure(s, &limits)
+            .map_err(|e| Status::new(code::INVALID_ARGUMENT, format!("bad JSON request: {e}")))?;
+    }
     let mut de = serde_json::Deserializer::from_slice(text);
     let msg = DynamicMessage::deserialize(input.clone(), &mut de)
         .map_err(|e| Status::new(code::INVALID_ARGUMENT, format!("bad JSON request: {e}")))?;

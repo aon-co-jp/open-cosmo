@@ -195,6 +195,15 @@ async fn connect_unary_proto_and_json_and_error_headers() {
     );
     let v: serde_json::Value = serde_json::from_slice(&o.body).unwrap();
     assert_eq!(v["code"], "not_found");
+    // 重複キー=400(RS-JSON の安全モード)。
+    let o = run(request(
+        "Echo",
+        "application/json",
+        Some("secret"),
+        br#"{"text":"a","text":"b"}"#.to_vec(),
+    ))
+    .await;
+    assert_eq!(o.status, 400);
     // 鍵なし=401。壊れたJSON=400。
     assert_eq!(
         run(request("Echo", "application/json", None, b"{}".to_vec()))
