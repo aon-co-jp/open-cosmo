@@ -38,6 +38,7 @@ pub mod middleware;
 pub mod middleware_hyper;
 pub mod multipart_stream;
 pub mod openapi;
+pub mod secure_json;
 pub mod self_update;
 pub mod session;
 pub mod state;

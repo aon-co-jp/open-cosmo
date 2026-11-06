@@ -3463,6 +3463,7 @@ dependencies = [
  "redis",
  "reqwest",
  "ring",
+ "rust-json",
  "rustls",
  "rustls-pemfile",
  "schemars",

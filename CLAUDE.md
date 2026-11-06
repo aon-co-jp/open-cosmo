@@ -1765,3 +1765,9 @@ open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーと
 - **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
 - Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
 - **Если есть сомнения — выбирайте Connect.**
+
+## 外から来る JSON の入口を RS-JSON の安全モード+sonic-rs に統一(2026-11-06)
+方針(`F:\runo\CLAUDE.md`「JSON処理の使用方針」)どおり、信頼できない入力は **`open_runo_router::secure_json`**(`rust_json::parse_secure_sonic` でサイズ16 MiB・深さ64・重複キー拒否を検査してから `sonic_rs` で型へ)を通す。対象: HTTP 本文(`hyper_compat::read_json_body`=全ハンドラーと poem-compat の `Json::from_body`)、poem-compat の型付き本文・WebSocket メッセージ(`api.rs`)、GraphQL の要求本文(`graphql_hyper.rs`)、リモートのサブグラフの応答(`remote_subgraphs.rs`)、EDFS の Redis ペイロード(`edfs.rs`)。管理 API の Connect 入口は `open-runo-connect-server` で済み。自分で書いた設定文字列(`admin_sys::parse_value`)は `sonic_rs::from_str`。
+- **効果**: 重複キーを含む本文は 400(従来は黙って後勝ち)。深さ64超・16 MiB 超も 400。小さな本文での追加コストは約1 µs(前後差はノイズ以内)で、速度のためではなく防御のための統一。
+- 確認: `cargo test --workspace --locked` 全通過。実機の gateway で、GraphQL の重複キー本文=400、SCIM の重複キー本文=400、正常=200/201。
+- **まだ `serde_json` のままの所(理由)**: JWT のヘッダー/クレーム(`open-runo-jwt`、署名検証済みの数百バイト)、ACME サーバー応答(`acme.rs`、信頼する認証局・数KB)、DB の値の妥当性確認(`open-runo-db/dual.rs`)、CLI の `--value`(利用者自身の入力)、各クレートの試験コード。

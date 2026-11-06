@@ -57,8 +57,8 @@ pub fn encode_event(event: &SchemaEvent) -> Result<String, serde_json::Error> {
 /// a Redis channel is not a type-safe boundary the way an in-process
 /// `broadcast::Sender<SchemaEvent>` is.
 #[cfg(feature = "edfs")]
-pub fn decode_event(payload: &str) -> Result<SchemaEvent, serde_json::Error> {
-    serde_json::from_str(payload)
+pub fn decode_event(payload: &str) -> Result<SchemaEvent, String> {
+    crate::secure_json::from_str(payload)
 }
 
 /// Publish `event` to `channel` on the Redis server at `redis_url`.

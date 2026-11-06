@@ -96,7 +96,7 @@ pub async fn session_logout(
 // ── DB操作 ──────────────────────────────────────────────────────────────
 
 fn parse_value(raw: &str) -> serde_json::Value {
-    serde_json::from_str(raw).unwrap_or(serde_json::Value::String(raw.to_string()))
+    sonic_rs::from_str(raw).unwrap_or(serde_json::Value::String(raw.to_string()))
 }
 
 pub fn db_status(state: &AppState) -> DbStatusResponse {

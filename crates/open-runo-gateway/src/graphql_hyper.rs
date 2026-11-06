@@ -102,7 +102,7 @@ pub fn graphql_post_handler(
                     "batched requests are not supported; send one operation per request",
                 );
             }
-            let mut request: async_graphql::Request = match serde_json::from_slice(&body) {
+            let mut request: async_graphql::Request = match open_runo_router::secure_json::from_slice(&body) {
                 Ok(v) => v,
                 Err(e) => {
                     return gql_error(

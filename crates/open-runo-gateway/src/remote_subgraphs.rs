@@ -97,7 +97,10 @@ impl RemoteSubgraphs {
             tracing::warn!(subgraph = %sg.name, url = %sg.url, "subgraph introspection failed (unreachable)");
             return;
         };
-        let Ok(v) = resp.json::<serde_json::Value>().await else {
+        let Ok(bytes) = resp.bytes().await else {
+            return;
+        };
+        let Ok(v) = open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) else {
             return;
         };
         let mut fields = HashSet::new();
@@ -184,8 +187,13 @@ impl RemoteSubgraphs {
         }
         let body = serde_json::json!({ "query": query, "variables": variables, "operationName": operation_name });
         match self.client.post(&url).json(&body).send().await {
-            Ok(r) => match r.json::<serde_json::Value>().await {
-                Ok(v) => Routed::Forwarded(v),
+            Ok(r) => match r.bytes().await {
+                Ok(bytes) => match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
+                    Ok(v) => Routed::Forwarded(v),
+                    Err(e) => Routed::Rejected(format!(
+                        "subgraph `{name}` returned an invalid response: {e}"
+                    )),
+                },
                 Err(e) => Routed::Rejected(format!(
                     "subgraph `{name}` returned an invalid response: {e}"
                 )),

@@ -17,6 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 sonic-rs = "0.5"
+rust-json = { git = "https://github.com/aon-co-jp/RS-JSON", features = ["fast"] }
 open-runo-core             = { workspace = true }
 open-runo-connect-core     = { path = "../open-runo-connect-core" }
 open-runo-connect-server   = { path = "../open-runo-connect-server" }

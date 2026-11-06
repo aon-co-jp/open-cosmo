@@ -569,7 +569,8 @@ pub async fn read_json_body<T: serde::de::DeserializeOwned>(req: Request) -> Res
             ))
         },
     };
-    sonic_rs::from_slice::<T>(&bytes).map_err(|e| {
+    // 外からの本文: サイズ・深さの上限と重複キーの拒否を先に検査する(RS-JSON、`secure_json`)。
+    crate::secure_json::from_slice::<T>(&bytes).map_err(|e| {
         json_response(
             StatusCode::BAD_REQUEST,
             &serde_json::json!({ "error": format!("invalid JSON body: {e}") }),
