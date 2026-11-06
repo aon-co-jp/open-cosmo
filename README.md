@@ -84,9 +84,9 @@ tokio/hyper で自前実装しています。
   members/routes/broadcast を宣言する設定ファイル読み込みにも対応)
 - ⚡ **VersionlessAPI** — `/v1 /v2` を作らない互換性ルールエンジン
 - 📎 **Multipart ファイルアップロード** — 手書き RFC 7578 パーサー、
-  `POST /api/schemas/upload` でSDLファイルを直接アップロード
+  Connect の `UploadSchemaRaw`(`POST /open_runo.admin.v1.Admin/UploadSchemaRaw`、SDL を JSON の `sdl` に入れて送る)。旧 multipart の `/api/schemas/upload` は廃止
 - 🍪 **Cookie/セッション + CSRF** — `X-Api-Key` に追加する認証経路、
-  `POST /api/session/login`/`logout`、CSRF二重送信トークン検証
+  Connect の `SessionLogin`/`SessionLogout`、CSRF二重送信トークン検証
 - 🔒 **TLS終端**(`tls` feature、rustls) — リバースプロキシ不要で
   直接HTTPS配信可能
 - 🖥️ **デスクトップ管理アプリ**(Tauri非依存・互換UI、Rust→WebAssembly、

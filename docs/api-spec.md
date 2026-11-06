@@ -1,3 +1,5 @@
+> **📌 2026-11-05: REST は全廃した。** 本書の `/api/...` の記述は旧 REST のもの(歴史的記録)。現在の管理 API は `POST /open_runo.admin.v1.Admin/<Method>`(gRPC / gRPC-web / Connect、定義は `crates/open-runo-proto/proto/open_runo/admin/v1/admin.proto`)。対応: `/api/schemas`→`RegisterSchema`、`/api/db/...`→`DbGet`/`DbPut` など、`/api/feature-flags`→`*FeatureFlag*`。詳細は `CLAUDE.md` 冒頭の「REST 全廃」節。
+
 # open-cosmo API Specification
 
 All API routes require the `X-Api-Key: <key>` request header.  
