@@ -24,7 +24,7 @@ hyper = { version = "1", default-features = false }
 prost-reflect = { version = "0.16", features = ["serde"], optional = true }
 serde_json = "1"
 # 本文は上限(サイズ・深さ)と重複キー拒否つきで読む(REST全廃方針、RS-JSON)
-rust-json = { git = "https://github.com/aon-co-jp/RS-JSON", optional = true }
+rust-json = { git = "https://github.com/aon-co-jp/RS-JSON", features = ["fast"], optional = true }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["server", "http1", "http2"] }

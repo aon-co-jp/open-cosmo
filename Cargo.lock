@@ -3183,7 +3183,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "sonic-rs",
+ "sonic-rs 0.5.10",
 ]
 
 [[package]]
@@ -3192,7 +3192,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "sonic-rs",
+ "sonic-rs 0.5.10",
 ]
 
 [[package]]
@@ -3214,7 +3214,7 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
 ]
 
@@ -3335,7 +3335,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
  "tracing",
  "uuid",
@@ -3398,7 +3398,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
 ]
 
@@ -3470,7 +3470,7 @@ dependencies = [
  "serde_json",
  "sha1 0.11.0",
  "sha2 0.11.1",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite 0.30.0",
@@ -3505,7 +3505,7 @@ dependencies = [
  "open-runo-db",
  "serde",
  "serde_json",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
  "uuid",
 ]
@@ -3521,7 +3521,7 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
- "sonic-rs",
+ "sonic-rs 0.5.10",
  "tokio",
 ]
 
@@ -4664,6 +4664,7 @@ source = "git+https://github.com/aon-co-jp/RS-JSON#37490a3e1f4e86e40450291fc03e6
 dependencies = [
  "serde",
  "serde_json",
+ "sonic-rs 0.3.17",
  "thiserror 1.0.69",
 ]
 
@@ -5192,6 +5193,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7c350a05f295f922fc153a3af8b443c10db70904a9291a624ddb6058c6110d0"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "sonic-rs"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0275f9f2f07d47556fe60c2759da8bc4be6083b047b491b2d476aa0bfa558eb1"
+dependencies = [
+ "bumpalo",
+ "bytes",
+ "cfg-if",
+ "faststr",
+ "itoa",
+ "ref-cast",
+ "ryu",
+ "serde",
+ "simdutf8",
+ "sonic-number",
+ "sonic-simd",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
