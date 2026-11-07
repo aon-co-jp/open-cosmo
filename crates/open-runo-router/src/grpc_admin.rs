@@ -77,11 +77,25 @@ impl Output {
     }
 }
 
+/// 管理サービスの拡張(ゲートウェイ側にしか無い機能、例: アプリケーションサーバー層)。
+/// 認証は`AdminGrpc`が済ませてから呼ぶ。要求・応答は`google.protobuf.Struct`と同じJSONオブジェクト。
+/// 担当しないメソッド名には`None`を返す(→UNIMPLEMENTED)。
+#[async_trait::async_trait]
+pub trait AdminExt: Send + Sync {
+    async fn call(
+        &self,
+        method: &str,
+        actor: &str,
+        msg: serde_json::Value,
+    ) -> Option<Result<serde_json::Value, GrpcErr>>;
+}
+
 /// `open_runo.admin.v1.Admin`の実体。
 #[derive(Clone)]
 pub struct AdminGrpc {
     state: Arc<AppState>,
     guardian: Arc<KeyGuardian>,
+    ext: Option<Arc<dyn AdminExt>>,
 }
 
 impl std::fmt::Debug for AdminGrpc {
@@ -135,7 +149,17 @@ fn persisted(r: admin_ops::PersistedQueryRecord) -> v1::PersistedQuery {
 
 impl AdminGrpc {
     pub fn new(state: Arc<AppState>, guardian: Arc<KeyGuardian>) -> Self {
-        Self { state, guardian }
+        Self {
+            state,
+            guardian,
+            ext: None,
+        }
+    }
+
+    /// 拡張(`AdminExt`)を載せる。
+    pub fn with_ext(mut self, ext: Arc<dyn AdminExt>) -> Self {
+        self.ext = Some(ext);
+        self
     }
 
     /// 呼び出し元(REST版の`actor`文字列と同じ形式)。認証失敗はUNAUTHENTICATED/PERMISSION_DENIED。
@@ -432,6 +456,15 @@ impl AdminGrpc {
                 headers: Vec::new(),
             },
             other => {
+                if let Some(ext) = &self.ext {
+                    let req: open_runo_proto::prost_types::Struct = dec(msg)?;
+                    if let Some(r) = ext
+                        .call(other, a, open_runo_proto::struct_to_json(&req))
+                        .await
+                    {
+                        return Ok(enc(&json_to_struct(&r?)));
+                    }
+                }
                 return Err(GrpcErr::new(
                     code::UNIMPLEMENTED,
                     format!("unknown method: {other}"),

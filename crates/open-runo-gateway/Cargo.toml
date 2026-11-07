@@ -17,6 +17,8 @@ indexmap = "2"
 open-runo-core             = { workspace = true }
 open-runo-appserver          = { workspace = true }
 open-runo-router            = { workspace = true, features = ["tls"] }
+open-runo-proto = { workspace = true }
+async-trait = { workspace = true }
 open-runo-security         = { workspace = true }
 http-body-util = "0.1"
 bytes = "1.9"

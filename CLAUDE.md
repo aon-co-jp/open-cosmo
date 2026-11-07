@@ -1774,3 +1774,11 @@ open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーと
 
 ## REST全廃 再確認(2026-11-07)
 origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY.md` に列挙。`PORTING.md` §7(旧 `/api/*` 表)に「削除済み」の注意書きを追加。**未了**: `openapi.rs`(未マウントの旧RESTドキュメント生成)の削除、`docs/*.md`・`README-*.md` の旧 `/api/...` 記述の更新。本番反映なし(VPSで非稼働)。
+
+## 2026-11-08 appserver系RESTをConnect/gRPCへ(REST全廃の続き)
+- `/admin/appserver-processes`(+`/stop-all`・`/:host`・`/:host/stop`・`/:host/stop-graceful`・`/:host/restart`)と `/admin/appserver-tenants`(+`/:host`)の**計10本を削除**し、`open_runo.admin.v1.Admin` のRPC `AppServerRegisterProcess`/`ListProcesses`/`ProcessStatus`/`StopProcess`/`StopProcessGraceful`/`RestartProcess`/`StopAll`/`UpsertTenant`/`ListTenants`/`RemoveTenant` に移した(gRPC・gRPC-web・Connect共通。要求・応答は `google.protobuf.Struct`=旧RESTと同じJSON形、認証は他のAdminと同じ `x-api-key`/セッション)。
+- 実装: ルーターに拡張フック `grpc_admin::AdminExt`(`AdminGrpc::with_ext`)を追加し、ゲートウェイの `appserver_admin.rs`(`AppServerAdmin`)が `SupervisedTenantRegistry` を操作する。旧 `appserver_processes.rs`/`appserver_tenants.rs` は削除。
+- 呼び出し元: `open-easy-web`(`server/src/appserver_registration.rs`、PoemCosmoTauri登録)を `AppServerUpsertTenant` に変更。それ以外に旧パスの呼び出しは無い(`open-web-server/CLAUDE.md` の記述は過去の記録)。
+- 例: `curl -X POST -H 'x-api-key: KEY' -H 'content-type: application/json' -d '{"host":"a.example.jp","backend_addr":"127.0.0.1:9001"}' http://HOST/open_runo.admin.v1.Admin/AppServerUpsertTenant`
+- 試験: WSLで `cargo test -p open-runo-router --lib`(180件成功)・`-p open-runo-gateway --lib appserver_admin`(3件成功)。実プロセスを起動する旧E2E(ダミーHTTPサーバー起動)は、レジストリ自体のテスト(`open-runo-appserver`)で担保しており、Connect経由の実起動の通しは未実施。
+- 本番(VPS)へは未反映(RPoemゲートウェイはVPSで未稼働)。

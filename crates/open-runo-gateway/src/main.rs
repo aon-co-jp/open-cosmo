@@ -42,10 +42,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&state.db),
         GuardianConfig::from_env(),
     ));
+    // アプリケーションサーバー層(多重テナントの登録・プロセス管理)のレジストリ。管理操作は
+    // 管理用gRPCの`AppServer*`(旧REST `/admin/appserver-*`は2026-11-07に全廃)。
+    let appserver_registry = Arc::new(SupervisedTenantRegistry::new());
     let admin_grpc = open_runo_router::grpc_admin::AdminGrpc::new(
         Arc::clone(&state),
         Arc::clone(&grpc_guardian),
-    );
+    )
+    .with_ext(Arc::new(open_runo_gateway::appserver_admin::AppServerAdmin::new(
+        Arc::clone(&appserver_registry),
+    )));
     // GraphQL(Federationの問い合わせ)の本番向け防御(登録済みクエリのみ・深さ/複雑さ上限・
     // イントロスペクション停止・エイリアス/バッチ対策)。`OPEN_RUNO_ENV=production`で既定オン。
     let graphql_sec =
@@ -87,11 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 無くなる「分身の術」構想、2026-07-16)。管理API自体は常時有効、
     // 実際のプロキシリスナー(`OPEN_RUNO_APPSERVER_PROXY_BIND`)は
     // 明示設定時のみ。
-    let appserver_guardian = Arc::new(KeyGuardian::new(
-        Arc::clone(&state.db),
-        GuardianConfig::from_env(),
-    ));
-    let appserver_registry = Arc::new(SupervisedTenantRegistry::new());
 
     // ブラウザ向けの入口(gRPC-web / gRPC-web-text / Connect を同じパスで受ける)。
     // 別オリジンのブラウザ(connect-rustのWASMクライアント等)から呼べるようCORSも付ける。
@@ -152,19 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         graphiql,
         graphql_sdl,
     );
-    for (method, pattern, handler) in open_runo_gateway::appserver_tenants::routes(
-        appserver_registry.dispatcher(),
-        Arc::clone(&appserver_guardian),
-    ) {
-        app = app.route(method, pattern, handler);
-    }
-    for (method, pattern, handler) in open_runo_gateway::appserver_processes::routes(
-        Arc::clone(&appserver_registry),
-        appserver_guardian,
-    ) {
-        app = app.route(method, pattern, handler);
-    }
-
     // `ThreadedProxyServer`はDropで自らのワーカースレッドを停止するため、
     // `main`が`handle.await`でブロックしている間ずっと生存させる必要が
     // ある(先に束縛を外に置き、有効時のみ`Some`にする)。

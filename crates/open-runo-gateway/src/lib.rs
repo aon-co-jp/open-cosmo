@@ -14,8 +14,7 @@
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
-pub mod appserver_processes;
-pub mod appserver_tenants;
+pub mod appserver_admin;
 pub mod demo;
 pub mod graphql_hyper;
 pub mod remote_subgraphs;

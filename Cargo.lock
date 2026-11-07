@@ -3313,6 +3313,7 @@ version = "0.1.0"
 dependencies = [
  "async-graphql",
  "async-graphql-poem",
+ "async-trait",
  "bytes",
  "chrono",
  "futures",
@@ -3326,6 +3327,7 @@ dependencies = [
  "open-runo-federation",
  "open-runo-observability",
  "open-runo-persisted-queries",
+ "open-runo-proto",
  "open-runo-router",
  "open-runo-schema-registry",
  "open-runo-security",

@@ -71,6 +71,22 @@ service Admin {
 
   // ── イベント(旧 /api/events・/api/ws-events の置き換え。サーバーストリーミング) ──
   rpc WatchEvents(Empty) returns (stream AdminEvent);
+
+  // ── アプリケーションサーバー層(旧 /admin/appserver-processes*・/admin/appserver-tenants* の置き換え) ──
+  // 要求・応答とも google.protobuf.Struct(旧RESTのJSON形と同じ。数値は整数で扱う)。
+  // プロセス管理: AppServerRegisterProcess {host, profile{name,stack,command,args,env,workdir,port,health_path},
+  //   restart_policy?, poll_interval_ms?} / 状態・停止・再起動は {host} / 停止系は {host, timeout_ms?} / 一括停止は {graceful?, timeout_ms?}
+  rpc AppServerRegisterProcess(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerListProcesses(Empty) returns (google.protobuf.Struct);
+  rpc AppServerProcessStatus(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerStopProcess(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerStopProcessGraceful(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerRestartProcess(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerStopAll(google.protobuf.Struct) returns (google.protobuf.Struct);
+  // テナント(ホスト→転送先)の無停止登録: {host, backend_addr} / {host}
+  rpc AppServerUpsertTenant(google.protobuf.Struct) returns (google.protobuf.Struct);
+  rpc AppServerListTenants(Empty) returns (google.protobuf.Struct);
+  rpc AppServerRemoveTenant(google.protobuf.Struct) returns (google.protobuf.Struct);
 }
 
 message Empty {}
