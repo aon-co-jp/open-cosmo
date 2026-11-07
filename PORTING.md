@@ -220,6 +220,8 @@ curl -X POST -H "x-api-key: $KEY" http://new:8080/api/backup/restore-latest
 | `OPEN_RUNO_BACKUP_MIRROR_DIR` | 無効 | 二次（Google Drive 同期フォルダ推奨） |
 | `OPEN_RUNO_BACKUP_SECS` | 0 | 定期バックアップ間隔（0=手動） |
 
+> **【注意・2026-11-07】この節の `/api/*` は旧REST時代の表記で、2026-11-05 に全て削除済み(今は404)。現在の管理操作は `POST /open_runo.admin.v1.Admin/<Method>`(gRPC/gRPC-web/Connect)。正は CLAUDE.md 冒頭「REST 全廃」と `docs/connect-hybrid.md`。**
+
 ## 7. REST サーフェス早見表
 
 | Path | 用途 |

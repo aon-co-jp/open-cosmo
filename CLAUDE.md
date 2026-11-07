@@ -1771,3 +1771,6 @@ open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーと
 - **効果**: 重複キーを含む本文は 400(従来は黙って後勝ち)。深さ64超・16 MiB 超も 400。小さな本文での追加コストは約1 µs(前後差はノイズ以内)で、速度のためではなく防御のための統一。
 - 確認: `cargo test --workspace --locked` 全通過。実機の gateway で、GraphQL の重複キー本文=400、SCIM の重複キー本文=400、正常=200/201。
 - **まだ `serde_json` のままの所(理由)**: JWT のヘッダー/クレーム(`open-runo-jwt`、署名検証済みの数百バイト)、ACME サーバー応答(`acme.rs`、信頼する認証局・数KB)、DB の値の妥当性確認(`open-runo-db/dual.rs`)、CLI の `--value`(利用者自身の入力)、各クレートの試験コード。
+
+## REST全廃 再確認(2026-11-07)
+origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY.md` に列挙。`PORTING.md` §7(旧 `/api/*` 表)に「削除済み」の注意書きを追加。**未了**: `openapi.rs`(未マウントの旧RESTドキュメント生成)の削除、`docs/*.md`・`README-*.md` の旧 `/api/...` 記述の更新。本番反映なし(VPSで非稼働)。
