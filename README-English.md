@@ -80,10 +80,10 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# Schema registration (admin endpoint, not the application API)
-curl -X POST http://localhost:8080/api/schemas \
-     -H 'x-api-key: dev-key' \
-     -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
+# Schema registration (admin operation over Connect; the old REST `/api/schemas` was removed)
+curl -X POST http://localhost:8080/open_runo.admin.v1.Admin/RegisterSchema \
+     -H 'x-api-key: dev-key' -H 'content-type: application/json' \
+     -d '{"serviceName":"users","sdl":"type User { id: ID! }"}'
 ```
 
 ### Using the management UI (WASM frontend)

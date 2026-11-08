@@ -91,10 +91,10 @@ curl -X POST http://localhost:8080/graphql \
      -H 'content-type: application/json' \
      -d '{"query":"{ health }"}'
 
-# スキーマ登録（管理用エンドポイント。アプリの API ではありません）
-curl -X POST http://localhost:8080/api/schemas \
-     -H 'x-api-key: dev-key' \
-     -d '{"service_name":"users","sdl":"type User { id: ID! }"}'
+# スキーマ登録 （管理操作は Connect。旧 REST `/api/schemas` は削除済み）
+curl -X POST http://localhost:8080/open_runo.admin.v1.Admin/RegisterSchema \
+     -H 'x-api-key: dev-key' -H 'content-type: application/json' \
+     -d '{"serviceName":"users","sdl":"type User { id: ID! }"}'
 ```
 
 ### 管理UI(WASM フロントエンド)を使う
