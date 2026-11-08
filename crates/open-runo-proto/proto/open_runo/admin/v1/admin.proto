@@ -83,6 +83,8 @@ service Admin {
   rpc AppServerStopProcessGraceful(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc AppServerRestartProcess(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc AppServerStopAll(google.protobuf.Struct) returns (google.protobuf.Struct);
+  // Ledger(open-web-server)からの書き込み(旧POST /internal/db/mutate)。{idempotency_key, account_id, target, payload, requested_at} -> 受領票。
+  rpc DbMutate(google.protobuf.Struct) returns (google.protobuf.Struct);
   // テナント(ホスト→転送先)の無停止登録: {host, backend_addr} / {host}
   rpc AppServerUpsertTenant(google.protobuf.Struct) returns (google.protobuf.Struct);
   rpc AppServerListTenants(Empty) returns (google.protobuf.Struct);

@@ -450,6 +450,18 @@ impl AdminGrpc {
                 admin_sys::scim_delete_user(state, &self.guardian, a, &r.id).await?;
                 enc(&v1::Empty {})
             },
+            // ── Ledger(open-web-server)からの書き込み(旧`POST /internal/db/mutate`) ──
+            "DbMutate" => {
+                let r: open_runo_proto::prost_types::Struct = dec(msg)?;
+                let body = open_runo_proto::struct_to_json(&r);
+                match crate::handlers_hyper::db_mutate_core(state, body).await {
+                    Ok(v) => enc(&json_to_struct(&v)),
+                    Err(("invalid_argument", m)) => {
+                        return Err(GrpcErr::new(code::INVALID_ARGUMENT, m))
+                    },
+                    Err((_, m)) => return Err(GrpcErr::new(code::INTERNAL, m)),
+                }
+            },
             // ── イベント(サーバーストリーミング) ──
             "WatchEvents" => Output {
                 reply: Reply::Stream(self.watch_events()),
