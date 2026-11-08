@@ -1773,7 +1773,7 @@ open-web-serverがApache＋Nginxのハイブリッド仕様のWebサーバーと
 - **まだ `serde_json` のままの所(理由)**: JWT のヘッダー/クレーム(`open-runo-jwt`、署名検証済みの数百バイト)、ACME サーバー応答(`acme.rs`、信頼する認証局・数KB)、DB の値の妥当性確認(`open-runo-db/dual.rs`)、CLI の `--value`(利用者自身の入力)、各クレートの試験コード。
 
 ## REST全廃 再確認(2026-11-07)
-origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY.md` に列挙。`PORTING.md` §7(旧 `/api/*` 表)に「削除済み」の注意書きを追加。**未了**: `openapi.rs`(未マウントの旧RESTドキュメント生成)の削除、`docs/*.md`・`README-*.md` の旧 `/api/...` 記述の更新。本番反映なし(VPSで非稼働)。
+origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY.md` に列挙。`PORTING.md` §7(旧 `/api/*` 表)に「削除済み」の注意書きを追加。**訂正(2026-11-09)**: `openapi.rs` は `/mcp` が使うため削除しない(旧 `/api/openapi*` の経路が無いだけ)。**未了**: `docs/*.md`・`README-*.md` の旧 `/api/...` 記述の更新。本番反映なし(VPSで非稼働)。
 
 ## 2026-11-08 appserver系RESTをConnect/gRPCへ(REST全廃の続き)
 - `/admin/appserver-processes`(+`/stop-all`・`/:host`・`/:host/stop`・`/:host/stop-graceful`・`/:host/restart`)と `/admin/appserver-tenants`(+`/:host`)の**計10本を削除**し、`open_runo.admin.v1.Admin` のRPC `AppServerRegisterProcess`/`ListProcesses`/`ProcessStatus`/`StopProcess`/`StopProcessGraceful`/`RestartProcess`/`StopAll`/`UpsertTenant`/`ListTenants`/`RemoveTenant` に移した(gRPC・gRPC-web・Connect共通。要求・応答は `google.protobuf.Struct`=旧RESTと同じJSON形、認証は他のAdminと同じ `x-api-key`/セッション)。
