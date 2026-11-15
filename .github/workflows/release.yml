@@ -81,9 +81,33 @@ jobs:
           name: open-runo-router-windows-x86_64
           path: open-runo-router-windows-x86_64.zip
 
+
+  build-windows-arm64:
+    name: Windows ARM64 (Snapdragon, aarch64)
+    runs-on: windows-11-arm
+    continue-on-error: true  # Snapdragon (Windows on ARM64); never blocks the release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p open-runo-router --target aarch64-pc-windows-msvc
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/aarch64-pc-windows-msvc/release/open-runo-router.exe dist/
+          Copy-Item install.ps1 dist/
+          Compress-Archive -Path dist/* -DestinationPath open-runo-router-windows-aarch64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-runo-router-windows-aarch64
+          path: open-runo-router-windows-aarch64.zip
+
   release:
     name: GitHub Releaseへ添付
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-windows-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
