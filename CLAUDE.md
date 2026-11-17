@@ -1782,3 +1782,9 @@ origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY
 - 例: `curl -X POST -H 'x-api-key: KEY' -H 'content-type: application/json' -d '{"host":"a.example.jp","backend_addr":"127.0.0.1:9001"}' http://HOST/open_runo.admin.v1.Admin/AppServerUpsertTenant`
 - 試験: WSLで `cargo test -p open-runo-router --lib`(180件成功)・`-p open-runo-gateway --lib appserver_admin`(3件成功)。実プロセスを起動する旧E2E(ダミーHTTPサーバー起動)は、レジストリ自体のテスト(`open-runo-appserver`)で担保しており、Connect経由の実起動の通しは未実施。
 - 本番(VPS)へは未反映(RPoemゲートウェイはVPSで未稼働)。
+
+## 2026-11-17 REST全廃の確認と /internal/db/mutate の移行 / REST abolition check and /internal/db/mutate move
+
+**日本語**: appserver系10本は `6c67196` で `Admin/AppServer*` へ、`POST /internal/db/mutate` は `132e300` で `Admin/DbMutate`(Connect/gRPC、`x-api-key` 必須)へ移し、旧経路を削除した(RPoem `781c824` と同じ内容)。`cargo test`(gateway 37・router 179・proto 5)全成功。自前RESTは0本で、残るのは SCIM・`/health`・ACME・`/mcp`・`/graphql`系・`/demo` の例外のみ。VPSでは open-cosmo 本体は起動しておらず(紹介ページのみ)、本番確認は同じコードの RPoem で実施した。呼び出し側の `open-web-server` `Ledger` は `OPEN_RUNO_API_KEY` が必要。未了: open-cosmo 本体を本番で起動するかの判断(RPoem ゲートウェイと役割が重なる)。
+
+**English**: The 10 appserver routes moved to `Admin/AppServer*` in `6c67196`, and `POST /internal/db/mutate` moved to `Admin/DbMutate` (Connect/gRPC, `x-api-key` required) in `132e300`; the old routes were removed (same content as RPoem `781c824`). `cargo test` (gateway 37, router 179, proto 5) passes. There are 0 own REST routes; only the exceptions remain (SCIM, `/health`, ACME, `/mcp`, `/graphql` family, `/demo`). open-cosmo itself does not run on the VPS (only its intro page), so the production check was done with the same code in RPoem. The calling `open-web-server` `Ledger` needs `OPEN_RUNO_API_KEY`. Open: whether to run open-cosmo itself in production (it overlaps the RPoem gateway).
