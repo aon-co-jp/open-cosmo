@@ -1,4 +1,4 @@
-//! OpenAPI 3.0 spec for the REST admin surface.
+//! OpenAPI 3.0 spec for the non-GraphQL external-protocol surface (health/ACME/MCP/SCIM; REST was abolished 2026-11-01).
 //!
 //! 2026-10-26: 手書きの静的JSONから、`open-runo-openapi`(poem-openapi相当の
 //! 型駆動ビルダー)による生成へ移行した。各エンドポイントは
@@ -48,7 +48,7 @@ pub(crate) fn document() -> Spec {
         // --- schemas ---
         // --- federation / ai ---
         // --- db ---
-        .op(Op::post("/internal/db/mutate").id("internalDbMutate").summary("Internal replication endpoint (node-to-node)").tag("internal").response_empty(200, "Applied"))
+        // (旧`POST /internal/db/mutate`は`Admin/DbMutate`(Connect/gRPC、`x-api-key`必須)へ移行済みでRESTとしては存在しない)
         // --- cache / backup / migrate / integrity ---
         // --- persisted queries ---
         // --- feature flags ---
