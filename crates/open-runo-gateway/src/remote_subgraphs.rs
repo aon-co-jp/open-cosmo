@@ -678,13 +678,7 @@ fn print_field(f: &Field, depth: usize, vars: &serde_json::Value) -> Option<Stri
     }
     if !f.selection_set.node.items.is_empty() {
         let mut inner = Vec::new();
-        for sel in &f.selection_set.node.items {
-            let Selection::Field(c) = &sel.node else { return None };
-            let t = print_field(&c.node, depth + 1, vars)?;
-            if !t.is_empty() {
-                inner.push(t);
-            }
-        }
+        print_selections(&f.selection_set.node.items, depth + 1, vars, &mut inner)?;
         if inner.is_empty() {
             // Everything under this field is excluded: let the plain forwarding path handle it.
             return None;
@@ -692,6 +686,52 @@ fn print_field(f: &Field, depth: usize, vars: &serde_json::Value) -> Option<Stri
         o.push_str(&format!(" {{ {} }}", inner.join(" ")));
     }
     Some(o)
+}
+
+/// Print a selection list. A fragment without a type condition (`... @include(if: $x) { .. }`) is
+/// flattened into its parent (its `@skip` / `@include` are evaluated here). Fragments with a type
+/// condition or named spreads give `None` (plain forwarding): flattening them would be wrong for
+/// interfaces and unions.
+fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize, vars: &serde_json::Value, out: &mut Vec<String>) -> Option<()> {
+    if depth > 16 {
+        return None;
+    }
+    for sel in items {
+        match &sel.node {
+            Selection::Field(c) => {
+                let t = print_field(&c.node, depth, vars)?;
+                if !t.is_empty() {
+                    out.push(t);
+                }
+            }
+            Selection::InlineFragment(f) => {
+                if f.node.type_condition.is_some() {
+                    return None;
+                }
+                let mut keep = true;
+                for d in &f.node.directives {
+                    let name = d.node.name.node.as_str();
+                    if name != "skip" && name != "include" {
+                        return None;
+                    }
+                    let arg = d.node.get_argument("if")?.node.to_string();
+                    let cond = match arg.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        v => vars.get(v.strip_prefix('$')?)?.as_bool()?,
+                    };
+                    if (name == "skip" && cond) || (name == "include" && !cond) {
+                        keep = false;
+                    }
+                }
+                if keep {
+                    print_selections(&f.node.selection_set.node.items, depth + 1, vars, out)?;
+                }
+            }
+            Selection::FragmentSpread(_) => return None,
+        }
+    }
+    Some(())
 }
 
 /// Rename the subgraph's root types to `Query` / `Mutation` inside the model, so the planner can look
@@ -1256,6 +1296,19 @@ mod tests {
         assert!(!uses_variable(&printed[1], "id"));
         assert!(uses_variable(&printed[1], "idx"));
         assert!(!uses_variable(&printed[0], "n"));
+    }
+
+    #[test]
+    fn untyped_inline_fragments_are_flattened_with_directives() {
+        let doc = parse_query("{ a { id ... @include(if: $x) { name } ... @skip(if: true) { gone } } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        assert_eq!(print_field(&f.node, 0, &serde_json::json!({"x": true})).unwrap(), "a { id name }");
+        assert_eq!(print_field(&f.node, 0, &serde_json::json!({"x": false})).unwrap(), "a { id }");
+        let doc = parse_query("{ a { ... on A { id } } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        assert!(print_field(&f.node, 0, &serde_json::json!({})).is_none());
     }
 
     #[test]
