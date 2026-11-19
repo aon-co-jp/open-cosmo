@@ -489,3 +489,23 @@ VersionlessAPI・SCIM・Security・Cache等)を持つ姉妹リポジトリ。実
 **日本語**: appserver系10本は `6c67196` で `Admin/AppServer*` へ、`POST /internal/db/mutate` は `132e300` で `Admin/DbMutate`(Connect/gRPC、`x-api-key` 必須)へ移し、旧経路を削除した(RPoem `781c824` と同じ内容)。`cargo test`(gateway 37・router 179・proto 5)全成功。自前RESTは0本で、残るのは SCIM・`/health`・ACME・`/mcp`・`/graphql`系・`/demo` の例外のみ。VPSでは open-cosmo 本体は起動しておらず(紹介ページのみ)、本番確認は同じコードの RPoem で実施した。呼び出し側の `open-web-server` `Ledger` は `OPEN_RUNO_API_KEY` が必要。未了: open-cosmo 本体を本番で起動するかの判断(RPoem ゲートウェイと役割が重なる)。
 
 **English**: The 10 appserver routes moved to `Admin/AppServer*` in `6c67196`, and `POST /internal/db/mutate` moved to `Admin/DbMutate` (Connect/gRPC, `x-api-key` required) in `132e300`; the old routes were removed (same content as RPoem `781c824`). `cargo test` (gateway 37, router 179, proto 5) passes. There are 0 own REST routes; only the exceptions remain (SCIM, `/health`, ACME, `/mcp`, `/graphql` family, `/demo`). open-cosmo itself does not run on the VPS (only its intro page), so the production check was done with the same code in RPoem. The calling `open-web-server` `Ledger` needs `OPEN_RUNO_API_KEY`. Open: whether to run open-cosmo itself in production (it overlaps the RPoem gateway).
+
+## 2026-11-19 更新: 複数サブグラフにまたがる問い合わせ(3姉妹共通) / Cross-subgraph queries (shared by the three sisters)
+
+### 日本語
+`open-cosmo` のゲートウェイが、複数のサブグラフ(別々のサーバー)にまたがる問い合わせを扱えるようになりました。`Reaxt`・`RPoRea`・`open-cosmo` は常に同時に開発しているため、3つのリポジトリに同じ内容を書いています。
+
+- **分割と統合**: 読み取り専用の問い合わせで、最上位のフィールドが別々のサブグラフにあるときは、サブグラフごとの問い合わせに分け、同時に実行して、結果を1つにまとめます。
+- **`@key` による結合(1段)**: `@key` を持つ型について、サブグラフAが返した `id` を使い、サブグラフBの `_entities` に問い合わせて、Aにないフィールドを足します。
+- **従来どおり拒否するもの**: 変更系(mutation)が複数のサブグラフにまたがる問い合わせ、リモートとローカルが混ざる問い合わせ、フラグメントやディレクティブを含む分割対象の問い合わせ。
+- **確認済み**: 擬似サブグラフでの試験(gateway 44件、federation 13件)に成功。Reaxt の実サーバーが返す SDL も、`compose` と管理 RPC `ComposeFederation` で受け付けられます。
+- **未了**: 複数段にわたる入れ子の結合、`@requires` / `@provides`、実際の Reaxt サーバーを複数並べた通し確認(今のサンプルは同じフィールド名を持つため、振り分けの確認にはサンプルの追加が必要)。
+
+### English
+The `open-cosmo` gateway can now handle queries that span several subgraphs (separate servers). `Reaxt`, `RPoRea` and `open-cosmo` are always developed together, so all three repositories carry this same note.
+
+- **Split and merge**: for a read-only query whose top-level fields live in different subgraphs, the gateway builds one sub-query per subgraph, runs them concurrently, and merges the results.
+- **`@key` joins (one level)**: for a type that has `@key`, the gateway takes the `id` returned by subgraph A and asks subgraph B, through `_entities`, for the fields A does not have.
+- **Still rejected**: mutations that span subgraphs, queries that mix remote and local fields, and split queries that contain fragments or directives.
+- **Verified**: tests against fake subgraphs pass (gateway 44, federation 13). The SDL served by a real Reaxt server is accepted by `compose` and by the admin RPC `ComposeFederation`.
+- **Open**: joins nested more than one level, `@requires` / `@provides`, and a run with several real Reaxt servers (the current example exposes the same field names, so a second example is needed to check routing).
