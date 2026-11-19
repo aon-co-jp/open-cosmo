@@ -321,9 +321,13 @@ impl RemoteSubgraphs {
         target: &(String, String),
     ) -> Option<Routed> {
         let op = select_operation(doc, operation_name)?;
-        if op.ty != OperationType::Query {
-            return None;
-        }
+        // A mutation runs once at its subgraph; the entities it returns are then completed by read-only
+        // `_entities` calls to the other subgraphs (nothing is executed twice).
+        let root_type = match op.ty {
+            OperationType::Query => "Query",
+            OperationType::Mutation => "Mutation",
+            _ => return None,
+        };
         let models: Vec<(String, String, SubgraphModel)> = {
             let guard = self.inner.lock().await;
             guard
@@ -342,10 +346,10 @@ impl RemoteSubgraphs {
                 return None;
             }
             let rkey = f.alias.as_ref().map_or(f.name.node.as_str(), |a| a.node.as_str()).to_string();
-            let ret = a.types.get("Query").and_then(|q| q.get(f.name.node.as_str()));
+            let ret = a.types.get(root_type).and_then(|q| q.get(f.name.node.as_str()));
             match ret {
                 Some(ty) if !f.selection_set.node.items.is_empty() => {
-                    let provided = a.provides.get(&("Query".to_string(), f.name.node.to_string())).cloned().unwrap_or_default();
+                    let provided = a.provides.get(&(root_type.to_string(), f.name.node.to_string())).cloned().unwrap_or_default();
                     query_parts.push(plan_field(f, ty, &provided, &[rkey], a, &models, &target.0, &mut joins)?);
                 },
                 _ => query_parts.push(print_field(f, 0)?),
@@ -356,7 +360,10 @@ impl RemoteSubgraphs {
         }
 
         let body_sel = query_parts.join(" ");
-        let head = query_head(op, &body_sel, &[]);
+        let mut head = query_head(op, &body_sel, &[]);
+        if root_type == "Mutation" {
+            head = head.replacen("query", "mutation", 1);
+        }
         let q = format!("{head} {{ {body_sel} }}");
         let Routed::Forwarded(mut v) = self.forward(&target.0, &target.1, &q, None, variables, headers).await else {
             return Some(Routed::Rejected(format!("subgraph `{}` could not run the entity query", target.0)));
@@ -1346,6 +1353,62 @@ mod tests {
             },
             _ => panic!("expected a joined result"),
         }
+    }
+
+    #[tokio::test]
+    async fn mutation_result_is_completed_by_a_read_only_join() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        async fn start(users: bool) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+            let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let s2 = seen.clone();
+            let h: Handler = Arc::new(move |req, _p| {
+                let s2 = s2.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        if users {
+                            serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"usersHealth"}]},"mutationType":{"fields":[{"name":"createUser"}]}}}})
+                        } else {
+                            serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"reviewsHealth"}]},"mutationType":null}}})
+                        }
+                    } else if q.contains("_service") {
+                        let sdl = if users {
+                            "type Query { usersHealth: String } type Mutation { createUser: User } type User @key(fields: \"id\") { id: ID! name: String }"
+                        } else {
+                            "type Query { reviewsHealth: String } type User @key(fields: \"id\") { id: ID! reviews: String }"
+                        };
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        s2.lock().unwrap().push("entities".into());
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps.iter().map(|r| serde_json::json!({"reviews": format!("r-{}", r["id"].as_str().unwrap_or("?"))})).collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        s2.lock().unwrap().push(q.split_whitespace().next().unwrap_or("").to_string());
+                        serde_json::json!({"data":{"createUser":{"name":"Ann","id":"9","__typename":"User"}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            (format!("http://{addr}/graphql"), seen)
+        }
+        let (users_url, users_seen) = start(true).await;
+        let (reviews_url, reviews_seen) = start(false).await;
+        let r = RemoteSubgraphs::new(vec![("users".into(), users_url), ("reviews".into(), reviews_url)]);
+        match r.route("mutation { createUser { name reviews } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["createUser"], serde_json::json!({"name":"Ann","reviews":"r-9"}), "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            _ => panic!("expected a joined mutation result"),
+        }
+        // The mutation ran exactly once, as a mutation; the other subgraph only saw a read-only `_entities` call.
+        assert_eq!(users_seen.lock().unwrap().as_slice(), ["mutation"]);
+        assert_eq!(reviews_seen.lock().unwrap().as_slice(), ["entities"]);
     }
 
     #[tokio::test]
