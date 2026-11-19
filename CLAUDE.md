@@ -2075,3 +2075,5 @@ We verified the join not only with fake subgraphs but also with **independent, r
 **2026-11-19 続き14**: Reaxtのアクションで`Option<T>`(値が無いこともある型)を使えるようにした(GraphQLでは`!`なしのnull可になる、試験13件が8回連続成功)。型の登録はプロセス内で共有なので、並列試験で型付き/`JSON`の表記が揺れても落ちないよう期待値を直した。 / **Done**: `Option<T>` works in Reaxt actions (nullable in GraphQL, 13 tests pass 8 runs in a row). The type registry is shared in-process, so tests no longer assume `JSON` vs typed output.
 
 **2026-11-19 続き15**: Reaxtの`wire_struct!`で、JSONに無いフィールドを`Option<T>`なら`None`として読めるようにした(それ以外の型は従来どおり「ありません」エラー、試験14件成功)。 / **Done**: in `wire_struct!`, a field missing from the JSON reads as `None` for `Option<T>` (other types still give the "missing" error; 14 tests pass).
+
+**2026-11-19 続き16**: Reaxtのアクションで小数(`f64`)を使えるようにした(GraphQLでは`Float!`、NaN/無限大はJSONで表せないので`null`、試験15件成功)。 / **Done**: `f64` works in Reaxt actions (`Float!` in GraphQL; NaN/infinity become `null` since JSON cannot hold them; 15 tests pass).
