@@ -2264,3 +2264,5 @@ We verified the join not only with fake subgraphs but also with **independent, r
 - Tips: write the callback as `def name(user: Int, body: Int, blen: UInt, dst: Int, cap: UInt) abi("C") -> Int` (`out` is a reserved word in Mojo, so use `dst`). Receive pointers as `Int` and read or write them with `UnsafePointer[UInt8, MutAnyOrigin](unsafe_from_address=...)`. When registering, pass the function itself as the argument.
 - Run it in WSL: `RPOREA_LIB=/root/rporea-target/release/librporea_ffi.so mojo test_callback.mojo`.
 - **Still open**: the Mac and iPhone checks, richer Reaxt types, wider real-world tests with open-cosmo, and the scheduled cloud runs (first connect GitHub to Claude).
+
+**2026-11-20 続き17**: Reaxtの型を広げた: `Option`の入れ子(`Vec<Option<T>>`・`Option<Vec<T>>`)の確認と、文字列キーの連想配列(`BTreeMap<String, T>`)を追加(GraphQLでは`JSON`として公開、キーは並べ替えて出力、試験18件成功)。 / **Done**: richer Reaxt types: nested `Option` (`Vec<Option<T>>`, `Option<Vec<T>>`) verified, and `BTreeMap<String, T>` added (exposed as `JSON` in GraphQL, keys sorted on output; 18 tests pass). 残り / Open: Mac・iPhone、open-cosmoでの広い実機試験、クラウド定期実行(先にGitHub接続)。
