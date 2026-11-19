@@ -2073,3 +2073,5 @@ We verified the join not only with fake subgraphs but also with **independent, r
 **2026-11-19 続き13**: `... on 型`(型条件つきフラグメント)に、親の型と同じ型のときだけ対応(結合計画で展開、ゲートウェイ試験57件成功)。型が違う・不明なときは従来どおり通常転送(インターフェース/ユニオンで誤らないため)。 / **Done**: `... on Type` is flattened only when the type equals the parent's own type (57 gateway tests pass); otherwise plain forwarding, to stay correct for interfaces and unions.
 
 **2026-11-19 続き14**: Reaxtのアクションで`Option<T>`(値が無いこともある型)を使えるようにした(GraphQLでは`!`なしのnull可になる、試験13件が8回連続成功)。型の登録はプロセス内で共有なので、並列試験で型付き/`JSON`の表記が揺れても落ちないよう期待値を直した。 / **Done**: `Option<T>` works in Reaxt actions (nullable in GraphQL, 13 tests pass 8 runs in a row). The type registry is shared in-process, so tests no longer assume `JSON` vs typed output.
+
+**2026-11-19 続き15**: Reaxtの`wire_struct!`で、JSONに無いフィールドを`Option<T>`なら`None`として読めるようにした(それ以外の型は従来どおり「ありません」エラー、試験14件成功)。 / **Done**: in `wire_struct!`, a field missing from the JSON reads as `None` for `Option<T>` (other types still give the "missing" error; 14 tests pass).
