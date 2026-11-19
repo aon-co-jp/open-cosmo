@@ -736,7 +736,7 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
 
 /// The fields of a selection list, with untyped inline fragments flattened (their `@skip` / `@include`
 /// evaluated). `None` for typed or named fragments and other directives.
-fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize) -> Option<Vec<&'a Field>> {
+fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize, ty: Option<&str>) -> Option<Vec<&'a Field>> {
     if depth > 16 {
         return None;
     }
@@ -745,8 +745,11 @@ fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &
         match &sel.node {
             Selection::Field(c) => out.push(&c.node),
             Selection::InlineFragment(f) => {
-                if f.node.type_condition.is_some() {
-                    return None;
+                // `... on T` is the same as the parent only when T is the parent's own (static) type.
+                if let Some(tc) = &f.node.type_condition {
+                    if Some(tc.node.on.node.as_str()) != ty {
+                        return None;
+                    }
                 }
                 let mut keep = true;
                 for d in &f.node.directives {
@@ -765,7 +768,7 @@ fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &
                     }
                 }
                 if keep {
-                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1)?);
+                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1, ty)?);
                 }
             }
             Selection::FragmentSpread(_) => return None,
@@ -878,7 +881,7 @@ fn plan_field(
     let mut deps: Vec<(usize, String, Vec<String>)> = Vec::new();
     let mut avail: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut selected: Vec<String> = Vec::new();
-    for c in flatten_fields(&f.selection_set.node.items, vars, 0)? {
+    for c in flatten_fields(&f.selection_set.node.items, vars, 0, Some(ty))? {
         if !field_included(c, vars)? {
             continue;
         }
@@ -1337,11 +1340,23 @@ mod tests {
     }
 
     #[test]
+    fn flatten_fields_accepts_on_type_only_for_the_static_type() {
+        let doc = parse_query("{ a { id ... on User { name } } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let v = serde_json::json!({});
+        let items = &f.node.selection_set.node.items;
+        assert_eq!(flatten_fields(items, &v, 0, Some("User")).unwrap().len(), 2);
+        assert!(flatten_fields(items, &v, 0, Some("Admin")).is_none());
+        assert!(flatten_fields(items, &v, 0, None).is_none());
+    }
+
+    #[test]
     fn flatten_fields_handles_untyped_fragments() {
         let doc = parse_query("{ a { id ... @include(if: $x) { name } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0).unwrap().len();
+        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0, None).unwrap().len();
         assert_eq!((n(true), n(false)), (2, 1));
     }
 
