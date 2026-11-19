@@ -85,11 +85,19 @@ pub struct SubgraphModel {
     /// `(type, field)` -> field names the field's `@requires(fields: "...")` needs before it can be
     /// resolved (they must be `@external` here; another subgraph supplies them).
     pub requires: BTreeMap<(String, String), Vec<String>>,
+    /// The SDL declares an `interface` or `union`. When it does not, every type is a plain object type,
+    /// so a fragment `... on T` can only match a field whose type is exactly `T`.
+    pub has_abstract: bool,
 }
 
 /// Parses a subgraph's SDL into a [`SubgraphModel`]. Same tolerance as [`parse_service_sdl`].
 pub fn parse_subgraph_model(sdl: &str) -> SubgraphModel {
     let mut model = SubgraphModel::default();
+    model.has_abstract = sdl.lines().any(|l| {
+        let l = l.trim_start();
+        let l = l.strip_prefix("extend ").unwrap_or(l).trim_start();
+        l.starts_with("interface ") || l.starts_with("union ")
+    });
     let n = sdl.len();
     let mut i = 0usize;
     while i < n {
@@ -663,5 +671,12 @@ type Mutation {
         assert!(schema.types["Product"].contains("sku"));
         assert!(schema.types["Product"].contains("price"));
         assert!(schema.types["Product"].contains("description"));
+    }
+
+    #[test]
+    fn model_knows_whether_the_sdl_has_interfaces_or_unions() {
+        assert!(!parse_subgraph_model("type Query { a: A }\ntype A { id: ID }").has_abstract);
+        assert!(parse_subgraph_model("interface Node { id: ID }\ntype A implements Node { id: ID }").has_abstract);
+        assert!(parse_subgraph_model("union U = A | B\ntype A { id: ID }").has_abstract);
     }
 }

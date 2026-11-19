@@ -786,7 +786,7 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
 
 /// The fields of a selection list, with untyped inline fragments flattened (their `@skip` / `@include`
 /// evaluated). `None` for typed or named fragments and other directives.
-fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize, ty: Option<&str>) -> Option<Vec<&'a Field>> {
+fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize, ty: Option<&str>, concrete: bool) -> Option<Vec<&'a Field>> {
     if depth > 16 {
         return None;
     }
@@ -798,6 +798,11 @@ fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &
                 // `... on T` is the same as the parent only when T is the parent's own (static) type.
                 if let Some(tc) = &f.node.type_condition {
                     if Some(tc.node.on.node.as_str()) != ty {
+                        // With no interface or union anywhere, a different type can never match:
+                        // the fragment contributes nothing (as in GraphQL execution).
+                        if concrete && ty.is_some() {
+                            continue;
+                        }
                         return None;
                     }
                 }
@@ -818,7 +823,7 @@ fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &
                     }
                 }
                 if keep {
-                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1, ty)?);
+                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1, ty, concrete)?);
                 }
             }
             Selection::FragmentSpread(_) => return None,
@@ -931,7 +936,7 @@ fn plan_field(
     let mut deps: Vec<(usize, String, Vec<String>)> = Vec::new();
     let mut avail: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut selected: Vec<String> = Vec::new();
-    for c in flatten_fields(&f.selection_set.node.items, vars, 0, Some(ty))? {
+    for c in flatten_fields(&f.selection_set.node.items, vars, 0, Some(ty), !a.has_abstract)? {
         if !field_included(c, vars)? {
             continue;
         }
@@ -1390,15 +1395,27 @@ mod tests {
     }
 
     #[test]
+    fn a_different_type_is_dropped_only_when_the_schema_has_no_abstract_types() {
+        let doc = parse_query("{ a { id ... on Admin { secret } } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let items = &f.node.selection_set.node.items;
+        let v = serde_json::json!({});
+        let flat = flatten_fields(items, &v, 0, Some("User"), true).unwrap();
+        assert_eq!(flat.iter().map(|f| f.name.node.as_str()).collect::<Vec<_>>(), ["id"]);
+        assert!(flatten_fields(items, &v, 0, Some("User"), false).is_none());
+    }
+
+    #[test]
     fn flatten_fields_accepts_on_type_only_for_the_static_type() {
         let doc = parse_query("{ a { id ... on User { name } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
         let v = serde_json::json!({});
         let items = &f.node.selection_set.node.items;
-        assert_eq!(flatten_fields(items, &v, 0, Some("User")).unwrap().len(), 2);
-        assert!(flatten_fields(items, &v, 0, Some("Admin")).is_none());
-        assert!(flatten_fields(items, &v, 0, None).is_none());
+        assert_eq!(flatten_fields(items, &v, 0, Some("User"), false).unwrap().len(), 2);
+        assert!(flatten_fields(items, &v, 0, Some("Admin"), false).is_none());
+        assert!(flatten_fields(items, &v, 0, None, false).is_none());
     }
 
     #[test]
@@ -1406,7 +1423,7 @@ mod tests {
         let doc = parse_query("{ a { id ... @include(if: $x) { name } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0, None).unwrap().len();
+        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0, None, false).unwrap().len();
         assert_eq!((n(true), n(false)), (2, 1));
     }
 
@@ -1430,11 +1447,11 @@ mod tests {
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
         let v = serde_json::json!({"x": true});
-        let flat = flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("User")).unwrap();
+        let flat = flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("User"), false).unwrap();
         assert_eq!(flat.iter().map(|f| f.name.node.as_str()).collect::<Vec<_>>(), ["id", "name", "age"]);
-        assert_eq!(flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": false}), 0, Some("User")).unwrap().len(), 1);
+        assert_eq!(flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": false}), 0, Some("User"), false).unwrap().len(), 1);
         // a different static type stays unflattened
-        assert!(flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("Admin")).is_none());
+        assert!(flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("Admin"), false).is_none());
         // a cycle is left alone instead of looping
         let mut doc = parse_query("{ a { ...F } } fragment F on A { ...F }").unwrap();
         inline_named_fragments(&mut doc);
