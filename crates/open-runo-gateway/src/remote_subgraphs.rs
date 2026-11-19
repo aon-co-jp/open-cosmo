@@ -8,17 +8,22 @@
 //! introspection, and a request whose root fields all belong to one remote
 //! subgraph is forwarded to it unchanged (the response is returned as is).
 //!
-//! **Scope (honest)**: this is root-field routing, not a federated query
-//! planner. A request that mixes root fields of different subgraphs (or of
-//! a remote subgraph and the local schema) is rejected with a GraphQL
-//! error instead of being split and merged. Entity resolution across
-//! subgraphs (`@key` joins) is not implemented.
+//! **Scope (honest)**: this is root-field routing, not a full federated
+//! query planner. A read-only query whose root fields belong to several
+//! remote subgraphs is split into one sub-query per subgraph (concurrent,
+//! `data`/`errors` merged; 2026-11-19). Mutations spanning subgraphs, a mix
+//! of remote and local fields, and fragments/directives in a split query
+//! are rejected with a GraphQL error. Entity resolution across subgraphs
+//! (`@key` joins) is not implemented.
 //!
 //! Configuration: `OPEN_RUNO_SUBGRAPHS="name=http://host:port/graphql,..."`.
 
 use async_graphql::parser::{
     parse_query,
-    types::{DocumentOperations, ExecutableDocument, Selection, SelectionSet},
+    types::{
+        DocumentOperations, ExecutableDocument, Field, OperationDefinition, OperationType,
+        Selection, SelectionSet,
+    },
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -241,18 +246,13 @@ impl RemoteSubgraphs {
             }
         }
 
-        let mut target: Option<(String, String)> = None;
+        let mut targets: Vec<(String, String)> = Vec::new();
         let mut local = false;
         for f in &roots {
             match guard.iter().find(|s| s.fields.contains(f)) {
-                Some(s) => match &target {
-                    None => target = Some((s.name.clone(), s.url.clone())),
-                    Some((n, _)) if *n == s.name => {}
-                    Some((n, _)) => {
-                        return Routed::Rejected(format!(
-                            "query spans subgraphs `{n}` and `{}`; cross-subgraph queries are not supported by this gateway yet",
-                            s.name
-                        ))
+                Some(s) => {
+                    if !targets.iter().any(|(n, _)| *n == s.name) {
+                        targets.push((s.name.clone(), s.url.clone()));
                     }
                 },
                 None => local = true,
@@ -260,14 +260,140 @@ impl RemoteSubgraphs {
         }
         drop(guard);
 
-        let Some((name, url)) = target else {
+        if targets.is_empty() {
             return Routed::Local;
-        };
+        }
         if local {
             return Routed::Rejected(format!(
-                "query mixes fields of subgraph `{name}` with local fields; cross-subgraph queries are not supported by this gateway yet"
+                "query mixes fields of subgraph `{}` with local fields; cross-subgraph queries are not supported by this gateway yet",
+                targets[0].0
             ));
         }
+        if targets.len() > 1 {
+            return self
+                .route_split(&doc, operation_name, &variables, headers, &targets)
+                .await;
+        }
+        let (name, url) = targets.remove(0);
+        self.forward(&name, &url, query, operation_name, &variables, headers)
+            .await
+    }
+
+    /// Split a read-only query whose root fields belong to several remote subgraphs into one
+    /// sub-query per subgraph, run them concurrently and merge `data` / `errors`.
+    /// Mutations are never split (they cannot be made atomic); fragments and directives are
+    /// not supported by the splitter and are rejected.
+    async fn route_split(
+        &self,
+        doc: &ExecutableDocument,
+        operation_name: Option<&str>,
+        variables: &serde_json::Value,
+        headers: &[(String, String)],
+        targets: &[(String, String)],
+    ) -> Routed {
+        let names = targets
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join("` and `");
+        let reject = |why: &str| Routed::Rejected(format!("query spans subgraphs `{names}`; {why}"));
+        let Some(op) = select_operation(doc, operation_name) else {
+            return reject("the operation could not be selected");
+        };
+        if op.ty != OperationType::Query {
+            return reject("only read-only queries can be split across subgraphs");
+        }
+        let owners: Vec<(String, usize)> = {
+            let guard = self.inner.lock().await;
+            let mut v = Vec::new();
+            for sg in guard.iter() {
+                if let Some(i) = targets.iter().position(|(n, _)| *n == sg.name) {
+                    for f in &sg.fields {
+                        v.push((f.clone(), i));
+                    }
+                }
+            }
+            v
+        };
+        let mut parts: Vec<Vec<String>> = vec![Vec::new(); targets.len()];
+        for sel in &op.selection_set.node.items {
+            let Selection::Field(f) = &sel.node else {
+                return reject("fragments at the top level are not supported by the splitter");
+            };
+            if f.node.name.node.starts_with("__") {
+                return reject("introspection cannot be split");
+            }
+            let Some(text) = print_field(&f.node, 0) else {
+                return reject("fragments and directives are not supported by the splitter");
+            };
+            let Some((_, i)) = owners.iter().find(|(n, _)| n == f.node.name.node.as_str()) else {
+                return reject("a root field has no owning subgraph");
+            };
+            parts[*i].push(text);
+        }
+        let mut calls = Vec::new();
+        for (i, (name, url)) in targets.iter().enumerate() {
+            let body_sel = parts[i].join(" ");
+            let defs = op
+                .variable_definitions
+                .iter()
+                .filter(|d| uses_variable(&body_sel, d.node.name.node.as_str()))
+                .map(|d| {
+                    let mut t = format!("${}: {}", d.node.name.node, d.node.var_type.node);
+                    if let Some(dv) = &d.node.default_value {
+                        t.push_str(&format!(" = {}", dv.node));
+                    }
+                    t
+                })
+                .collect::<Vec<_>>();
+            let head = if defs.is_empty() {
+                "query".to_string()
+            } else {
+                format!("query({})", defs.join(", "))
+            };
+            calls.push((name.clone(), url.clone(), format!("{head} {{ {body_sel} }}")));
+        }
+        let futs = calls
+            .iter()
+            .map(|(n, u, q)| self.forward(n, u, q, None, variables, headers));
+        let results = futures::future::join_all(futs).await;
+        let mut data = serde_json::Map::new();
+        let mut errors: Vec<serde_json::Value> = Vec::new();
+        for r in results {
+            match r {
+                Routed::Forwarded(v) => {
+                    if let Some(d) = v.get("data").and_then(|d| d.as_object()) {
+                        for (k, val) in d {
+                            data.insert(k.clone(), val.clone());
+                        }
+                    }
+                    if let Some(e) = v.get("errors").and_then(|e| e.as_array()) {
+                        errors.extend(e.iter().cloned());
+                    }
+                },
+                Routed::Rejected(m) => errors.push(serde_json::json!({ "message": m })),
+                Routed::Local => {},
+            }
+        }
+        let mut out = serde_json::Map::new();
+        out.insert("data".into(), serde_json::Value::Object(data));
+        if !errors.is_empty() {
+            out.insert("errors".into(), serde_json::Value::Array(errors));
+        }
+        Routed::Forwarded(serde_json::Value::Object(out))
+    }
+
+    /// Send one query to one subgraph (headers filtered by trust).
+    async fn forward(
+        &self,
+        name: &str,
+        url: &str,
+        query: &str,
+        operation_name: Option<&str>,
+        variables: &serde_json::Value,
+        headers: &[(String, String)],
+    ) -> Routed {
+        let (name, url) = (name.to_string(), url.to_string());
         let body = serde_json::json!({ "query": query, "variables": variables, "operationName": operation_name });
         let creds_ok = self.credentials_allowed(&name, &url);
         let mut req = self.client.post(&url).json(&body);
@@ -300,6 +426,64 @@ impl RemoteSubgraphs {
             Err(e) => Routed::Rejected(format!("subgraph `{name}` is unreachable: {e}")),
         }
     }
+}
+
+fn select_operation<'a>(
+    doc: &'a ExecutableDocument,
+    operation_name: Option<&str>,
+) -> Option<&'a OperationDefinition> {
+    match &doc.operations {
+        DocumentOperations::Single(op) => Some(&op.node),
+        DocumentOperations::Multiple(map) => match operation_name {
+            Some(n) => map.iter().find(|(k, _)| k.as_str() == n).map(|(_, o)| &o.node),
+            None if map.len() == 1 => map.values().next().map(|o| &o.node),
+            None => None,
+        },
+    }
+}
+
+/// Print a field (alias, arguments, nested selections). `None` if it has fragments or directives.
+fn print_field(f: &Field, depth: usize) -> Option<String> {
+    if depth > 16 || !f.directives.is_empty() {
+        return None;
+    }
+    let mut o = String::new();
+    if let Some(a) = &f.alias {
+        o.push_str(a.node.as_str());
+        o.push_str(": ");
+    }
+    o.push_str(f.name.node.as_str());
+    if !f.arguments.is_empty() {
+        let args = f
+            .arguments
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k.node, v.node))
+            .collect::<Vec<_>>();
+        o.push_str(&format!("({})", args.join(", ")));
+    }
+    if !f.selection_set.node.items.is_empty() {
+        let mut inner = Vec::new();
+        for sel in &f.selection_set.node.items {
+            let Selection::Field(c) = &sel.node else { return None };
+            inner.push(print_field(&c.node, depth + 1)?);
+        }
+        o.push_str(&format!(" {{ {} }}", inner.join(" ")));
+    }
+    Some(o)
+}
+
+/// Is `$name` used in `text` as a whole variable name (not only a prefix of a longer one)?
+fn uses_variable(text: &str, name: &str) -> bool {
+    let pat = format!("${name}");
+    let mut from = 0;
+    while let Some(i) = text[from..].find(&pat) {
+        let end = from + i + pat.len();
+        match text[end..].chars().next() {
+            Some(c) if c.is_ascii_alphanumeric() || c == '_' => from = end,
+            _ => return true,
+        }
+    }
+    false
 }
 
 pub fn parse_env(s: &str) -> Vec<(String, String)> {
@@ -570,6 +754,44 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn splitter_prints_fields_and_picks_only_used_variables() {
+        let doc = parse_query(
+            "query Q($id: ID!, $idx: Int = 3, $n: Int) { a: user(id: $id) { id name } stock(limit: $idx) }",
+        )
+        .unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let printed: Vec<String> = op
+            .selection_set
+            .node
+            .items
+            .iter()
+            .map(|s| match &s.node {
+                Selection::Field(f) => print_field(&f.node, 0).unwrap(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(printed[0], "a: user(id: $id) { id name }");
+        assert_eq!(printed[1], "stock(limit: $idx)");
+        // `$id` is not used by the second field just because `$idx` starts with it.
+        assert!(uses_variable(&printed[0], "id"));
+        assert!(!uses_variable(&printed[1], "id"));
+        assert!(uses_variable(&printed[1], "idx"));
+        assert!(!uses_variable(&printed[0], "n"));
+    }
+
+    #[test]
+    fn splitter_refuses_fragments_and_directives() {
+        let doc = parse_query("{ a @include(if: true) { id } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        assert!(print_field(&f.node, 0).is_none());
+        let doc = parse_query("{ a { ...F } } fragment F on A { id }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        assert!(print_field(&f.node, 0).is_none());
+    }
+
     #[tokio::test]
     async fn rejects_queries_spanning_two_remote_subgraphs() {
         let r = RemoteSubgraphs::new(vec![
@@ -582,9 +804,26 @@ mod tests {
                 fake_subgraph_with("users", "createUser").await,
             ),
         ]);
+        // Read-only queries spanning two subgraphs are split and merged.
+        match r
+            .route("{ items { id } users { id } }", None, serde_json::json!({}))
+            .await
+        {
+            Routed::Forwarded(v) => {
+                // The fake subgraph echoes the sub-query it received.
+                assert!(v["data"].get("echo").is_some(), "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            _ => panic!("expected a merged result"),
+        }
+        // Mutations are never split.
         assert!(matches!(
-            r.route("{ items { id } users { id } }", None, serde_json::json!({}))
-                .await,
+            r.route(
+                "mutation { createItem { id } createUser { id } }",
+                None,
+                serde_json::json!({})
+            )
+            .await,
             Routed::Rejected(_)
         ));
         assert!(matches!(
