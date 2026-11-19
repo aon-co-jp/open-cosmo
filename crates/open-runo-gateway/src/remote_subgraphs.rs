@@ -1835,6 +1835,177 @@ mod tests {
         assert!(!m.externals.contains(&("Product".to_string(), "upc".to_string())), "{sdl}");
     }
 
+    /// Four independent, real `async-graphql` federation servers: a `@requires` chain
+    /// (catalog -> pricing supplies `price` -> shipping computes `shippingEstimate`) and a `@provides`
+    /// field that the gateway must NOT fetch from the owning subgraph (reviews provides `price`).
+    #[tokio::test]
+    async fn requires_chain_and_provides_with_real_async_graphql_servers() {
+        use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, ID};
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+
+        // catalog: Product{upc}
+        struct ProductCatalog {
+            upc: ID,
+        }
+        #[Object(name = "Product")]
+        impl ProductCatalog {
+            async fn upc(&self) -> &ID {
+                &self.upc
+            }
+        }
+        struct QueryCatalog;
+        #[Object]
+        impl QueryCatalog {
+            async fn product(&self) -> ProductCatalog {
+                ProductCatalog { upc: ID("p1".into()) }
+            }
+            #[graphql(entity)]
+            async fn find_product(&self, upc: ID) -> ProductCatalog {
+                ProductCatalog { upc }
+            }
+        }
+
+        // pricing: Product{upc, price} (price = 5)
+        struct ProductPricing {
+            upc: ID,
+        }
+        #[Object(name = "Product")]
+        impl ProductPricing {
+            async fn upc(&self) -> &ID {
+                &self.upc
+            }
+            async fn price(&self) -> Option<i32> {
+                Some(5)
+            }
+        }
+        struct QueryPricing;
+        #[Object]
+        impl QueryPricing {
+            async fn pricing_health(&self) -> bool {
+                true
+            }
+            #[graphql(entity)]
+            async fn find_product(&self, upc: ID) -> ProductPricing {
+                ProductPricing { upc }
+            }
+        }
+
+        // shipping: Product{upc, price @external, shippingEstimate @requires(price)}
+        struct ProductShipping {
+            upc: ID,
+            price: Option<i32>,
+        }
+        #[Object(name = "Product")]
+        impl ProductShipping {
+            async fn upc(&self) -> &ID {
+                &self.upc
+            }
+            #[graphql(external)]
+            async fn price(&self) -> Option<i32> {
+                self.price
+            }
+            #[graphql(requires = "price")]
+            async fn shipping_estimate(&self) -> Option<i32> {
+                self.price.map(|p| p * 3)
+            }
+        }
+        struct QueryShipping;
+        #[Object]
+        impl QueryShipping {
+            async fn shipping_health(&self) -> bool {
+                true
+            }
+            #[graphql(entity)]
+            async fn find_product(&self, #[graphql(key)] upc: ID, price: Option<i32>) -> ProductShipping {
+                ProductShipping { upc, price }
+            }
+        }
+
+        // reviews: Review{id, product: Product @provides(price)}; here price is 9 (pricing would say 5)
+        struct ProductReviews {
+            upc: ID,
+        }
+        #[Object(name = "Product")]
+        impl ProductReviews {
+            async fn upc(&self) -> &ID {
+                &self.upc
+            }
+            #[graphql(external)]
+            async fn price(&self) -> Option<i32> {
+                Some(9)
+            }
+        }
+        struct ReviewReviews;
+        #[Object(name = "Review")]
+        impl ReviewReviews {
+            async fn id(&self) -> ID {
+                ID("r1".into())
+            }
+            #[graphql(provides = "price")]
+            async fn product(&self) -> ProductReviews {
+                ProductReviews { upc: ID("p1".into()) }
+            }
+        }
+        struct QueryReviews;
+        #[Object]
+        impl QueryReviews {
+            async fn review(&self) -> ReviewReviews {
+                ReviewReviews
+            }
+            #[graphql(entity)]
+            async fn find_product(&self, upc: ID) -> ProductReviews {
+                ProductReviews { upc }
+            }
+        }
+
+        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(schema: Schema<Q, EmptyMutation, EmptySubscription>) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                let schema = schema.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let mut request = async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
+                    if let Some(v) = body.get("variables") {
+                        request = request.variables(async_graphql::Variables::from_json(v.clone()));
+                    }
+                    let resp = schema.execute(request).await;
+                    json_response(hyper::StatusCode::OK, &serde_json::to_value(&resp).unwrap_or_default())
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        macro_rules! build {
+            ($q:expr) => {
+                serve_schema(Schema::build($q, EmptyMutation, EmptySubscription).enable_federation().finish()).await
+            };
+        }
+        let r = RemoteSubgraphs::new(vec![
+            ("catalog".into(), build!(QueryCatalog)),
+            ("pricing".into(), build!(QueryPricing)),
+            ("shipping".into(), build!(QueryShipping)),
+            ("reviews".into(), build!(QueryReviews)),
+        ]);
+
+        // @requires chain: price is neither selected by the client nor known to the catalog.
+        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            other => panic!("expected the chained result, got {other:?}"),
+        }
+        // @provides: reviews supplies price (9) itself; the gateway must not ask pricing (it would say 5).
+        match r.route("{ review { id product { upc price } } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["review"]["product"]["price"], 9, "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            other => panic!("expected the provided result, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn rejects_queries_spanning_two_remote_subgraphs() {
         let r = RemoteSubgraphs::new(vec![
