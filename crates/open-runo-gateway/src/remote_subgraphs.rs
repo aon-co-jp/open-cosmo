@@ -1773,6 +1773,68 @@ mod tests {
         }
     }
 
+    /// The model reads `@external` / `@requires` / `@provides` from the SDL that a real federation
+    /// implementation (`async-graphql`) generates, not only from hand-written SDL.
+    #[tokio::test]
+    async fn model_reads_directives_from_real_async_graphql_sdl() {
+        use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, ID};
+
+        #[derive(Clone)]
+        struct Product {
+            upc: ID,
+        }
+        #[Object]
+        impl Product {
+            async fn upc(&self) -> &ID {
+                &self.upc
+            }
+            #[graphql(external)]
+            async fn price(&self) -> Option<i32> {
+                None
+            }
+            #[graphql(requires = "price")]
+            async fn shipping_estimate(&self) -> Option<i32> {
+                None
+            }
+        }
+        #[derive(Clone)]
+        struct Review {
+            id: ID,
+        }
+        #[Object]
+        impl Review {
+            async fn id(&self) -> &ID {
+                &self.id
+            }
+            #[graphql(provides = "price")]
+            async fn product(&self) -> Product {
+                Product { upc: ID("p".into()) }
+            }
+        }
+        struct Query;
+        #[Object]
+        impl Query {
+            async fn review(&self) -> Review {
+                Review { id: ID("r".into()) }
+            }
+            #[graphql(entity)]
+            async fn find_product_by_upc(&self, upc: ID) -> Product {
+                Product { upc }
+            }
+        }
+        let schema = Schema::build(Query, EmptyMutation, EmptySubscription).enable_federation().finish();
+        let resp = schema.execute("{ _service { sdl } }").await;
+        let v = serde_json::to_value(&resp).unwrap();
+        let sdl = v["data"]["_service"]["sdl"].as_str().unwrap().to_string();
+        let m = parse_subgraph_model(&sdl);
+        assert!(m.keys.contains_key("Product"), "{sdl}");
+        assert!(m.externals.contains(&("Product".to_string(), "price".to_string())), "{sdl}");
+        assert_eq!(m.requires[&("Product".to_string(), "shippingEstimate".to_string())], vec!["price"], "{sdl}");
+        assert_eq!(m.provides[&("Review".to_string(), "product".to_string())], vec!["price"], "{sdl}");
+        // `upc` is the key, not external.
+        assert!(!m.externals.contains(&("Product".to_string(), "upc".to_string())), "{sdl}");
+    }
+
     #[tokio::test]
     async fn rejects_queries_spanning_two_remote_subgraphs() {
         let r = RemoteSubgraphs::new(vec![
