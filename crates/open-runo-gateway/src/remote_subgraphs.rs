@@ -373,7 +373,7 @@ impl RemoteSubgraphs {
                 let mut r = serde_json::Map::new();
                 r.insert("__typename".into(), serde_json::Value::String(join.ty.clone()));
                 let mut ok = true;
-                for k in &join.key {
+                for k in join.key.iter().chain(join.requires.iter()) {
                     match o.get(k.as_str()) {
                         Some(x) if !x.is_null() => {
                             r.insert(k.clone(), x.clone());
@@ -645,6 +645,9 @@ struct Join {
     ty: String,
     key: Vec<String>,
     texts: Vec<String>,
+    /// Fields of `ty` that subgraph B's `@requires` needs; they are read from subgraph A's answer and
+    /// sent in the entity representation together with the key.
+    requires: Vec<String>,
     /// Names added to subgraph A's selection only for the join (removed from the final result).
     added: Vec<String>,
 }
@@ -665,7 +668,7 @@ fn plan_field(
         return None;
     }
     let mut local: Vec<String> = Vec::new();
-    let mut ext: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut ext: Vec<(usize, Vec<String>, Vec<String>)> = Vec::new();
     let mut selected: Vec<String> = Vec::new();
     for c in &f.selection_set.node.items {
         let Selection::Field(c) = &c.node else { return None };
@@ -689,9 +692,25 @@ fn plan_field(
             });
             if let Some(b) = other {
                 let text = print_field(c, 1)?;
-                match ext.iter_mut().find(|(i, _)| *i == b) {
-                    Some((_, v)) => v.push(text),
-                    None => ext.push((b, vec![text])),
+                // `@requires` of the other subgraph: subgraph A must be able to supply those fields.
+                let reqs = models[b].2.requires.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
+                for r in &reqs {
+                    let a_has = a.types.get(ty).is_some_and(|t| t.contains_key(r.as_str()))
+                        && !a.externals.contains(&(ty.to_string(), r.clone()));
+                    if !a_has {
+                        return None;
+                    }
+                }
+                match ext.iter_mut().find(|(i, _, _)| *i == b) {
+                    Some((_, v, rq)) => {
+                        v.push(text);
+                        for r in reqs {
+                            if !rq.contains(&r) {
+                                rq.push(r);
+                            }
+                        }
+                    },
+                    None => ext.push((b, vec![text], reqs)),
                 }
                 continue;
             }
@@ -709,10 +728,10 @@ fn plan_field(
         }
     }
     let mut added: Vec<String> = Vec::new();
-    for (b, texts) in &ext {
+    for (b, texts, reqs) in &ext {
         let key = models[*b].2.keys[ty].clone();
         let mut add_here: Vec<String> = Vec::new();
-        for k in &key {
+        for k in key.iter().chain(reqs.iter()) {
             if !selected.contains(k) && !added.contains(k) && !add_here.contains(k) {
                 add_here.push(k.clone());
             }
@@ -724,6 +743,7 @@ fn plan_field(
             ty: ty.to_string(),
             key,
             texts: texts.clone(),
+            requires: reqs.clone(),
             added: Vec::new(),
         });
     }
@@ -1264,6 +1284,68 @@ mod tests {
             _ => panic!("expected a forwarded result"),
         }
         assert_eq!(users_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn requires_sends_the_needed_fields_in_the_representation() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        // `catalog` owns Product{upc, price, weight}; `shipping` adds shippingEstimate, which
+        // @requires "price weight" (external there). The estimate is computed from the representation.
+        async fn start(catalog: bool) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        let f = if catalog { "product" } else { "shippingHealth" };
+                        serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":f}]},"mutationType":null}}})
+                    } else if q.contains("_service") {
+                        let sdl = if catalog {
+                            "type Query { product: Product } type Product @key(fields: \"upc\") { upc: String! price: Int weight: Int }"
+                        } else {
+                            "type Query { shippingHealth: String } type Product @key(fields: \"upc\") { upc: String! price: Int @external weight: Int @external shippingEstimate: Int @requires(fields: \"price weight\") }"
+                        };
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps
+                            .iter()
+                            .map(|r| {
+                                // Only computable when the representation carries price and weight.
+                                match (r["price"].as_i64(), r["weight"].as_i64()) {
+                                    (Some(p), Some(w)) => serde_json::json!({"shippingEstimate": p * w}),
+                                    _ => serde_json::json!({"shippingEstimate": null}),
+                                }
+                            })
+                            .collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        serde_json::json!({"data":{"product":{"upc":"p1","price":5,"weight":3,"__typename":"Product"}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        let r = RemoteSubgraphs::new(vec![("catalog".into(), start(true).await), ("shipping".into(), start(false).await)]);
+        // price and weight are NOT selected by the client: the gateway adds them, then removes them.
+        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            _ => panic!("expected a joined result"),
+        }
+        // When the client selects price itself, it stays in the result.
+        match r.route("{ product { price shippingEstimate } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["product"], serde_json::json!({"price":5,"shippingEstimate":15}), "{v}");
+            },
+            _ => panic!("expected a joined result"),
+        }
     }
 
     #[tokio::test]

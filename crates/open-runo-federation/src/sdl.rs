@@ -82,6 +82,9 @@ pub struct SubgraphModel {
     /// `(type, field)` -> field names the field's `@provides(fields: "...")` says it can resolve
     /// even though they are `@external` (for the returned type).
     pub provides: BTreeMap<(String, String), Vec<String>>,
+    /// `(type, field)` -> field names the field's `@requires(fields: "...")` needs before it can be
+    /// resolved (they must be `@external` here; another subgraph supplies them).
+    pub requires: BTreeMap<(String, String), Vec<String>>,
 }
 
 /// Parses a subgraph's SDL into a [`SubgraphModel`]. Same tolerance as [`parse_service_sdl`].
@@ -109,6 +112,9 @@ pub fn parse_subgraph_model(sdl: &str) -> SubgraphModel {
                         entry.insert(f.clone(), t);
                         if has_directive(&dirs, "@external") {
                             model.externals.insert((name.to_string(), f.clone()));
+                        }
+                        if let Some(list) = directive_fields(&dirs, "@requires") {
+                            model.requires.insert((name.to_string(), f.clone()), list);
                         }
                         if let Some(list) = directive_fields(&dirs, "@provides") {
                             model.provides.insert((name.to_string(), f), list);
@@ -626,6 +632,16 @@ type Mutation {
         assert!(!m.externals.contains(&("User".into(), "id".into())));
         assert_eq!(m.provides[&("Review".to_string(), "author".to_string())], vec!["name"]);
         assert_eq!(m.provides[&("Query".to_string(), "top".to_string())], vec!["author"]);
+    }
+
+    #[test]
+    fn subgraph_model_reads_requires() {
+        let m = parse_subgraph_model(
+            r#"type Product @key(fields: "upc") { upc: String! @external price: Int @external weight: Int @external shippingEstimate: Int @requires(fields: "price weight") }"#,
+        );
+        assert_eq!(m.requires[&("Product".to_string(), "shippingEstimate".to_string())], vec!["price", "weight"]);
+        assert!(m.externals.contains(&("Product".into(), "price".into())));
+        assert!(!m.requires.contains_key(&("Product".to_string(), "price".to_string())));
     }
 
     #[test]
