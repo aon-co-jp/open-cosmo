@@ -14,7 +14,8 @@
 //! `data`/`errors` merged; 2026-11-19). Mutations spanning subgraphs, a mix
 //! of remote and local fields, and fragments/directives in a split query
 //! are rejected with a GraphQL error. Entity resolution across subgraphs
-//! (`@key` joins) is not implemented.
+//! (`@key` joins through `_entities`) works at any nesting depth; `@requires` /
+//! `@provides` are not implemented.
 //!
 //! Configuration: `OPEN_RUNO_SUBGRAPHS="name=http://host:port/graphql,..."`.
 
@@ -306,10 +307,10 @@ impl RemoteSubgraphs {
             .await
     }
 
-    /// `@key` entity join (one level): a read-only query whose root field returns an entity type
-    /// `T` of subgraph A, selecting fields that only another subgraph B defines for `T`
-    /// (both declare `@key` on `T`). A runs the query without B's fields (plus the key and
-    /// `__typename`); B is asked for them through `_entities`; results are merged by position.
+    /// `@key` entity join: a read-only query whose fields (at any depth) return an entity type `T`
+    /// of subgraph A and select fields that only another subgraph B defines for `T` (both declare
+    /// `@key` on `T`). A runs the query without B's fields (plus the key and `__typename`); B is
+    /// asked for them through `_entities`; results are merged by position, level by level.
     /// `None` = not applicable (the caller forwards the query as usual).
     async fn try_entity_join(
         &self,
@@ -332,178 +333,99 @@ impl RemoteSubgraphs {
         };
         let a = &models.iter().find(|(n, _, _)| *n == target.0)?.2;
 
-        struct Ext {
-            b: usize,
-            ty: String,
-            key: Vec<String>,
-            texts: Vec<String>,
-        }
-        struct Plan {
-            key: String,
-            query_text: String,
-            ext: Vec<Ext>,
-            added: Vec<String>,
-        }
-        let mut plans: Vec<Plan> = Vec::new();
-        let mut any_ext = false;
+        let mut joins: Vec<Join> = Vec::new();
+        let mut query_parts: Vec<String> = Vec::new();
         for sel in &op.selection_set.node.items {
             let Selection::Field(f) = &sel.node else { return None };
             let f = &f.node;
             if f.name.node.starts_with("__") || !f.directives.is_empty() {
                 return None;
             }
-            let key = f.alias.as_ref().map_or(f.name.node.as_str(), |a| a.node.as_str()).to_string();
-            let leaf = f.selection_set.node.items.is_empty();
+            let rkey = f.alias.as_ref().map_or(f.name.node.as_str(), |a| a.node.as_str()).to_string();
             let ret = a.types.get("Query").and_then(|q| q.get(f.name.node.as_str()));
-            let (Some(ty), false) = (ret, leaf) else {
-                plans.push(Plan { key, query_text: print_field(f, 0)?, ext: Vec::new(), added: Vec::new() });
-                continue;
-            };
-            let mut local: Vec<String> = Vec::new();
-            let mut ext: Vec<Ext> = Vec::new();
-            let mut selected: Vec<String> = Vec::new();
-            for c in &f.selection_set.node.items {
-                let Selection::Field(c) = &c.node else { return None };
-                let c = &c.node;
-                let cname = c.name.node.as_str();
-                let text = print_field(c, 1)?;
-                if c.alias.is_none() {
-                    selected.push(cname.to_string());
-                }
-                let owned_here = cname == "__typename" || a.types.get(ty).is_some_and(|t| t.contains_key(cname));
-                let other = if owned_here {
-                    None
-                } else {
-                    models.iter().position(|(n, _, m)| {
-                        *n != target.0
-                            && m.keys.contains_key(ty.as_str())
-                            && m.types.get(ty.as_str()).is_some_and(|t| t.contains_key(cname))
-                    })
-                };
-                match other {
-                    Some(b) => {
-                        any_ext = true;
-                        match ext.iter_mut().find(|e| e.b == b) {
-                            Some(e) => e.texts.push(text),
-                            None => ext.push(Ext {
-                                b,
-                                ty: ty.clone(),
-                                key: models[b].2.keys[ty.as_str()].clone(),
-                                texts: vec![text],
-                            }),
-                        }
-                    },
-                    None => local.push(text),
-                }
+            match ret {
+                Some(ty) if !f.selection_set.node.items.is_empty() => {
+                    query_parts.push(plan_field(f, ty, &[rkey], a, &models, &target.0, &mut joins)?);
+                },
+                _ => query_parts.push(print_field(f, 0)?),
             }
-            let mut added = Vec::new();
-            for k in ext.iter().flat_map(|e| e.key.iter()) {
-                if !selected.contains(k) && !added.contains(k) {
-                    local.push(k.clone());
-                    added.push(k.clone());
-                }
-            }
-            if !ext.is_empty() && !selected.iter().any(|s| s == "__typename") {
-                local.push("__typename".to_string());
-                added.push("__typename".to_string());
-            }
-            let mut head = String::new();
-            if let Some(al) = &f.alias {
-                head.push_str(al.node.as_str());
-                head.push_str(": ");
-            }
-            head.push_str(f.name.node.as_str());
-            if !f.arguments.is_empty() {
-                let args = f.arguments.iter().map(|(k, v)| format!("{}: {}", k.node, v.node)).collect::<Vec<_>>();
-                head.push_str(&format!("({})", args.join(", ")));
-            }
-            plans.push(Plan { key, query_text: format!("{head} {{ {} }}", local.join(" ")), ext, added });
         }
-        if !any_ext {
+        if joins.is_empty() {
             return None;
         }
 
-        let body_sel = plans.iter().map(|p| p.query_text.as_str()).collect::<Vec<_>>().join(" ");
+        let body_sel = query_parts.join(" ");
         let head = query_head(op, &body_sel, &[]);
         let q = format!("{head} {{ {body_sel} }}");
         let Routed::Forwarded(mut v) = self.forward(&target.0, &target.1, &q, None, variables, headers).await else {
             return Some(Routed::Rejected(format!("subgraph `{}` could not run the entity query", target.0)));
         };
         let mut errors: Vec<serde_json::Value> = Vec::new();
-        for plan in &plans {
-            for ext in &plan.ext {
-                let Some(slot) = v.get_mut("data").and_then(|d| d.get_mut(plan.key.as_str())) else { continue };
-                let mut objs: Vec<&mut serde_json::Value> = match slot {
-                    serde_json::Value::Array(a) => a.iter_mut().collect(),
-                    o @ serde_json::Value::Object(_) => vec![o],
-                    _ => Vec::new(),
-                };
-                // Representations, remembering which object each belongs to.
-                let mut idx: Vec<usize> = Vec::new();
-                let mut reps: Vec<serde_json::Value> = Vec::new();
-                for (i, o) in objs.iter().enumerate() {
-                    let mut r = serde_json::Map::new();
-                    r.insert("__typename".into(), serde_json::Value::String(ext.ty.clone()));
-                    let mut ok = true;
-                    for k in &ext.key {
-                        match o.get(k.as_str()) {
-                            Some(x) if !x.is_null() => {
-                                r.insert(k.clone(), x.clone());
-                            },
-                            _ => ok = false,
-                        }
-                    }
-                    if ok {
-                        idx.push(i);
-                        reps.push(serde_json::Value::Object(r));
+        // Shallow joins first, so a deeper join sees the fields a shallower one added.
+        joins.sort_by_key(|j| j.path.len());
+        for join in &joins {
+            let Some(data) = v.get_mut("data") else { continue };
+            let mut objs = collect_at(data, &join.path);
+            let mut idx: Vec<usize> = Vec::new();
+            let mut reps: Vec<serde_json::Value> = Vec::new();
+            for (i, o) in objs.iter().enumerate() {
+                let mut r = serde_json::Map::new();
+                r.insert("__typename".into(), serde_json::Value::String(join.ty.clone()));
+                let mut ok = true;
+                for k in &join.key {
+                    match o.get(k.as_str()) {
+                        Some(x) if !x.is_null() => {
+                            r.insert(k.clone(), x.clone());
+                        },
+                        _ => ok = false,
                     }
                 }
-                if reps.is_empty() {
-                    continue;
+                if ok {
+                    idx.push(i);
+                    reps.push(serde_json::Value::Object(r));
                 }
-                let inner = ext.texts.join(" ");
-                let ent_sel = format!("_entities(representations: $reps) {{ ... on {} {{ {inner} }} }}", ext.ty);
-                let mut vars = variables.as_object().cloned().unwrap_or_default();
-                vars.insert("reps".into(), serde_json::Value::Array(reps));
-                let head = query_head(op, &inner, &["$reps: [_Any!]!".to_string()]);
-                let bq = format!("{head} {{ {ent_sel} }}");
-                let (bn, bu, _) = &models[ext.b];
-                match self.forward(bn, bu, &bq, None, &serde_json::Value::Object(vars), headers).await {
-                    Routed::Forwarded(r) => {
-                        if let Some(list) = r.pointer("/data/_entities").and_then(|x| x.as_array()) {
-                            for (k, ent) in list.iter().enumerate() {
-                                if let (Some(&i), Some(m)) = (idx.get(k), ent.as_object()) {
-                                    if let Some(target_obj) = objs[i].as_object_mut() {
-                                        for (fk, fv) in m {
-                                            target_obj.insert(fk.clone(), fv.clone());
-                                        }
+            }
+            if reps.is_empty() {
+                continue;
+            }
+            let inner = join.texts.join(" ");
+            let ent_sel = format!("_entities(representations: $reps) {{ ... on {} {{ {inner} }} }}", join.ty);
+            let mut vars = variables.as_object().cloned().unwrap_or_default();
+            vars.insert("reps".into(), serde_json::Value::Array(reps));
+            let head = query_head(op, &inner, &["$reps: [_Any!]!".to_string()]);
+            let bq = format!("{head} {{ {ent_sel} }}");
+            let (bn, bu, _) = &models[join.b];
+            match self.forward(bn, bu, &bq, None, &serde_json::Value::Object(vars), headers).await {
+                Routed::Forwarded(r) => {
+                    if let Some(list) = r.pointer("/data/_entities").and_then(|x| x.as_array()) {
+                        for (k, ent) in list.iter().enumerate() {
+                            if let (Some(&i), Some(m)) = (idx.get(k), ent.as_object()) {
+                                if let Some(t) = objs[i].as_object_mut() {
+                                    for (fk, fv) in m {
+                                        t.insert(fk.clone(), fv.clone());
                                     }
                                 }
                             }
                         }
-                        if let Some(e) = r.get("errors").and_then(|e| e.as_array()) {
-                            errors.extend(e.iter().cloned());
-                        }
-                    },
-                    Routed::Rejected(m) => errors.push(serde_json::json!({ "message": m })),
-                    Routed::Local => {},
-                }
+                    }
+                    if let Some(e) = r.get("errors").and_then(|e| e.as_array()) {
+                        errors.extend(e.iter().cloned());
+                    }
+                },
+                Routed::Rejected(m) => errors.push(serde_json::json!({ "message": m })),
+                Routed::Local => {},
             }
         }
-        // Remove what was added only to make the join possible.
-        for plan in &plans {
-            if plan.added.is_empty() {
+        // Remove what was added only to make the joins possible (deepest first is not needed:
+        // removals only touch the added key / `__typename` names of each join's own level).
+        for join in &joins {
+            if join.added.is_empty() {
                 continue;
             }
-            if let Some(slot) = v.get_mut("data").and_then(|d| d.get_mut(plan.key.as_str())) {
-                let objs: Vec<&mut serde_json::Value> = match slot {
-                    serde_json::Value::Array(a) => a.iter_mut().collect(),
-                    o @ serde_json::Value::Object(_) => vec![o],
-                    _ => Vec::new(),
-                };
-                for o in objs {
+            if let Some(data) = v.get_mut("data") {
+                for o in collect_at(data, &join.path) {
                     if let Some(m) = o.as_object_mut() {
-                        for k in &plan.added {
+                        for k in &join.added {
                             m.remove(k.as_str());
                         }
                     }
@@ -712,6 +634,131 @@ fn print_field(f: &Field, depth: usize) -> Option<String> {
         o.push_str(&format!(" {{ {} }}", inner.join(" ")));
     }
     Some(o)
+}
+
+/// One `@key` join point: the objects found at `path` (response keys) of type `ty` get the
+/// fields `texts` from subgraph `b` (index into the models list).
+struct Join {
+    path: Vec<String>,
+    b: usize,
+    ty: String,
+    key: Vec<String>,
+    texts: Vec<String>,
+    /// Names added to subgraph A's selection only for the join (removed from the final result).
+    added: Vec<String>,
+}
+
+/// Print field `f` (returning entity/object type `ty` of subgraph A) for subgraph A, moving the fields
+/// only another subgraph defines into `joins`, recursively through nested object fields.
+fn plan_field(
+    f: &Field,
+    ty: &str,
+    path: &[String],
+    a: &SubgraphModel,
+    models: &[(String, String, SubgraphModel)],
+    a_name: &str,
+    joins: &mut Vec<Join>,
+) -> Option<String> {
+    if path.len() > 8 {
+        return None;
+    }
+    let mut local: Vec<String> = Vec::new();
+    let mut ext: Vec<(usize, Vec<String>)> = Vec::new();
+    let mut selected: Vec<String> = Vec::new();
+    for c in &f.selection_set.node.items {
+        let Selection::Field(c) = &c.node else { return None };
+        let c = &c.node;
+        if !c.directives.is_empty() {
+            return None;
+        }
+        let cname = c.name.node.as_str();
+        let ckey = c.alias.as_ref().map_or(cname, |x| x.node.as_str()).to_string();
+        if c.alias.is_none() {
+            selected.push(cname.to_string());
+        }
+        let owned_here = cname == "__typename" || a.types.get(ty).is_some_and(|t| t.contains_key(cname));
+        if !owned_here {
+            let other = models.iter().position(|(n, _, m)| {
+                n != a_name
+                    && m.keys.contains_key(ty)
+                    && m.types.get(ty).is_some_and(|t| t.contains_key(cname))
+            });
+            if let Some(b) = other {
+                let text = print_field(c, 1)?;
+                match ext.iter_mut().find(|(i, _)| *i == b) {
+                    Some((_, v)) => v.push(text),
+                    None => ext.push((b, vec![text])),
+                }
+                continue;
+            }
+        }
+        // A nested object field that A owns: look inside it for more joins.
+        let child_ty = a.types.get(ty).and_then(|t| t.get(cname));
+        match child_ty {
+            Some(cty) if !c.selection_set.node.items.is_empty() && a.types.contains_key(cty.as_str()) => {
+                let mut p = path.to_vec();
+                p.push(ckey);
+                local.push(plan_field(c, cty, &p, a, models, a_name, joins)?);
+            },
+            _ => local.push(print_field(c, 1)?),
+        }
+    }
+    let mut added: Vec<String> = Vec::new();
+    for (b, texts) in &ext {
+        let key = models[*b].2.keys[ty].clone();
+        let mut add_here: Vec<String> = Vec::new();
+        for k in &key {
+            if !selected.contains(k) && !added.contains(k) && !add_here.contains(k) {
+                add_here.push(k.clone());
+            }
+        }
+        added.extend(add_here.iter().cloned());
+        joins.push(Join {
+            path: path.to_vec(),
+            b: *b,
+            ty: ty.to_string(),
+            key,
+            texts: texts.clone(),
+            added: Vec::new(),
+        });
+    }
+    if !ext.is_empty() && !selected.iter().any(|s| s == "__typename") {
+        added.push("__typename".to_string());
+    }
+    // The names added at this level are removed once, by the first join of this level.
+    if let Some(first) = joins.iter_mut().rev().find(|j| j.path == path) {
+        first.added = added.clone();
+    }
+    local.extend(added);
+    let mut head = String::new();
+    if let Some(al) = &f.alias {
+        head.push_str(al.node.as_str());
+        head.push_str(": ");
+    }
+    head.push_str(f.name.node.as_str());
+    if !f.arguments.is_empty() {
+        let args = f.arguments.iter().map(|(k, v)| format!("{}: {}", k.node, v.node)).collect::<Vec<_>>();
+        head.push_str(&format!("({})", args.join(", ")));
+    }
+    Some(format!("{head} {{ {} }}", local.join(" ")))
+}
+
+/// Every JSON object reached by following `path` (response keys) from `data`, through arrays.
+fn collect_at<'a>(data: &'a mut serde_json::Value, path: &[String]) -> Vec<&'a mut serde_json::Value> {
+    let mut cur: Vec<&'a mut serde_json::Value> = vec![data];
+    for key in path {
+        let mut next: Vec<&'a mut serde_json::Value> = Vec::new();
+        for node in cur {
+            if let Some(child) = node.get_mut(key.as_str()) {
+                match child {
+                    serde_json::Value::Array(arr) => next.extend(arr.iter_mut()),
+                    other => next.push(other),
+                }
+            }
+        }
+        cur = next;
+    }
+    cur.into_iter().filter(|v| v.is_object()).collect()
 }
 
 /// `query` or `query($a: T, ...)` with only the operation's variables used in `body` (+ `extra` definitions).
@@ -1103,6 +1150,57 @@ mod tests {
             r.route("{ user { name } }", None, serde_json::json!({})).await,
             Routed::Forwarded(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn joins_nested_entities_across_subgraphs() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        // `users` owns Query.me -> User -> manager: User; `reviews` adds User.reviews (key id).
+        async fn start(users: bool) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        let f = if users { "me" } else { "reviewsHealth" };
+                        serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":f}]},"mutationType":null}}})
+                    } else if q.contains("_service") {
+                        let sdl = if users {
+                            "type Query { me: User } type User @key(fields: \"id\") { id: ID! name: String manager: User }"
+                        } else {
+                            "type Query { reviewsHealth: String } type User @key(fields: \"id\") { id: ID! reviews: String }"
+                        };
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps
+                            .iter()
+                            .map(|r| serde_json::json!({"reviews": format!("r-{}", r["id"].as_str().unwrap_or("?"))}))
+                            .collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        serde_json::json!({"data":{"me":{"id":"1","name":"Ann","__typename":"User","manager":{"id":"2","name":"Bob","__typename":"User"}}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        let r = RemoteSubgraphs::new(vec![("users".into(), start(true).await), ("reviews".into(), start(false).await)]);
+        match r.route("{ me { name reviews manager { name reviews } } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(
+                    v["data"]["me"],
+                    serde_json::json!({"name":"Ann","reviews":"r-1","manager":{"name":"Bob","reviews":"r-2"}}),
+                    "{v}"
+                );
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            _ => panic!("expected a nested joined result"),
+        }
     }
 
     #[tokio::test]

@@ -21,3 +21,6 @@
 - **Gateway behaviour (current)**: (1) A query that targets one subgraph is forwarded as is. (2) A read-only query whose top-level fields span several subgraphs is split per subgraph, run concurrently, and merged. (3) For a type with `@key`, the gateway uses the `id` from subgraph A to ask subgraph B for more fields through `_entities` (one level only). (4) Mutations that span subgraphs, queries mixing remote and local fields, and split queries that contain fragments or directives are rejected.
 - **Trust**: the `authorization` header is forwarded only to a subgraph that is on the allow-list, reached over a safe channel (https or loopback), and not revoked. `cookie` is never forwarded.
 - **No new exceptions**: this update adds no REST exceptions.
+
+### 追記(入れ子の結合) / Update (nested joins)
+**日本語**: 上の「ゲートウェイの動き」(3)の `@key` 結合は、現在は入れ子の段にも対応している(浅い段から順に実行)。拒否する条件は変わらない。 **English**: The `@key` join in item (3) above now also works at nested levels (executed from the shallowest level down). The rejection rules are unchanged.
