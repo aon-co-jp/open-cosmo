@@ -345,7 +345,8 @@ impl RemoteSubgraphs {
             let ret = a.types.get("Query").and_then(|q| q.get(f.name.node.as_str()));
             match ret {
                 Some(ty) if !f.selection_set.node.items.is_empty() => {
-                    query_parts.push(plan_field(f, ty, &[rkey], a, &models, &target.0, &mut joins)?);
+                    let provided = a.provides.get(&("Query".to_string(), f.name.node.to_string())).cloned().unwrap_or_default();
+                    query_parts.push(plan_field(f, ty, &provided, &[rkey], a, &models, &target.0, &mut joins)?);
                 },
                 _ => query_parts.push(print_field(f, 0)?),
             }
@@ -653,6 +654,7 @@ struct Join {
 fn plan_field(
     f: &Field,
     ty: &str,
+    provided: &[String],
     path: &[String],
     a: &SubgraphModel,
     models: &[(String, String, SubgraphModel)],
@@ -676,7 +678,9 @@ fn plan_field(
         if c.alias.is_none() {
             selected.push(cname.to_string());
         }
-        let owned_here = cname == "__typename" || a.types.get(ty).is_some_and(|t| t.contains_key(cname));
+        // A field marked `@external` is not resolved here, unless the parent field `@provides` it.
+        let external = a.externals.contains(&(ty.to_string(), cname.to_string())) && !provided.iter().any(|p| p == cname);
+        let owned_here = cname == "__typename" || (!external && a.types.get(ty).is_some_and(|t| t.contains_key(cname)));
         if !owned_here {
             let other = models.iter().position(|(n, _, m)| {
                 n != a_name
@@ -698,7 +702,8 @@ fn plan_field(
             Some(cty) if !c.selection_set.node.items.is_empty() && a.types.contains_key(cty.as_str()) => {
                 let mut p = path.to_vec();
                 p.push(ckey);
-                local.push(plan_field(c, cty, &p, a, models, a_name, joins)?);
+                let child_provided = a.provides.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
+                local.push(plan_field(c, cty, &child_provided, &p, a, models, a_name, joins)?);
             },
             _ => local.push(print_field(c, 1)?),
         }
@@ -1201,6 +1206,64 @@ mod tests {
             },
             _ => panic!("expected a nested joined result"),
         }
+    }
+
+    #[tokio::test]
+    async fn external_fields_are_joined_unless_provided() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        // `reviews` returns Review{author: User}; User.name is @external there and only `users` resolves it,
+        // while `email` is provided by Review.author @provides(fields: "email").
+        async fn start(reviews: bool) -> (String, Arc<std::sync::atomic::AtomicU32>) {
+            let entity_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let ec = entity_calls.clone();
+            let h: Handler = Arc::new(move |req, _p| {
+                let ec = ec.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        let f = if reviews { "review" } else { "usersHealth" };
+                        serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":f}]},"mutationType":null}}})
+                    } else if q.contains("_service") {
+                        let sdl = if reviews {
+                            "type Query { review: Review } type Review @key(fields: \"id\") { id: ID! author: User @provides(fields: \"email\") } type User @key(fields: \"id\") { id: ID! name: String @external email: String @external }"
+                        } else {
+                            "type Query { usersHealth: String } type User @key(fields: \"id\") { id: ID! name: String email: String }"
+                        };
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        ec.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps.iter().map(|_| serde_json::json!({"name":"Ann"})).collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        serde_json::json!({"data":{"review":{"id":"r1","author":{"id":"7","__typename":"User","email":"a@example.com"}}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            (format!("http://{addr}/graphql"), entity_calls)
+        }
+        let (reviews_url, _) = start(true).await;
+        let (users_url, users_calls) = start(false).await;
+        let r = RemoteSubgraphs::new(vec![("reviews".into(), reviews_url), ("users".into(), users_url)]);
+        // `email` is provided by the reviews subgraph: no join. `name` is external: joined from users.
+        match r.route("{ review { author { email name } } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["review"]["author"], serde_json::json!({"email":"a@example.com","name":"Ann"}), "{v}");
+            },
+            _ => panic!("expected a joined result"),
+        }
+        assert_eq!(users_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // Only the provided field: no entity call at all.
+        match r.route("{ review { author { email } } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => assert_eq!(v["data"]["review"]["author"]["email"], "a@example.com", "{v}"),
+            _ => panic!("expected a forwarded result"),
+        }
+        assert_eq!(users_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

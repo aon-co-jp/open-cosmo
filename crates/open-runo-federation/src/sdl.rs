@@ -77,6 +77,11 @@ pub struct SubgraphModel {
     pub types: BTreeMap<String, BTreeMap<String, String>>,
     /// entity type name -> key field names (simple, space separated keys only; nested keys are skipped).
     pub keys: BTreeMap<String, Vec<String>>,
+    /// `(type, field)` pairs this subgraph declares `@external` (it cannot resolve them itself).
+    pub externals: BTreeSet<(String, String)>,
+    /// `(type, field)` -> field names the field's `@provides(fields: "...")` says it can resolve
+    /// even though they are `@external` (for the returned type).
+    pub provides: BTreeMap<(String, String), Vec<String>>,
 }
 
 /// Parses a subgraph's SDL into a [`SubgraphModel`]. Same tolerance as [`parse_service_sdl`].
@@ -100,8 +105,14 @@ pub fn parse_subgraph_model(sdl: &str) -> SubgraphModel {
             if sdl.as_bytes().get(j) == Some(&b'{') {
                 if let Some((block, after)) = read_balanced_braces(sdl, j) {
                     let entry = model.types.entry(name.to_string()).or_default();
-                    for (f, t) in parse_typed_fields(block) {
-                        entry.insert(f, t);
+                    for (f, t, dirs) in parse_typed_fields(block) {
+                        entry.insert(f.clone(), t);
+                        if has_directive(&dirs, "@external") {
+                            model.externals.insert((name.to_string(), f.clone()));
+                        }
+                        if let Some(list) = directive_fields(&dirs, "@provides") {
+                            model.provides.insert((name.to_string(), f), list);
+                        }
                     }
                     if let Some(k) = first_key(header) {
                         model.keys.entry(name.to_string()).or_insert(k);
@@ -136,8 +147,35 @@ fn first_key(header: &str) -> Option<Vec<String>> {
     None
 }
 
-/// Like [`parse_fields`], but also returns each field's base return type name.
-fn parse_typed_fields(block: &str) -> Vec<(String, String)> {
+/// `@name` appears as a whole directive name in `dirs`.
+fn has_directive(dirs: &str, name: &str) -> bool {
+    let mut from = 0;
+    while let Some(i) = dirs[from..].find(name) {
+        let end = from + i + name.len();
+        match dirs[end..].chars().next() {
+            Some(c) if is_ident_char(c) => from = end,
+            _ => return true,
+        }
+    }
+    false
+}
+
+/// `@name(fields: "a b")` -> `["a", "b"]` (simple names only; nested selections are skipped).
+fn directive_fields(dirs: &str, name: &str) -> Option<Vec<String>> {
+    let i = dirs.find(name)?;
+    let after = &dirs[i + name.len()..];
+    let q1 = after.find('"')?;
+    let q2 = after[q1 + 1..].find('"')?;
+    let body = &after[q1 + 1..q1 + 1 + q2];
+    if body.contains('{') {
+        return None;
+    }
+    let v: Vec<String> = body.split_whitespace().map(str::to_string).collect();
+    (!v.is_empty()).then_some(v)
+}
+
+/// Like [`parse_fields`], but also returns each field's base return type name and its directive text.
+fn parse_typed_fields(block: &str) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     let n = block.len();
     let mut i = 0usize;
@@ -169,9 +207,10 @@ fn parse_typed_fields(block: &str) -> Vec<(String, String)> {
                 .trim_matches(|c: char| c == '[' || c == ']' || c == '!' || c.is_whitespace())
                 .trim_matches(|c: char| c == '[' || c == ']' || c == '!')
                 .to_string();
-            out.push((ident.to_string(), base));
-            j = skip_implements_and_directives(block, ty_end);
-            i = j;
+            let after_dirs = skip_implements_and_directives(block, ty_end);
+            out.push((ident.to_string(), base, block[ty_end..after_dirs].to_string()));
+            i = after_dirs;
+            let _ = j;
         } else {
             i = after_ident;
         }
@@ -573,6 +612,20 @@ type Mutation {
         assert_eq!(m.keys["User"], vec!["id"]);
         // nested key is skipped, the next simple key is used
         assert_eq!(m.keys["Order"], vec!["sku", "ver"]);
+    }
+
+    #[test]
+    fn subgraph_model_reads_external_and_provides() {
+        let m = parse_subgraph_model(
+            r#"type Query { top: [Review] @provides(fields: "author") }
+               type Review @key(fields: "id") { id: ID! body: String author: User @provides(fields: "name") }
+               type User @key(fields: "id") { id: ID! name: String @external email: String @external }"#,
+        );
+        assert!(m.externals.contains(&("User".into(), "name".into())));
+        assert!(m.externals.contains(&("User".into(), "email".into())));
+        assert!(!m.externals.contains(&("User".into(), "id".into())));
+        assert_eq!(m.provides[&("Review".to_string(), "author".to_string())], vec!["name"]);
+        assert_eq!(m.provides[&("Query".to_string(), "top".to_string())], vec!["author"]);
     }
 
     #[test]
