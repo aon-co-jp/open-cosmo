@@ -37,7 +37,7 @@ const NOT_FOUND: &str = "Not found";
 /// MCPリソースとして出すため(仕様本体の唯一の正本)。
 pub(crate) fn document() -> Spec {
     Spec::new("open-runo router (non-GraphQL surface)", env!("CARGO_PKG_VERSION"))
-        .description("REST全廃(2026-11-01)後にopen-runo-routerへ残る、GraphQL以外の外部プロトコルだけの文書(health/ACME/MCP/SCIM/内部経路)。管理操作はPOST /graphql(スキーマはGET /graphql/schema.graphql)。")
+        .description("REST全廃(2026-11-01)後にopen-runo-routerへ残る、GraphQL以外の外部プロトコルだけの文書(health/ACME/MCP/SCIM/内部経路)。管理操作はConnect/gRPC(`open_runo.admin.v1.Admin`、`x-api-key`必須)。GraphQL(`POST /graphql`)は問い合わせ専用。")
         .api_key_header("X-Api-Key")
         .shared_error_typed::<t::RateLimitedResponse>(429, "RateLimited", "Rate limit exceeded; see Retry-After header and retry_after_secs in the body")
         // --- health / docs ---
@@ -45,13 +45,7 @@ pub(crate) fn document() -> Spec {
         .op(Op::get("/healthz").id("healthz").summary("Kubernetes-style health alias").tag("system").public().response_empty(200, "OK"))
         .op(Op::get("/.well-known/acme-challenge/:token").id("acmeChallenge").summary("ACME HTTP-01 challenge response").tag("system").public().response_empty(200, "Key authorization").response_empty(404, NOT_FOUND))
         .op(Op::post("/mcp").id("mcp").summary("MCP server (JSON-RPC 2.0, Streamable HTTP)").tag("system").response_empty(200, "JSON-RPC response"))
-        // --- schemas ---
-        // --- federation / ai ---
-        // --- db ---
         // (旧`POST /internal/db/mutate`は`Admin/DbMutate`(Connect/gRPC、`x-api-key`必須)へ移行済みでRESTとしては存在しない)
-        // --- cache / backup / migrate / integrity ---
-        // --- persisted queries ---
-        // --- feature flags ---
         // --- SCIM ---
         .op(Op::get("/scim/v2/Users").id("scimListUsers").summary("List SCIM users (RFC 7644)").tag("scim").response_empty(200, "OK"))
         .op(Op::post("/scim/v2/Users").id("scimCreateUser").summary("Create a SCIM user (auto-issues an API key)").tag("scim").response_empty(201, "Created").response_empty(409, "userName already exists"))
@@ -98,7 +92,7 @@ pub fn swagger_ui_handler() -> Handler {
         Box::pin(async move {
             crate::hyper_compat::html_response(
                 StatusCode::OK,
-                docs_html(DocsUi::SwaggerUi, "open-runo REST API", "/api/openapi.json"),
+                docs_html(DocsUi::SwaggerUi, "open-runo HTTP surface (health/ACME/MCP/SCIM)", "/api/openapi.json"),
             )
         })
     })
@@ -110,7 +104,7 @@ pub fn redoc_handler() -> Handler {
         Box::pin(async move {
             crate::hyper_compat::html_response(
                 StatusCode::OK,
-                docs_html(DocsUi::Redoc, "open-runo REST API", "/api/openapi.json"),
+                docs_html(DocsUi::Redoc, "open-runo HTTP surface (health/ACME/MCP/SCIM)", "/api/openapi.json"),
             )
         })
     })
