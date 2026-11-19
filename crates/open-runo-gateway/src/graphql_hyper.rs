@@ -83,6 +83,11 @@ pub fn graphql_post_handler(
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_string)
                 .unwrap_or_else(|| "anonymous".to_string());
+            // サブグラフへ転送してよいヘッダ(CSRFの目印 `x-reaxt` だけ。認証系は転送しない)。
+            let forward_headers: Vec<(String, String)> = crate::remote_subgraphs::FORWARD_HEADERS
+                .iter()
+                .filter_map(|n| req.headers().get(*n).and_then(|v| v.to_str().ok()).map(|v| (n.to_string(), v.to_string())))
+                .collect();
             let body = match http_body_util::Limited::new(req.into_body(), MAX_BODY_BYTES)
                 .collect()
                 .await
@@ -172,10 +177,11 @@ pub fn graphql_post_handler(
 
             // Remote subgraph forwarding (OPEN_RUNO_SUBGRAPHS): see `remote_subgraphs`.
             match remotes
-                .route(
+                .route_with_headers(
                     &request.query,
                     request.operation_name.as_deref(),
                     serde_json::to_value(&request.variables).unwrap_or(serde_json::Value::Null),
+                    &forward_headers,
                 )
                 .await
             {

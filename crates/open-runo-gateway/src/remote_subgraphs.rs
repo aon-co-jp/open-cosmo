@@ -29,6 +29,11 @@ const INTROSPECTION: &str =
     "{ __schema { queryType { fields { name } } mutationType { fields { name } } } }";
 const REDISCOVER_AFTER: Duration = Duration::from_secs(5);
 
+/// Request headers forwarded to a remote subgraph. Only `x-reaxt` (a non-secret CSRF marker that
+/// Reaxt subgraphs require on mutations). Credentials such as `authorization` / `cookie` are
+/// deliberately NOT forwarded; add them only after a decision on subgraph trust.
+pub const FORWARD_HEADERS: &[&str] = &["x-reaxt"];
+
 #[derive(Debug)]
 struct Subgraph {
     name: String,
@@ -129,6 +134,17 @@ impl RemoteSubgraphs {
         operation_name: Option<&str>,
         variables: serde_json::Value,
     ) -> Routed {
+        self.route_with_headers(query, operation_name, variables, &[]).await
+    }
+
+    /// Like [`route`](Self::route), also sending `headers` (callers pass only [`FORWARD_HEADERS`]).
+    pub async fn route_with_headers(
+        &self,
+        query: &str,
+        operation_name: Option<&str>,
+        variables: serde_json::Value,
+        headers: &[(String, String)],
+    ) -> Routed {
         let Ok(doc) = parse_query(query) else {
             return Routed::Local;
         };
@@ -186,7 +202,11 @@ impl RemoteSubgraphs {
             ));
         }
         let body = serde_json::json!({ "query": query, "variables": variables, "operationName": operation_name });
-        match self.client.post(&url).json(&body).send().await {
+        let mut req = self.client.post(&url).json(&body);
+        for (n, v) in headers {
+            req = req.header(n.as_str(), v.as_str());
+        }
+        match req.send().await {
             Ok(r) => match r.bytes().await {
                 Ok(bytes) => match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
                     Ok(v) => Routed::Forwarded(v),
@@ -349,6 +369,38 @@ mod tests {
             Routed::Forwarded(v) => assert_eq!(v["data"]["vars"]["n"], "x"),
             other => panic!("expected Forwarded, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn forwards_only_the_allowed_headers() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        let h: Handler = Arc::new(move |req, _p| {
+            Box::pin(async move {
+                let reaxt = req.headers().get("x-reaxt").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let auth = req.headers().get("authorization").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                let out = if body["query"].as_str().unwrap_or("").contains("__schema") {
+                    serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"items"}]},"mutationType":null}}})
+                } else {
+                    serde_json::json!({"data":{"x_reaxt":reaxt,"authorization":auth}})
+                };
+                json_response(hyper::StatusCode::OK, &out)
+            })
+        });
+        let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+        let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        std::mem::forget(handle);
+        let r = RemoteSubgraphs::new(vec![("items".into(), format!("http://{addr}/graphql"))]);
+        // 呼び出し側が渡したヘッダはそのまま送られる(許可リストの絞り込みは呼び出し側=FORWARD_HEADERS)
+        let sent = vec![("x-reaxt".to_string(), "1".to_string())];
+        match r.route_with_headers("{ items }", None, serde_json::json!({}), &sent).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["x_reaxt"], "1");
+                assert!(v["data"]["authorization"].is_null());
+            }
+            other => panic!("expected Forwarded, got {other:?}"),
+        }
+        assert_eq!(FORWARD_HEADERS, &["x-reaxt"]);
     }
 
     #[tokio::test]
