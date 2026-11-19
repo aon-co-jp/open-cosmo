@@ -661,3 +661,40 @@ We verified the join not only with fake subgraphs but also with **independent, r
 **注意**: Reaxtの型の登録(レジストリ)はプロセス内で共有。並列試験では`JSON`か型付きかの表記が揺れるので、SDL試験は`(input: JSON):`までで比べる。ゲートウェイの`OPEN_RUNO_SUBGRAPHS`は`名前=URL`形式。新しいRESTは作らない。秘密は書かない。
 
 **再開用メッセージ**: 前の続きです。`F:\runo\PORTING.md`末尾「リミット前のチェックポイント(4姉妹)」を読んでから、open-cosmo・RPoem・Reaxt・RPoRea の未了を、確認なしで自動で進めてください。区切りごとにREADME/CLAUDE/PORTING/POLICYを10か国語で更新し、commitしてpushします。返答は日本語のみ。
+
+
+## 2026-11-19 まとめと再開のしかた / Summary and how to resume (日本語・English)
+
+### 日本語(やさしい説明)
+**今日できたこと**
+- Reaxtのサーバーを、入口(open-cosmo)の後ろに並べて使えるようになりました。入口は、1つの質問を複数のサーバーに分けて聞き、答えを1つにまとめます。
+- 別々のサーバーにある「同じ人・同じ物」の情報を、`@key`でつなげます。`@requires`・`@provides`・`@skip`・`@include`・フラグメントにも対応しました。
+- Reaxtの仕事(アクション)に「型」(中身の形)を持たせられるようになりました。値が無いかもしれない型(`Option`)や小数(`f64`)も使えます。
+- 本物のサーバー2つで、1回の質問に両方の答えが入ることを確かめました。試験はゲートウェイ57件・Reaxt15件が成功しています。
+
+**まだ終わっていないこと(この順に進めます)**
+1. 書き込みのあと、最新の値を取り直す。
+2. 名前付きフラグメントや、型が違う`... on 型`への安全な対応。
+3. Reaxtでもっと複雑な型を使えるようにする。
+4. open-cosmoのルーターで、もっと広く実際につなぐ試験。
+5. RPoReaをMojo・Mac・Android・iPhoneから使えるか確かめる。
+6. 軽い仕事は、クラウドで2時間ごとに自動実行する(先にGitHubをClaudeにつなぐ: https://claude.ai/connect-github)。
+
+**再開のしかた**: 新しい会話で「`F:\runo\PORTING.md`の末尾を読んで、4姉妹(open-cosmo・RPoem・Reaxt・RPoRea)の未了を確認なしで自動で進めて」と伝えてください。**進め方のきまり**: 確認は取らずに進める/試験して本物で確かめてから「できた」と書く/秘密は書かない/新しいRESTは作らない。
+
+### English (natural, plain wording)
+**What we got done today**
+- Reaxt servers can now sit behind the front door (open-cosmo). The gateway splits one question across several servers and merges the answers into one.
+- `@key` links the same person or item that lives on different servers. `@requires`, `@provides`, `@skip`, `@include` and fragments work too.
+- Reaxt actions can now carry types (the shape of their data), including optional values (`Option`) and decimals (`f64`).
+- With two real servers we confirmed that a single question returns data from both. All tests pass: 57 in the gateway and 15 in Reaxt.
+
+**What is still open (we will go in this order)**
+1. Re-read the latest values after a write.
+2. Safe support for named fragments and for `... on Type` with a different type.
+3. Richer types in Reaxt.
+4. Wider real-world tests that connect Reaxt to the open-cosmo router.
+5. Check that RPoRea works from Mojo, Mac, Android and iPhone.
+6. Run the light jobs in the cloud every two hours (first connect GitHub to Claude: https://claude.ai/connect-github).
+
+**How to resume**: in a new conversation, say "Read the end of `F:\runo\PORTING.md`, then keep working through the open items of the four sister projects (open-cosmo, RPoem, Reaxt, RPoRea) without asking for confirmation." **Working rules**: keep going without asking; test and verify on real systems before saying "done"; never write secrets; do not add new REST APIs.
