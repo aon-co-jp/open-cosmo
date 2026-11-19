@@ -342,17 +342,20 @@ impl RemoteSubgraphs {
         for sel in &op.selection_set.node.items {
             let Selection::Field(f) = &sel.node else { return None };
             let f = &f.node;
-            if f.name.node.starts_with("__") || !f.directives.is_empty() {
+            if f.name.node.starts_with("__") {
                 return None;
+            }
+            if !field_included(f, variables)? {
+                continue;
             }
             let rkey = f.alias.as_ref().map_or(f.name.node.as_str(), |a| a.node.as_str()).to_string();
             let ret = a.types.get(root_type).and_then(|q| q.get(f.name.node.as_str()));
             match ret {
                 Some(ty) if !f.selection_set.node.items.is_empty() => {
                     let provided = a.provides.get(&(root_type.to_string(), f.name.node.to_string())).cloned().unwrap_or_default();
-                    query_parts.push(plan_field(f, ty, &provided, &[rkey], a, &models, &target.0, &mut joins)?);
+                    query_parts.push(plan_field(f, ty, &provided, &[rkey], a, &models, &target.0, variables, &mut joins)?);
                 },
-                _ => query_parts.push(print_field(f, 0)?),
+                _ => query_parts.push(print_field(f, 0, variables)?),
             }
         }
         if joins.is_empty() {
@@ -495,9 +498,12 @@ impl RemoteSubgraphs {
             if f.node.name.node.starts_with("__") {
                 return reject("introspection cannot be split");
             }
-            let Some(text) = print_field(&f.node, 0) else {
-                return reject("fragments and directives are not supported by the splitter");
+            let Some(text) = print_field(&f.node, 0, variables) else {
+                return reject("fragments and directives other than @skip / @include are not supported by the splitter");
             };
+            if text.is_empty() {
+                continue; // excluded by @skip / @include
+            }
             let Some((_, i)) = owners.iter().find(|(n, _)| n == f.node.name.node.as_str()) else {
                 return reject("a root field has no owning subgraph");
             };
@@ -614,10 +620,37 @@ fn select_operation<'a>(
     }
 }
 
-/// Print a field (alias, arguments, nested selections). `None` if it has fragments or directives.
-fn print_field(f: &Field, depth: usize) -> Option<String> {
-    if depth > 16 || !f.directives.is_empty() {
+/// Whether `@skip(if:)` / `@include(if:)` keep the field. The condition is a literal or a variable
+/// known now. `None` = a directive the splitter/planner does not understand (or an unknown variable).
+fn field_included(f: &Field, vars: &serde_json::Value) -> Option<bool> {
+    let mut keep = true;
+    for d in &f.directives {
+        let name = d.node.name.node.as_str();
+        if name != "skip" && name != "include" {
+            return None;
+        }
+        // The argument prints as `true`, `false` or `$name`.
+        let arg = d.node.get_argument("if")?.node.to_string();
+        let cond = match arg.as_str() {
+            "true" => true,
+            "false" => false,
+            v => vars.get(v.strip_prefix('$')?)?.as_bool()?,
+        };
+        if (name == "skip" && cond) || (name == "include" && !cond) {
+            keep = false;
+        }
+    }
+    Some(keep)
+}
+
+/// Print a field (alias, arguments, nested selections). An excluded field (`@skip` / `@include`)
+/// prints as an empty string. `None` if it has fragments or directives other than `@skip` / `@include`.
+fn print_field(f: &Field, depth: usize, vars: &serde_json::Value) -> Option<String> {
+    if depth > 16 {
         return None;
+    }
+    if !field_included(f, vars)? {
+        return Some(String::new());
     }
     let mut o = String::new();
     if let Some(a) = &f.alias {
@@ -637,7 +670,14 @@ fn print_field(f: &Field, depth: usize) -> Option<String> {
         let mut inner = Vec::new();
         for sel in &f.selection_set.node.items {
             let Selection::Field(c) = &sel.node else { return None };
-            inner.push(print_field(&c.node, depth + 1)?);
+            let t = print_field(&c.node, depth + 1, vars)?;
+            if !t.is_empty() {
+                inner.push(t);
+            }
+        }
+        if inner.is_empty() {
+            // Everything under this field is excluded: let the plain forwarding path handle it.
+            return None;
         }
         o.push_str(&format!(" {{ {} }}", inner.join(" ")));
     }
@@ -669,6 +709,7 @@ fn plan_field(
     a: &SubgraphModel,
     models: &[(String, String, SubgraphModel)],
     a_name: &str,
+    vars: &serde_json::Value,
     joins: &mut Vec<Join>,
 ) -> Option<String> {
     if path.len() > 8 {
@@ -680,8 +721,8 @@ fn plan_field(
     for c in &f.selection_set.node.items {
         let Selection::Field(c) = &c.node else { return None };
         let c = &c.node;
-        if !c.directives.is_empty() {
-            return None;
+        if !field_included(c, vars)? {
+            continue;
         }
         let cname = c.name.node.as_str();
         let ckey = c.alias.as_ref().map_or(cname, |x| x.node.as_str()).to_string();
@@ -698,7 +739,7 @@ fn plan_field(
                     && m.types.get(ty).is_some_and(|t| t.contains_key(cname))
             });
             if let Some(b) = other {
-                let text = print_field(c, 1)?;
+                let text = print_field(c, 1, vars)?;
                 // `@requires` of the other subgraph: subgraph A must be able to supply those fields.
                 let reqs = models[b].2.requires.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
                 for r in &reqs {
@@ -729,9 +770,9 @@ fn plan_field(
                 let mut p = path.to_vec();
                 p.push(ckey);
                 let child_provided = a.provides.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
-                local.push(plan_field(c, cty, &child_provided, &p, a, models, a_name, joins)?);
+                local.push(plan_field(c, cty, &child_provided, &p, a, models, a_name, vars, joins)?);
             },
-            _ => local.push(print_field(c, 1)?),
+            _ => local.push(print_field(c, 1, vars)?),
         }
     }
     let mut added: Vec<String> = Vec::new();
@@ -1107,7 +1148,7 @@ mod tests {
             .items
             .iter()
             .map(|s| match &s.node {
-                Selection::Field(f) => print_field(&f.node, 0).unwrap(),
+                Selection::Field(f) => print_field(&f.node, 0, &serde_json::json!({})).unwrap(),
                 _ => unreachable!(),
             })
             .collect();
@@ -1122,14 +1163,31 @@ mod tests {
 
     #[test]
     fn splitter_refuses_fragments_and_directives() {
-        let doc = parse_query("{ a @include(if: true) { id } }").unwrap();
+        let none = serde_json::json!({});
+        let doc = parse_query("{ a @deprecated { id } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        assert!(print_field(&f.node, 0).is_none());
+        assert!(print_field(&f.node, 0, &none).is_none());
         let doc = parse_query("{ a { ...F } } fragment F on A { id }").unwrap();
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        assert!(print_field(&f.node, 0).is_none());
+        assert!(print_field(&f.node, 0, &none).is_none());
+    }
+
+    #[test]
+    fn skip_and_include_are_decided_at_plan_time() {
+        let doc = parse_query(
+            "query($on: Boolean!) { a { id name @include(if: $on) email @skip(if: true) tag @skip(if: false) } }",
+        )
+        .unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let on = serde_json::json!({"on": true});
+        let off = serde_json::json!({"on": false});
+        assert_eq!(print_field(&f.node, 0, &on).unwrap(), "a { id name tag }");
+        assert_eq!(print_field(&f.node, 0, &off).unwrap(), "a { id tag }");
+        // an unknown variable is not guessed
+        assert!(print_field(&f.node, 0, &serde_json::json!({})).is_none());
     }
 
     #[tokio::test]
@@ -1409,6 +1467,61 @@ mod tests {
         // The mutation ran exactly once, as a mutation; the other subgraph only saw a read-only `_entities` call.
         assert_eq!(users_seen.lock().unwrap().as_slice(), ["mutation"]);
         assert_eq!(reviews_seen.lock().unwrap().as_slice(), ["entities"]);
+    }
+
+    #[tokio::test]
+    async fn skip_and_include_decide_which_fields_are_joined() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        async fn start(users: bool, calls: Arc<std::sync::atomic::AtomicU32>) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                let calls = calls.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        let f = if users { "user" } else { "reviewsHealth" };
+                        serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":f}]},"mutationType":null}}})
+                    } else if q.contains("_service") {
+                        let sdl = if users {
+                            "type Query { user: User } type User @key(fields: \"id\") { id: ID! name: String }"
+                        } else {
+                            "type Query { reviewsHealth: String } type User @key(fields: \"id\") { id: ID! reviews: String }"
+                        };
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps.iter().map(|_| serde_json::json!({"reviews":"r"})).collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        serde_json::json!({"data":{"user":{"id":"7","name":"Ann","__typename":"User"}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let r = RemoteSubgraphs::new(vec![
+            ("users".into(), start(true, calls.clone()).await),
+            ("reviews".into(), start(false, calls.clone()).await),
+        ]);
+        let q = "query($on: Boolean!) { user { name reviews @include(if: $on) } }";
+        let run = |on: bool| r.route(q, None, serde_json::json!({"on": on}));
+        match run(true).await {
+            Routed::Forwarded(v) => assert_eq!(v["data"]["user"], serde_json::json!({"name":"Ann","reviews":"r"}), "{v}"),
+            _ => panic!("expected a joined result"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // @include(if: false): the field is dropped and the other subgraph is not called at all.
+        match run(false).await {
+            Routed::Forwarded(v) => assert!(v["data"]["user"].get("reviews").is_none() && v["data"]["user"]["name"] == "Ann", "{v}"),
+            _ => panic!("expected a forwarded result"),
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
