@@ -543,3 +543,50 @@ We verified the join not only with fake subgraphs but also with **independent, r
 - **Verified**: the gateway model correctly reads the SDL that `async-graphql` really generates (with `#[graphql(external)]`, `#[graphql(requires = "price")]` and `#[graphql(provides = "price")]`): `@key`, `@external`, `@requires` and `@provides` (the gateway passes 53 tests). It reads the format produced by a real implementation, not only hand-written SDL. However, running a **join that uses `@requires` and `@provides`** against two real servers has not been done yet (that execution is covered only by fake-subgraph tests).
 - **Decision (not added)**: Reaxt itself will **not** become a `@key` entity. Reaxt actions return the `JSON` scalar and have no GraphQL type (no field structure). Giving them one would need a large design change in the action definitions, and the current use (calling actions and reading values) does not need it. If it is ever needed, we will consider generating GraphQL types from the `Wire` types.
 - **Open**: running joins that use `@requires` / `@provides` against two real servers, and directives inside fragments.
+
+
+## 2026-11-19 いまの状況と、これから作る機能(4姉妹: open-cosmo・RPoem・Reaxt・RPoRea)
+
+### 日本語(やさしい説明)
+**4つは、いつも一緒に作ります。** `RPoem`は土台、`open-cosmo`は入口(玄関)、`Reaxt`は画面とサーバーの仕事を書く道具、`RPoRea`はRPoemとReaxtをくっつけたものです。1つを変えたら、ほかの3つへの影響も確かめ、4つの README・CLAUDE・PORTING・POLICY を同じ日に直します。
+
+**もうできていること**
+- `Reaxt`のサーバーが、Cosmo(複数のサーバーをまとめる仕組み)に参加できる(`POST /_reaxt/graphql`)。
+- 入口(ゲートウェイ)が、1つの質問を複数のサーバーに分けて聞き、答えをまとめる。
+- `@key`で、別々のサーバーが持つ同じ人・物の情報をつなぐ(入れ子や、4段までの連鎖もOK)。
+- `@requires`と`@provides`(必要な項目を先に取る・持っている項目をそのまま使う)。
+- `@skip`と`@include`(項目を出す・出さないの切り替え)。型条件のないフラグメントの中でも動く。
+- `Reaxt`のアクションが型(項目の形)を持てる。`@key`のエンティティとして公開できる。
+- 本物のサーバー2つを入口につないで、1つの質問で結合できることを確認した。
+
+**これから作る機能(完成予定)**
+1. 結合の計画(`@key`)でも、フラグメントを使えるようにする。
+2. `... on 型`(型条件つきのフラグメント)に、安全な範囲で対応する。
+3. 変更(書き込み)のあとに、最新の値を取り直す。
+4. `Reaxt`の`Option`(あるかもしれない値)や、もっと複雑な型への対応。
+5. `open-cosmo`のルーターへ、Reaxtのサーバーをもっと広く実際につなぐ試験。
+6. `RPoRea`をRust以外(Pythonなど)から使う入口(C ABI)の、Mojoでの確認、Mac/Android/iPhoneへの広がり。
+
+**進め方のきまり**: 終わっていない仕事は、**確認を取らず、自動で次々に進めます**。作ったら試験をして、本物のサーバーで確かめてから「できた」と書きます。秘密(パスワードなど)は書きません。新しいRESTは作りません。
+
+### English (simple words, easy to read)
+**We always build these four together.** `RPoem` is the base. `open-cosmo` is the front door. `Reaxt` is the tool for writing screens and server jobs. `RPoRea` joins RPoem and Reaxt. If we change one, we check the other three too, and we update the README, CLAUDE, PORTING and POLICY of all four on the same day.
+
+**What already works**
+- A `Reaxt` server can join Cosmo (a way to combine many servers) at `POST /_reaxt/graphql`.
+- The front door (gateway) splits one question across many servers and puts the answers together.
+- `@key` joins the same person or thing that lives in different servers (nested joins and chains up to four steps work).
+- `@requires` and `@provides` (fetch needed fields first; reuse fields a server already has).
+- `@skip` and `@include` (show or hide a field). They also work inside fragments that have no type condition.
+- `Reaxt` actions can have types (the shape of the fields) and can be shown as `@key` entities.
+- We ran two real servers behind the gateway and joined them with one question.
+
+**What we plan to build (the finish line)**
+1. Let the join planner (`@key`) use fragments too.
+2. Support `... on Type` (fragments with a type condition) in a safe way.
+3. Re-read the newest values after a write.
+4. Support `Option` (a value that may be missing) and richer types in `Reaxt`.
+5. Wider real tests that connect Reaxt servers to the `open-cosmo` router.
+6. Use `RPoRea` from other languages (the C ABI): check it with Mojo, then Mac, Android and iPhone.
+
+**How we work**: we keep going on unfinished jobs **without asking for confirmation**. We test, check on real servers, and only then say "done". We never write secrets (such as passwords). We do not add new REST APIs.
