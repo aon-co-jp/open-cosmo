@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 const INTROSPECTION: &str =
-    "{ __schema { queryType { fields { name } } mutationType { fields { name } } } }";
+    "{ __schema { queryType { name fields { name } } mutationType { name fields { name } } } }";
 const REDISCOVER_AFTER: Duration = Duration::from_secs(5);
 
 /// Request headers that may be forwarded to a remote subgraph. `x-reaxt` (a non-secret CSRF marker
@@ -186,6 +186,14 @@ impl RemoteSubgraphs {
             return;
         };
         let mut fields = HashSet::new();
+        // Root type names are not always `Query` / `Mutation` (any `schema { query: X }` works).
+        let root_name = |root: &str, default: &str| -> String {
+            v.pointer(&format!("/data/__schema/{root}/name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or(default)
+                .to_string()
+        };
+        let (qname, mname) = (root_name("queryType", "Query"), root_name("mutationType", "Mutation"));
         for root in ["queryType", "mutationType"] {
             if let Some(list) = v
                 .pointer(&format!("/data/__schema/{root}/fields"))
@@ -213,7 +221,9 @@ impl RemoteSubgraphs {
             if let Ok(bytes) = r.bytes().await {
                 if let Ok(v) = open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
                     if let Some(sdl) = v.pointer("/data/_service/sdl").and_then(|x| x.as_str()) {
-                        sg.model = Some(parse_subgraph_model(sdl));
+                        let mut m = parse_subgraph_model(sdl);
+                        normalize_root_names(&mut m, &qname, &mname);
+                        sg.model = Some(m);
                     }
                 }
             }
@@ -682,6 +692,32 @@ fn print_field(f: &Field, depth: usize, vars: &serde_json::Value) -> Option<Stri
         o.push_str(&format!(" {{ {} }}", inner.join(" ")));
     }
     Some(o)
+}
+
+/// Rename the subgraph's root types to `Query` / `Mutation` inside the model, so the planner can look
+/// them up by the standard names whatever the subgraph calls them.
+fn normalize_root_names(m: &mut SubgraphModel, query: &str, mutation: &str) {
+    for (from, to) in [(query, "Query"), (mutation, "Mutation")] {
+        if from == to {
+            continue;
+        }
+        if let Some(t) = m.types.remove(from) {
+            m.types.insert(to.to_string(), t);
+        }
+        if let Some(k) = m.keys.remove(from) {
+            m.keys.insert(to.to_string(), k);
+        }
+        m.externals = std::mem::take(&mut m.externals)
+            .into_iter()
+            .map(|(t, f)| if t == from { (to.to_string(), f) } else { (t, f) })
+            .collect();
+        for map in [&mut m.provides, &mut m.requires] {
+            *map = std::mem::take(map)
+                .into_iter()
+                .map(|((t, f), v)| (if t == from { (to.to_string(), f) } else { (t, f) }, v))
+                .collect();
+        }
+    }
 }
 
 /// One `@key` join point: the objects found at `path` (response keys) of type `ty` get the
@@ -1643,6 +1679,98 @@ mod tests {
         }
         // The shipping representation carried the price that the pricing subgraph supplied.
         assert!(seen.lock().unwrap().iter().any(|r| r["price"] == 5 && r["upc"] == "p1"));
+    }
+
+    /// Two independent, real GraphQL servers built with `async-graphql`'s own federation support
+    /// (their own `_service { sdl }` and `_entities`), joined by the gateway through `@key`.
+    #[tokio::test]
+    async fn joins_real_async_graphql_federation_subgraphs() {
+        use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, ID};
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+
+        #[derive(Clone)]
+        struct UserA {
+            id: ID,
+        }
+        #[Object]
+        impl UserA {
+            async fn id(&self) -> &ID {
+                &self.id
+            }
+            async fn name(&self) -> String {
+                format!("user-{}", self.id.as_str())
+            }
+        }
+        struct QueryA;
+        #[Object]
+        impl QueryA {
+            async fn me(&self) -> UserA {
+                UserA { id: ID("7".into()) }
+            }
+            #[graphql(entity)]
+            async fn find_user_by_id(&self, id: ID) -> UserA {
+                UserA { id }
+            }
+        }
+
+        #[derive(Clone)]
+        struct UserB {
+            id: ID,
+        }
+        #[Object(name = "UserA")]
+        impl UserB {
+            async fn id(&self) -> &ID {
+                &self.id
+            }
+            async fn reviews(&self) -> Vec<String> {
+                vec![format!("review-of-{}", self.id.as_str())]
+            }
+        }
+        struct QueryB;
+        #[Object]
+        impl QueryB {
+            async fn reviews_health(&self) -> bool {
+                true
+            }
+            #[graphql(entity)]
+            async fn find_user_by_id(&self, id: ID) -> UserB {
+                UserB { id }
+            }
+        }
+
+        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(schema: Schema<Q, EmptyMutation, EmptySubscription>) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                let schema = schema.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let mut request = async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
+                    if let Some(v) = body.get("variables") {
+                        request = request.variables(async_graphql::Variables::from_json(v.clone()));
+                    }
+                    let resp = schema.execute(request).await;
+                    let out = serde_json::to_value(&resp).unwrap_or_default();
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        let a = serve_schema(Schema::build(QueryA, EmptyMutation, EmptySubscription).enable_federation().finish()).await;
+        let b = serve_schema(Schema::build(QueryB, EmptyMutation, EmptySubscription).enable_federation().finish()).await;
+        let r = RemoteSubgraphs::new(vec![("users".into(), a), ("reviews".into(), b)]);
+        match r.route("{ me { name reviews } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(
+                    v["data"]["me"],
+                    serde_json::json!({"name":"user-7","reviews":["review-of-7"]}),
+                    "{v}"
+                );
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            other => panic!("expected a joined result, got {other:?}"),
+        }
     }
 
     #[tokio::test]
