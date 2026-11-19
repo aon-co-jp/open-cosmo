@@ -822,3 +822,40 @@ We verified the join not only with fake subgraphs but also with **independent, r
 6. Run the light jobs in the cloud every two hours (first connect GitHub to Claude: https://claude.ai/connect-github).
 
 **How to resume**: in a new conversation, say "Read the end of `F:\runo\PORTING.md`, then keep working through the open items of the four sister projects (open-cosmo, RPoem, Reaxt, RPoRea) without asking for confirmation." **Working rules**: keep going without asking; test and verify on real systems before saying "done"; never write secrets; do not add new REST APIs.
+
+
+## 2026-11-19 最終まとめ(リミット前) / Final summary before the limit (日本語・English)
+
+### 日本語(やさしい説明)
+**さっき終わったこと**
+- **名前付きフラグメント**(`...F`)に対応しました。ゲートウェイは、問い合わせの中の`...F`を、`... on 型 { }`の形に置きかえてから計画します。型が親と同じなら展開し、`@skip`/`@include`も効きます。ぐるぐる回る参照(循環)は、無限ループにならず、そのまま転送します。
+- **Reaxtのサーバー**も、名前付きフラグメント・型なしの`... { }`・`@skip`/`@include`(変数もOK)を読めるようになりました。これで、全部の項目が除外されて「分割せずそのまま転送」になった場合も、ちゃんと動きます。
+- 本物のサーバー2つをゲートウェイの後ろに置いて、`...F @include(if: $x)`で、`true`なら`visits`と`count`が結合されて返り、`false`なら`id`だけが返ることを確かめました。
+- 試験: ゲートウェイ58件、Reaxt16件が成功。
+
+**まだ終わっていないこと**
+1. 書き込みのあと、最新の値を取り直す。
+2. 型が違う`... on 型`(インターフェース/ユニオン)への安全な対応。
+3. Reaxtでもっと複雑な型(`Option`の入れ子、`HashMap`など)を使えるようにする。
+4. open-cosmoのルーターで、もっと広く実際につなぐ試験。
+5. RPoReaをMojo・Mac・Android・iPhoneから使えるか確かめる。
+6. 軽い仕事のクラウド定期実行(先にGitHubをClaudeにつなぐ)。
+
+**再開のしかた**: 新しい会話で「`F:\runo\PORTING.md`の末尾を読んで、4姉妹の未了を確認なしで自動で進めて」と伝えてください。
+
+### English (natural, plain wording)
+**What we just finished**
+- **Named fragments** (`...F`) are now supported. The gateway rewrites each `...F` into `... on Type { }` before planning. When the type matches the parent it is flattened, and `@skip`/`@include` work. A circular reference does not loop forever; the query is simply forwarded as it is.
+- **Reaxt servers** can now read named fragments, untyped `... { }` and `@skip`/`@include` (variables too). So even when every field is excluded and the query is forwarded unsplit, it still works.
+- With two real servers behind the gateway, `...F @include(if: $x)` returned `visits` and `count` joined together for `true`, and only `id` for `false`.
+- Tests: 58 in the gateway and 16 in Reaxt all pass.
+
+**What is still open**
+1. Re-read the latest values after a write.
+2. Safe support for `... on Type` with a different type (interfaces and unions).
+3. Richer Reaxt types (nested `Option`, `HashMap`, and so on).
+4. Wider real-world tests that connect Reaxt to the open-cosmo router.
+5. Check that RPoRea works from Mojo, Mac, Android and iPhone.
+6. Run the light jobs in the cloud on a schedule (first connect GitHub to Claude).
+
+**How to resume**: in a new conversation, say "Read the end of `F:\runo\PORTING.md`, then keep working through the open items of the four sister projects without asking for confirmation."

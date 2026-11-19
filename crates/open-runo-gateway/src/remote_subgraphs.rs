@@ -23,7 +23,7 @@ use async_graphql::parser::{
     parse_query,
     types::{
         DocumentOperations, ExecutableDocument, Field, OperationDefinition, OperationType,
-        Selection, SelectionSet,
+        InlineFragment, Selection, SelectionSet,
     },
 };
 use open_runo_federation::{parse_subgraph_model, SubgraphModel};
@@ -248,9 +248,10 @@ impl RemoteSubgraphs {
         variables: serde_json::Value,
         headers: &[(String, String)],
     ) -> Routed {
-        let Ok(doc) = parse_query(query) else {
+        let Ok(mut doc) = parse_query(query) else {
             return Routed::Local;
         };
+        inline_named_fragments(&mut doc);
         let roots = root_fields(&doc, operation_name);
         if roots.is_empty() {
             return Routed::Local;
@@ -613,6 +614,55 @@ impl RemoteSubgraphs {
             },
             Err(e) => Routed::Rejected(format!("subgraph `{name}` is unreachable: {e}")),
         }
+    }
+}
+
+/// Replace each named fragment spread (`...F`) with an inline fragment (`... on T { .. }`) that has the
+/// same type condition, directives and (recursively expanded) selections. The planner then handles it
+/// like any inline fragment. A spread of an unknown fragment, a fragment with directives of its own,
+/// or a cycle is left as it is (the planner then forwards the query unsplit).
+/// Only the parsed copy is changed; the text forwarded to subgraphs is the original.
+fn inline_named_fragments(doc: &mut ExecutableDocument) {
+    if doc.fragments.is_empty() {
+        return;
+    }
+    let frags = doc.fragments.clone();
+    fn walk(
+        set: &mut SelectionSet,
+        frags: &HashMap<async_graphql::Name, async_graphql::Positioned<async_graphql::parser::types::FragmentDefinition>>,
+        stack: &mut Vec<String>,
+    ) {
+        for sel in &mut set.items {
+            match &mut sel.node {
+                Selection::Field(f) => walk(&mut f.node.selection_set.node, frags, stack),
+                Selection::InlineFragment(f) => walk(&mut f.node.selection_set.node, frags, stack),
+                Selection::FragmentSpread(sp) => {
+                    let name = sp.node.fragment_name.node.to_string();
+                    let Some(def) = frags.get(&sp.node.fragment_name.node) else { continue };
+                    if !def.node.directives.is_empty() || stack.contains(&name) || stack.len() > 8 {
+                        continue;
+                    }
+                    let mut inner = def.node.selection_set.clone();
+                    stack.push(name);
+                    walk(&mut inner.node, frags, stack);
+                    stack.pop();
+                    let frag = InlineFragment {
+                        type_condition: Some(def.node.type_condition.clone()),
+                        directives: sp.node.directives.clone(),
+                        selection_set: inner,
+                    };
+                    sel.node = Selection::InlineFragment(async_graphql::Positioned::new(frag, sp.pos));
+                }
+            }
+        }
+    }
+    let mut ops: Vec<&mut async_graphql::Positioned<OperationDefinition>> = Vec::new();
+    match &mut doc.operations {
+        DocumentOperations::Single(o) => ops.push(o),
+        DocumentOperations::Multiple(m) => ops.extend(m.values_mut()),
+    }
+    for o in ops {
+        walk(&mut o.node.selection_set.node, &frags, &mut Vec::new());
     }
 }
 
@@ -1371,6 +1421,23 @@ mod tests {
         let op = select_operation(&doc, None).unwrap();
         let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
         assert!(print_field(&f.node, 0, &serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn named_fragments_are_inlined_with_type_condition_and_directives() {
+        let mut doc = parse_query("{ a { id ...F @include(if: $x) } } fragment F on User { name ...G } fragment G on User { age }").unwrap();
+        inline_named_fragments(&mut doc);
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let v = serde_json::json!({"x": true});
+        let flat = flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("User")).unwrap();
+        assert_eq!(flat.iter().map(|f| f.name.node.as_str()).collect::<Vec<_>>(), ["id", "name", "age"]);
+        assert_eq!(flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": false}), 0, Some("User")).unwrap().len(), 1);
+        // a different static type stays unflattened
+        assert!(flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("Admin")).is_none());
+        // a cycle is left alone instead of looping
+        let mut doc = parse_query("{ a { ...F } } fragment F on A { ...F }").unwrap();
+        inline_named_fragments(&mut doc);
     }
 
     #[test]
