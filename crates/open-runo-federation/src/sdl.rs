@@ -416,6 +416,39 @@ mod tests {
         assert!(user_fields.contains("id")); // declared in both
     }
 
+    /// Reaxt の実サーバーが `_service { sdl }` で返した SDL(2026-11-19 取得)。
+    /// `scalar JSON` と `@shareable` つきのフィールドを含んでも、
+    /// 他のサブグラフと合成できることを確認する。
+    const REAXT_SUBGRAPH_SDL: &str = r#"extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: ["@shareable"])
+
+scalar JSON
+
+type Query {
+  reaxt_ready: Boolean! @shareable
+}
+
+type Mutation {
+  demo_v1_Counter_Inc(input: JSON): JSON
+}
+"#;
+
+    #[test]
+    fn reaxt_subgraph_sdl_composes_with_other_subgraphs() {
+        assert_eq!(
+            detect_federation_version(REAXT_SUBGRAPH_SDL),
+            FederationVersion::V2
+        );
+        let reaxt = parse_service_sdl("reaxt", REAXT_SUBGRAPH_SDL).unwrap();
+        assert!(reaxt.types["Query"].contains("reaxt_ready"));
+        assert!(reaxt.types["Mutation"].contains("demo_v1_Counter_Inc"));
+        let users = parse_service_sdl("users-service", V1_SUBGRAPH_SDL).unwrap();
+        let composed = crate::compose(&[reaxt, users]).unwrap();
+        // Query は両方のフィールドが残る
+        assert!(composed.types["Query"].contains("reaxt_ready"));
+        assert!(composed.types["Query"].contains("me"));
+        assert!(composed.types["Mutation"].contains("demo_v1_Counter_Inc"));
+    }
+
     #[test]
     fn empty_sdl_is_rejected_with_clear_error() {
         let err = parse_service_sdl("empty-service", "# just a comment\n").unwrap_err();
