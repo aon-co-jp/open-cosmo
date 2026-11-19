@@ -1791,3 +1791,8 @@ origin/main を新規cloneして再調査: 自前RESTは0本、例外は `POLICY
 
 ## 3姉妹リポジトリ(2026-11-19、常に同時開発)
 open-cosmo / [`Reaxt`](https://github.com/aon-co-jp/Reaxt)(Rust製フルスタック枠組み)/ [`RPoRea`](https://github.com/aon-co-jp/RPoRea)(RPoem+Reaxtの融合、新設)。Reaxt は Federation v2 のサブグラフ(`POST /_reaxt/graphql`、`_service{sdl}`)を公開するので、**このルーターへの実際の合成確認が3姉妹の最優先の未了**。サブグラフ形式・ヘッダ伝播(`x-reaxt`)などの接点を変えたら3つのCLAUDE.mdを同じ日に更新する。約束は RPoRea の `docs/THREE-SISTERS.md`。
+
+## 2026-11-19 サブグラフへの認証ヘッダ転送(ハイブリッド信頼)
+- `x-reaxt` は全サブグラフへ転送。`authorization` は、`OPEN_RUNO_TRUSTED_SUBGRAPHS="名前,..."` の許可リストにある **かつ** https かループバック **かつ** 直近60秒に異常応答(不正なJSON・過大・深すぎ)が無いサブグラフにだけ転送する(`remote_subgraphs.rs`、試験3件)。既定は許可リスト空=誰にも転送しない。`cookie` は転送しない。
+- AIやGPU(aruaru-llm・open-cuda 等)で「信用させる」ことはしない(最終判断は確定的な条件で行う)。異常検知の補助に使う案は未着手。
+- 未了: 公開ページ(easy-web.tokyo/Reaxt・/RPoRea)への機能搭載・同梱、証明書のピン留め、異常検知の高度化。

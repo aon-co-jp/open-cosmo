@@ -20,7 +20,7 @@ use async_graphql::parser::{
     parse_query,
     types::{DocumentOperations, ExecutableDocument, Selection, SelectionSet},
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -29,10 +29,13 @@ const INTROSPECTION: &str =
     "{ __schema { queryType { fields { name } } mutationType { fields { name } } } }";
 const REDISCOVER_AFTER: Duration = Duration::from_secs(5);
 
-/// Request headers forwarded to a remote subgraph. Only `x-reaxt` (a non-secret CSRF marker that
-/// Reaxt subgraphs require on mutations). Credentials such as `authorization` / `cookie` are
-/// deliberately NOT forwarded; add them only after a decision on subgraph trust.
-pub const FORWARD_HEADERS: &[&str] = &["x-reaxt"];
+/// Request headers that may be forwarded to a remote subgraph. `x-reaxt` (a non-secret CSRF marker
+/// that Reaxt subgraphs require on mutations) goes to every subgraph; `authorization` goes only to
+/// a subgraph that is trusted right now (see `CREDENTIAL_HEADERS`). `cookie` is never forwarded.
+pub const FORWARD_HEADERS: &[&str] = &["x-reaxt", "authorization"];
+
+/// The subset of the headers above that carry credentials: forwarded only to trusted subgraphs.
+pub const CREDENTIAL_HEADERS: &[&str] = &["authorization"];
 
 #[derive(Debug)]
 struct Subgraph {
@@ -47,6 +50,32 @@ struct Subgraph {
 pub struct RemoteSubgraphs {
     inner: Arc<Mutex<Vec<Subgraph>>>,
     client: reqwest::Client,
+    /// Names allowed to receive credentials (`OPEN_RUNO_TRUSTED_SUBGRAPHS`). Empty = nobody.
+    trusted: Arc<HashSet<String>>,
+    /// Subgraphs whose trust was revoked at run time, until the given instant.
+    distrusted: Arc<std::sync::Mutex<HashMap<String, Instant>>>,
+}
+
+/// How long a misbehaving subgraph stays without credentials.
+const DISTRUST_FOR: Duration = Duration::from_secs(60);
+
+/// Credentials may only travel over a channel that cannot be read on the way:
+/// `https`, or a loopback address (same machine).
+pub fn is_safe_channel(url: &str) -> bool {
+    if url.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+    let host = if let Some(inner) = host.strip_prefix('[') {
+        inner.split(']').next().unwrap_or("")
+    } else {
+        host.rsplit_once(':').map_or(host, |(h, _)| h)
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 #[derive(Debug)]
@@ -76,7 +105,39 @@ impl RemoteSubgraphs {
                 .timeout(Duration::from_secs(30))
                 .build()
                 .unwrap_or_default(),
+            trusted: Arc::new(HashSet::new()),
+            distrusted: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Names of the subgraphs that may receive credential headers (hybrid trust: a name on this
+    /// list is necessary but not sufficient — see [`credentials_allowed`](Self::credentials_allowed)).
+    pub fn with_trusted<I: IntoIterator<Item = String>>(mut self, names: I) -> Self {
+        self.trusted = Arc::new(names.into_iter().filter(|n| !n.is_empty()).collect());
+        self
+    }
+
+    /// Whether `name` (reachable at `url`) may receive credentials right now:
+    /// on the allow-list AND a safe channel AND not revoked in the last minute.
+    pub fn credentials_allowed(&self, name: &str, url: &str) -> bool {
+        if !self.trusted.contains(name) || !is_safe_channel(url) {
+            return false;
+        }
+        let mut d = self.distrusted.lock().unwrap_or_else(|e| e.into_inner());
+        match d.get(name) {
+            Some(until) if *until > Instant::now() => false,
+            Some(_) => {
+                d.remove(name);
+                true
+            }
+            None => true,
+        }
+    }
+
+    fn revoke(&self, name: &str) {
+        let mut d = self.distrusted.lock().unwrap_or_else(|e| e.into_inner());
+        d.insert(name.to_string(), Instant::now() + DISTRUST_FOR);
+        tracing::warn!(subgraph = %name, "subgraph misbehaved: credentials withheld for 60s");
     }
 
     /// `OPEN_RUNO_SUBGRAPHS="items=http://localhost:4001/graphql,users=http://..."`
@@ -84,6 +145,12 @@ impl RemoteSubgraphs {
         Self::new(parse_env(
             &std::env::var("OPEN_RUNO_SUBGRAPHS").unwrap_or_default(),
         ))
+        .with_trusted(
+            std::env::var("OPEN_RUNO_TRUSTED_SUBGRAPHS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|n| n.trim().to_string()),
+        )
     }
 
     pub async fn is_empty(&self) -> bool {
@@ -202,21 +269,33 @@ impl RemoteSubgraphs {
             ));
         }
         let body = serde_json::json!({ "query": query, "variables": variables, "operationName": operation_name });
+        let creds_ok = self.credentials_allowed(&name, &url);
         let mut req = self.client.post(&url).json(&body);
         for (n, v) in headers {
+            // Credential headers only go to a subgraph that is trusted right now.
+            if CREDENTIAL_HEADERS.contains(&n.to_ascii_lowercase().as_str()) && !creds_ok {
+                continue;
+            }
             req = req.header(n.as_str(), v.as_str());
         }
         match req.send().await {
             Ok(r) => match r.bytes().await {
                 Ok(bytes) => match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
                     Ok(v) => Routed::Forwarded(v),
-                    Err(e) => Routed::Rejected(format!(
-                        "subgraph `{name}` returned an invalid response: {e}"
-                    )),
+                    Err(e) => {
+                        // A reply that is not valid (or is oversized / over-nested) JSON: stop trusting it.
+                        self.revoke(&name);
+                        Routed::Rejected(format!(
+                            "subgraph `{name}` returned an invalid response: {e}"
+                        ))
+                    }
                 },
-                Err(e) => Routed::Rejected(format!(
-                    "subgraph `{name}` returned an invalid response: {e}"
-                )),
+                Err(e) => {
+                    self.revoke(&name);
+                    Routed::Rejected(format!(
+                        "subgraph `{name}` returned an invalid response: {e}"
+                    ))
+                }
             },
             Err(e) => Routed::Rejected(format!("subgraph `{name}` is unreachable: {e}")),
         }
@@ -400,7 +479,76 @@ mod tests {
             }
             other => panic!("expected Forwarded, got {other:?}"),
         }
-        assert_eq!(FORWARD_HEADERS, &["x-reaxt"]);
+        assert_eq!(FORWARD_HEADERS, &["x-reaxt", "authorization"]);
+    }
+
+    #[test]
+    fn safe_channel_is_https_or_loopback_only() {
+        assert!(is_safe_channel("https://sub.example.com/graphql"));
+        assert!(is_safe_channel("http://127.0.0.1:8765/_reaxt/graphql"));
+        assert!(is_safe_channel("http://localhost/graphql"));
+        assert!(is_safe_channel("http://[::1]:80/graphql"));
+        assert!(!is_safe_channel("http://sub.example.com/graphql"));
+        assert!(!is_safe_channel("http://127.0.0.1.evil.com/graphql"));
+        assert!(!is_safe_channel("http://user@evil.com/graphql"));
+        assert!(!is_safe_channel("ftp://127.0.0.1/"));
+    }
+
+    #[test]
+    fn credentials_need_allow_list_and_safe_channel_and_no_revocation() {
+        let url = "http://127.0.0.1:1/graphql";
+        let none = RemoteSubgraphs::new(vec![("a".into(), url.into())]);
+        assert!(!none.credentials_allowed("a", url), "empty allow-list trusts nobody");
+        let r = RemoteSubgraphs::new(vec![("a".into(), url.into())]).with_trusted(["a".to_string()]);
+        assert!(r.credentials_allowed("a", url));
+        assert!(!r.credentials_allowed("b", url), "not on the list");
+        assert!(!r.credentials_allowed("a", "http://example.com/graphql"), "plain http to a remote host");
+        r.revoke("a");
+        assert!(!r.credentials_allowed("a", url), "revoked at run time");
+    }
+
+    async fn header_echo_subgraph() -> String {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        let h: Handler = Arc::new(move |req, _p| {
+            Box::pin(async move {
+                let auth = req.headers().get("authorization").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                let out = if body["query"].as_str().unwrap_or("").contains("__schema") {
+                    serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"me"}]},"mutationType":null}}})
+                } else {
+                    serde_json::json!({"data":{"authorization":auth}})
+                };
+                json_response(hyper::StatusCode::OK, &out)
+            })
+        });
+        let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+        let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        std::mem::forget(handle);
+        format!("http://{addr}/graphql")
+    }
+
+    #[tokio::test]
+    async fn authorization_reaches_only_a_trusted_subgraph() {
+        let url = header_echo_subgraph().await;
+        let sent = vec![("authorization".to_string(), "Bearer t".to_string())];
+        // 許可リスト無し: 渡らない
+        let r = RemoteSubgraphs::new(vec![("me".into(), url.clone())]);
+        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+            Routed::Forwarded(v) => assert!(v["data"]["authorization"].is_null(), "{v}"),
+            other => panic!("{other:?}"),
+        }
+        // 許可リストにある+ループバック: 渡る
+        let r = RemoteSubgraphs::new(vec![("me".into(), url.clone())]).with_trusted(["me".to_string()]);
+        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+            Routed::Forwarded(v) => assert_eq!(v["data"]["authorization"], "Bearer t"),
+            other => panic!("{other:?}"),
+        }
+        // 実行中に信頼を取り消す: 渡らなくなる
+        r.revoke("me");
+        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+            Routed::Forwarded(v) => assert!(v["data"]["authorization"].is_null(), "{v}"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[tokio::test]
