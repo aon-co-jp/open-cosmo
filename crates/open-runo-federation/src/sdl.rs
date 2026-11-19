@@ -68,6 +68,117 @@ pub fn parse_service_sdl(service_name: &str, sdl: &str) -> Result<ServiceSchema>
     })
 }
 
+/// A subgraph's types in more detail than [`ServiceSchema`]: each field's base return type
+/// (`[User!]!` -> `User`) and the first `@key(fields: "...")` of each entity type.
+/// Used by the gateway to plan `@key` entity joins across subgraphs.
+#[derive(Debug, Clone, Default)]
+pub struct SubgraphModel {
+    /// type name -> field name -> base return type name.
+    pub types: BTreeMap<String, BTreeMap<String, String>>,
+    /// entity type name -> key field names (simple, space separated keys only; nested keys are skipped).
+    pub keys: BTreeMap<String, Vec<String>>,
+}
+
+/// Parses a subgraph's SDL into a [`SubgraphModel`]. Same tolerance as [`parse_service_sdl`].
+pub fn parse_subgraph_model(sdl: &str) -> SubgraphModel {
+    let mut model = SubgraphModel::default();
+    let n = sdl.len();
+    let mut i = 0usize;
+    while i < n {
+        if let Some(kw_end) = match_type_keyword(sdl, i) {
+            let mut j = skip_ws_and_comments(sdl, kw_end);
+            let (name, name_end) = read_ident(sdl, j);
+            if name.is_empty() {
+                i = j.max(i + 1);
+                continue;
+            }
+            j = skip_ws_and_comments(sdl, name_end);
+            let header_start = j;
+            j = skip_implements_and_directives(sdl, j);
+            let header = &sdl[header_start..j];
+            j = skip_ws_and_comments(sdl, j);
+            if sdl.as_bytes().get(j) == Some(&b'{') {
+                if let Some((block, after)) = read_balanced_braces(sdl, j) {
+                    let entry = model.types.entry(name.to_string()).or_default();
+                    for (f, t) in parse_typed_fields(block) {
+                        entry.insert(f, t);
+                    }
+                    if let Some(k) = first_key(header) {
+                        model.keys.entry(name.to_string()).or_insert(k);
+                    }
+                    i = after;
+                    continue;
+                }
+            }
+            i = j.max(i + 1);
+            continue;
+        }
+        i += 1;
+    }
+    model
+}
+
+/// First `@key(fields: "a b")` in a type header, as `["a", "b"]`. Nested keys (`{`) are skipped.
+fn first_key(header: &str) -> Option<Vec<String>> {
+    let mut rest = header;
+    while let Some(pos) = rest.find("@key") {
+        let after = &rest[pos + 4..];
+        if let Some(q1) = after.find('"') {
+            if let Some(q2) = after[q1 + 1..].find('"') {
+                let body = &after[q1 + 1..q1 + 1 + q2];
+                if !body.contains('{') && !body.trim().is_empty() {
+                    return Some(body.split_whitespace().map(str::to_string).collect());
+                }
+            }
+        }
+        rest = after;
+    }
+    None
+}
+
+/// Like [`parse_fields`], but also returns each field's base return type name.
+fn parse_typed_fields(block: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let n = block.len();
+    let mut i = 0usize;
+    while i < n {
+        i = skip_ws_and_comments(block, i);
+        if i >= n {
+            break;
+        }
+        let (ident, after_ident) = read_ident(block, i);
+        if ident.is_empty() {
+            i += 1;
+            continue;
+        }
+        let mut j = skip_ws_and_comments(block, after_ident);
+        if block.as_bytes().get(j) == Some(&b'(') {
+            match skip_balanced(block, j, b'(', b')') {
+                Some(after) => j = after,
+                None => {
+                    i = after_ident;
+                    continue;
+                },
+            }
+            j = skip_ws_and_comments(block, j);
+        }
+        if block.as_bytes().get(j) == Some(&b':') {
+            let ty_start = skip_ws_and_comments(block, j + 1);
+            let ty_end = skip_type_reference(block, ty_start);
+            let base: String = block[ty_start..ty_end]
+                .trim_matches(|c: char| c == '[' || c == ']' || c == '!' || c.is_whitespace())
+                .trim_matches(|c: char| c == '[' || c == ']' || c == '!')
+                .to_string();
+            out.push((ident.to_string(), base));
+            j = skip_implements_and_directives(block, ty_end);
+            i = j;
+        } else {
+            i = after_ident;
+        }
+    }
+    out
+}
+
 /// Detects which Apollo Federation dialect a subgraph's SDL follows.
 ///
 /// - [`FederationVersion::V2`]: an `@link` directive importing
@@ -447,6 +558,21 @@ type Mutation {
         assert!(composed.types["Query"].contains("reaxt_ready"));
         assert!(composed.types["Query"].contains("me"));
         assert!(composed.types["Mutation"].contains("demo_v1_Counter_Inc"));
+    }
+
+    #[test]
+    fn subgraph_model_has_return_types_and_keys() {
+        let m = parse_subgraph_model(
+            r#"type Query { user(id: ID!): User  users: [User!]! }
+               type User @key(fields: "id") { id: ID! name: String friends: [User!]! }
+               type Order @key(fields: "a { b }") @key(fields: "sku ver") { sku: ID! }"#,
+        );
+        assert_eq!(m.types["Query"]["user"], "User");
+        assert_eq!(m.types["Query"]["users"], "User");
+        assert_eq!(m.types["User"]["friends"], "User");
+        assert_eq!(m.keys["User"], vec!["id"]);
+        // nested key is skipped, the next simple key is used
+        assert_eq!(m.keys["Order"], vec!["sku", "ver"]);
     }
 
     #[test]

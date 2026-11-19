@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub mod sdl;
-pub use sdl::{detect_federation_version, parse_service_sdl};
+pub use sdl::{detect_federation_version, parse_service_sdl, parse_subgraph_model, SubgraphModel};
 
 /// Which Apollo Federation dialect a subgraph's raw SDL follows. See
 /// [`sdl::detect_federation_version`] for detection rules.

@@ -1796,3 +1796,10 @@ open-cosmo / [`Reaxt`](https://github.com/aon-co-jp/Reaxt)(Rust製フルスタ�
 - `x-reaxt` は全サブグラフへ転送。`authorization` は、`OPEN_RUNO_TRUSTED_SUBGRAPHS="名前,..."` の許可リストにある **かつ** https かループバック **かつ** 直近60秒に異常応答(不正なJSON・過大・深すぎ)が無いサブグラフにだけ転送する(`remote_subgraphs.rs`、試験3件)。既定は許可リスト空=誰にも転送しない。`cookie` は転送しない。
 - AIやGPU(aruaru-llm・open-cuda 等)で「信用させる」ことはしない(最終判断は確定的な条件で行う)。異常検知の補助に使う案は未着手。
 - 未了: 公開ページ(easy-web.tokyo/Reaxt・/RPoRea)への機能搭載・同梱、証明書のピン留め、異常検知の高度化。
+
+
+## 2026-11-19 追記(3姉妹の同時更新): 複数サブグラフの問い合わせ分割と `@key` 結合 / Query splitting and `@key` joins
+
+**日本語(やさしい説明)**: open-cosmo のゲートウェイが、複数のサブグラフにまたがる問い合わせを扱えるようになりました。(1) 読み取り専用の問い合わせで、ルートのフィールドが別々のサブグラフにあるときは、サブグラフごとに分けて同時に実行し、結果を1つにまとめます。(2) `@key` つきの型(エンティティ)は、サブグラフAが返した「id」を使って、別のサブグラフBの `_entities` に問い合わせ、足りないフィールドを足します(1段のみ)。変更系(mutation)をまたぐ問い合わせ、リモートとローカルの混在、フラグメント/ディレクティブつきは、従来どおり拒否します。試験はゲートウェイ44件・federation13件が成功(擬似サブグラフでの確認。Reaxt実機を複数並べた通しは未了)。Reaxt のサブグラフ(`_service{sdl}`・`__schema`)はそのまま対応しており、Reaxt側の変更は不要でした。
+**English (simple)**: The open-cosmo gateway now handles queries that span several subgraphs. (1) A read-only query whose root fields live in different subgraphs is split, run at the same time, and merged. (2) For a type with `@key` (an entity), the gateway takes the id returned by subgraph A and asks subgraph B through `_entities` for the missing fields (one level only). Mutations across subgraphs, a mix of remote and local fields, and fragments/directives are still rejected. Tests pass (gateway 44, federation 13) against fake subgraphs; a run with several real Reaxt servers is not done yet. Reaxt's subgraph (`_service{sdl}`, `__schema`) already works, so Reaxt needed no change.
+**未了 / Open**: 複数段の入れ子の結合・`@requires`/`@provides`・実Reaxtを複数並べた通し・ミューテーション後の再取得。Nested (multi-level) joins, `@requires`/`@provides`, a real multi-Reaxt run.
