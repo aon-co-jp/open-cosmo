@@ -2268,3 +2268,24 @@ We verified the join not only with fake subgraphs but also with **independent, r
 **2026-11-20 続き17**: Reaxtの型を広げた: `Option`の入れ子(`Vec<Option<T>>`・`Option<Vec<T>>`)の確認と、文字列キーの連想配列(`BTreeMap<String, T>`)を追加(GraphQLでは`JSON`として公開、キーは並べ替えて出力、試験18件成功)。 / **Done**: richer Reaxt types: nested `Option` (`Vec<Option<T>>`, `Option<Vec<T>>`) verified, and `BTreeMap<String, T>` added (exposed as `JSON` in GraphQL, keys sorted on output; 18 tests pass). 残り / Open: Mac・iPhone、open-cosmoでの広い実機試験、クラウド定期実行(先にGitHub接続)。
 
 **2026-11-20 続き18(実機の通し試験)**: ゲートウェイの後ろに本物のReaxtサーバー2つを置く通し試験を`Reaxt/examples/counter/e2e_gateway.sh`に追加し、14項目すべて成功(単独の読み取り・2サーバーにまたがる読み取りと別名・`@key`結合・変数・名前付きフラグメント(含める/除く)・別の型の`... on`は取り除く・変更+結合で書き込みは1回だけ・2回目で増える・2サーバーにまたがる変更は拒否・未知のフィールドはエラー・`x-reaxt`ヘッダー無しの変更はCSRFとして拒否)。 / **Done**: a real end-to-end script `Reaxt/examples/counter/e2e_gateway.sh` puts two real Reaxt servers behind the gateway; all 14 checks pass (single and cross-server reads with aliases, `@key` joins, variables, named fragments included and skipped, `... on` another type dropped, a mutation plus join that writes exactly once, a second write increments, cross-server mutations refused, unknown fields error, and a write without the `x-reaxt` header is refused as CSRF). 残り / Open: Mac・iPhone、クラウド定期実行(先にGitHub接続)。
+
+
+## 2026-11-20 追記: Mac・iPhone・Androidの確認(CI) / Mac, iPhone and Android checks (CI) (日本語・English)
+
+### 日本語(やさしい説明)
+- **RPoReaにCI(GitHub Actions)を追加しました**(`RPoRea/.github/workflows/ci.yml`)。結果は**5つすべて成功**です。
+  - Linux・macOS・Windows: ビルド、テスト、そして**PythonからC ABIを実際に呼ぶ試験**(macOSでは`.dylib`)。
+  - iPhone(iOS): 実機用(`aarch64-apple-ios`)とシミュレーター用(`aarch64-apple-ios-sim`)のビルド。
+  - Android(NDK): `aarch64-linux-android`のビルド。
+- つまり、**Macでの動作(Python経由の実呼び出し)とiPhone向けのビルドが、CIで確認できました**。Androidはスマホの実機試験も成功済みです。iPhoneの実機・Macの実機での目視確認は、実機が無いのでできていません。
+- CIがつまずいた理由と直し方: RPoReaは兄弟のリポジトリを相対パスで使うので、CIでも`Reaxt`・`RPoem`・`RS-JSON`・`open-web-server`・`RS-SmartTCP`・`open-raid-z`・`open-cpu`・`open-cuda`・`open-directx`を同じ親フォルダーへ取得します(`working-directory: RPoRea`)。新しい兄弟リポジトリを使うようになったら、`ci.yml`に足してください。
+- **まだ**: クラウドの定期実行(先にGitHubをClaudeにつなぐ)。iPhone・Macの実機での確認。
+
+### English (natural, plain wording)
+- **We added CI (GitHub Actions) to RPoRea** (`RPoRea/.github/workflows/ci.yml`), and **all five jobs pass**.
+  - Linux, macOS and Windows: build, tests, and a **Python test that really calls the C ABI** (the `.dylib` on macOS).
+  - iPhone (iOS): builds for devices (`aarch64-apple-ios`) and the simulator (`aarch64-apple-ios-sim`).
+  - Android (NDK): a build for `aarch64-linux-android`.
+- So **running on a Mac (a real call through Python) and building for iPhone are now confirmed in CI**. Android also passed the real-phone test. We have not checked by eye on a real iPhone or a real Mac, because we have no such devices.
+- Why CI tripped, and the fix: RPoRea uses sibling repositories through relative paths, so CI also checks out `Reaxt`, `RPoem`, `RS-JSON`, `open-web-server`, `RS-SmartTCP`, `open-raid-z`, `open-cpu`, `open-cuda` and `open-directx` into the same parent folder (`working-directory: RPoRea`). If RPoRea starts using another sibling repository, add it to `ci.yml`.
+- **Still open**: scheduled cloud runs (first connect GitHub to Claude), and real-device checks on iPhone and Mac.
