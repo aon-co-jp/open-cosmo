@@ -373,7 +373,7 @@ impl RemoteSubgraphs {
         };
         let mut errors: Vec<serde_json::Value> = Vec::new();
         // Shallow joins first, so a deeper join sees the fields a shallower one added.
-        joins.sort_by_key(|j| j.path.len());
+        joins.sort_by_key(|j| (j.path.len(), j.rank));
         for join in &joins {
             let Some(data) = v.get_mut("data") else { continue };
             let mut objs = collect_at(data, &join.path);
@@ -695,8 +695,50 @@ struct Join {
     /// Fields of `ty` that subgraph B's `@requires` needs; they are read from subgraph A's answer and
     /// sent in the entity representation together with the key.
     requires: Vec<String>,
-    /// Names added to subgraph A's selection only for the join (removed from the final result).
+    /// Joins run in ascending rank (after the level's own depth): a join whose `@requires` fields come
+    /// from another join has a higher rank than that join.
+    rank: i32,
+    /// Names added only to make the joins possible (removed from the final result).
     added: Vec<String>,
+}
+
+/// Make `field` of `ty` available for a representation: `-1` if subgraph A already has it, otherwise the
+/// rank of the extra join (against the subgraph that owns it, and recursively its own `@requires`)
+/// that supplies it. `None` when no subgraph can supply it.
+fn supply(
+    ty: &str,
+    field: &str,
+    a: &SubgraphModel,
+    models: &[(String, String, SubgraphModel)],
+    a_name: &str,
+    deps: &mut Vec<(usize, String, Vec<String>)>,
+    avail: &mut std::collections::BTreeMap<String, i32>,
+    depth: u32,
+) -> Option<i32> {
+    if depth > 4 {
+        return None;
+    }
+    let key = (ty.to_string(), field.to_string());
+    if a.types.get(ty).is_some_and(|t| t.contains_key(field)) && !a.externals.contains(&key) {
+        return Some(-1);
+    }
+    if let Some(r) = avail.get(field) {
+        return Some(*r);
+    }
+    let c = models.iter().position(|(n, _, m)| {
+        n != a_name
+            && m.keys.contains_key(ty)
+            && m.types.get(ty).is_some_and(|t| t.contains_key(field))
+            && !m.externals.contains(&key)
+    })?;
+    let creqs = models[c].2.requires.get(&key).cloned().unwrap_or_default();
+    let mut rank = 0;
+    for r in &creqs {
+        rank = rank.max(supply(ty, r, a, models, a_name, deps, avail, depth + 1)? + 1);
+    }
+    avail.insert(field.to_string(), rank);
+    deps.push((c, field.to_string(), creqs));
+    Some(rank)
 }
 
 /// Print field `f` (returning entity/object type `ty` of subgraph A) for subgraph A, moving the fields
@@ -717,6 +759,8 @@ fn plan_field(
     }
     let mut local: Vec<String> = Vec::new();
     let mut ext: Vec<(usize, Vec<String>, Vec<String>)> = Vec::new();
+    let mut deps: Vec<(usize, String, Vec<String>)> = Vec::new();
+    let mut avail: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut selected: Vec<String> = Vec::new();
     for c in &f.selection_set.node.items {
         let Selection::Field(c) = &c.node else { return None };
@@ -743,11 +787,8 @@ fn plan_field(
                 // `@requires` of the other subgraph: subgraph A must be able to supply those fields.
                 let reqs = models[b].2.requires.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
                 for r in &reqs {
-                    let a_has = a.types.get(ty).is_some_and(|t| t.contains_key(r.as_str()))
-                        && !a.externals.contains(&(ty.to_string(), r.clone()));
-                    if !a_has {
-                        return None;
-                    }
+                    // A supplies it, or another subgraph does (a chain of joins); otherwise no join.
+                    supply(ty, r, a, models, a_name, &mut deps, &mut avail, 0)?;
                 }
                 match ext.iter_mut().find(|(i, _, _)| *i == b) {
                     Some((_, v, rq)) => {
@@ -775,16 +816,35 @@ fn plan_field(
             _ => local.push(print_field(c, 1, vars)?),
         }
     }
-    let mut added: Vec<String> = Vec::new();
-    for (b, texts, reqs) in &ext {
+    let a_owns = |k: &str| {
+        a.types.get(ty).is_some_and(|t| t.contains_key(k)) && !a.externals.contains(&(ty.to_string(), k.to_string()))
+    };
+    // Joins: the ones the client's fields need, plus the extra ones that supply `@requires` fields.
+    let mut specs: Vec<(usize, Vec<String>, Vec<String>)> = ext.clone();
+    for (c, field, creqs) in &deps {
+        // The client may already have selected that field itself (then it is already one of `ext`).
+        if !ext.iter().any(|(b, texts, _)| b == c && texts.iter().any(|t| t == field)) {
+            specs.push((*c, vec![field.clone()], creqs.clone()));
+        }
+    }
+    let mut added: Vec<String> = Vec::new(); // added to subgraph A's selection
+    let mut strip: Vec<String> = Vec::new(); // supplied by other joins, only removed at the end
+    for (_, field, _) in &deps {
+        if !selected.contains(field) && !strip.contains(field) {
+            strip.push(field.clone());
+        }
+    }
+    for (b, texts, reqs) in &specs {
         let key = models[*b].2.keys[ty].clone();
-        let mut add_here: Vec<String> = Vec::new();
         for k in key.iter().chain(reqs.iter()) {
-            if !selected.contains(k) && !added.contains(k) && !add_here.contains(k) {
-                add_here.push(k.clone());
+            if selected.contains(k) || added.contains(k) || strip.contains(k) {
+                continue;
+            }
+            if a_owns(k) {
+                added.push(k.clone());
             }
         }
-        added.extend(add_here.iter().cloned());
+        let rank = reqs.iter().map(|r| avail.get(r).copied().unwrap_or(-1)).max().map_or(0, |m| m + 1);
         joins.push(Join {
             path: path.to_vec(),
             b: *b,
@@ -792,15 +852,16 @@ fn plan_field(
             key,
             texts: texts.clone(),
             requires: reqs.clone(),
+            rank,
             added: Vec::new(),
         });
     }
-    if !ext.is_empty() && !selected.iter().any(|s| s == "__typename") {
+    if !specs.is_empty() && !selected.iter().any(|s| s == "__typename") {
         added.push("__typename".to_string());
     }
     // The names added at this level are removed once, by the first join of this level.
     if let Some(first) = joins.iter_mut().rev().find(|j| j.path == path) {
-        first.added = added.clone();
+        first.added = added.iter().chain(strip.iter()).cloned().collect();
     }
     local.extend(added);
     let mut head = String::new();
@@ -1522,6 +1583,66 @@ mod tests {
             _ => panic!("expected a forwarded result"),
         }
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn requires_chain_through_a_third_subgraph() {
+        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        // catalog (A) owns Product{upc}; pricing (C) owns price; shipping (B) adds shippingEstimate which
+        // @requires price (external there). price is not selected by the client and not in the catalog.
+        async fn start(role: u8, reps_seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>) -> String {
+            let h: Handler = Arc::new(move |req, _p| {
+                let reps_seen = reps_seen.clone();
+                Box::pin(async move {
+                    let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
+                    let q = body["query"].as_str().unwrap_or("");
+                    let out = if q.contains("__schema") {
+                        let f = ["product", "pricingHealth", "shippingHealth"][role as usize];
+                        serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":f}]},"mutationType":null}}})
+                    } else if q.contains("_service") {
+                        let sdl = [
+                            "type Query { product: Product } type Product @key(fields: \"upc\") { upc: String! }",
+                            "type Query { pricingHealth: String } type Product @key(fields: \"upc\") { upc: String! price: Int }",
+                            "type Query { shippingHealth: String } type Product @key(fields: \"upc\") { upc: String! price: Int @external shippingEstimate: Int @requires(fields: \"price\") }",
+                        ][role as usize];
+                        serde_json::json!({"data":{"_service":{"sdl":sdl}}})
+                    } else if q.contains("_entities") {
+                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        reps_seen.lock().unwrap().extend(reps.iter().cloned());
+                        let list: Vec<serde_json::Value> = reps
+                            .iter()
+                            .map(|r| match role {
+                                1 => serde_json::json!({"price": 5}),
+                                _ => serde_json::json!({"shippingEstimate": r["price"].as_i64().map(|p| p * 3)}),
+                            })
+                            .collect();
+                        serde_json::json!({"data":{"_entities":list}})
+                    } else {
+                        serde_json::json!({"data":{"product":{"upc":"p1","__typename":"Product"}}})
+                    };
+                    json_response(hyper::StatusCode::OK, &out)
+                })
+            });
+            let router = Router::new().route(hyper::Method::POST, "/graphql", h);
+            let (addr, handle) = serve(router, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+            std::mem::forget(handle);
+            format!("http://{addr}/graphql")
+        }
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let r = RemoteSubgraphs::new(vec![
+            ("catalog".into(), start(0, seen.clone()).await),
+            ("shipping".into(), start(2, seen.clone()).await),
+            ("pricing".into(), start(1, seen.clone()).await),
+        ]);
+        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+            Routed::Forwarded(v) => {
+                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert!(v.get("errors").is_none(), "{v}");
+            },
+            _ => panic!("expected a chained joined result"),
+        }
+        // The shipping representation carried the price that the pricing subgraph supplied.
+        assert!(seen.lock().unwrap().iter().any(|r| r["price"] == 5 && r["upc"] == "p1"));
     }
 
     #[tokio::test]
