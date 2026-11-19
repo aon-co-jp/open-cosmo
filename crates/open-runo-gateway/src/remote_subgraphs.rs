@@ -734,6 +734,46 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
     Some(())
 }
 
+/// The fields of a selection list, with untyped inline fragments flattened (their `@skip` / `@include`
+/// evaluated). `None` for typed or named fragments and other directives.
+fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize) -> Option<Vec<&'a Field>> {
+    if depth > 16 {
+        return None;
+    }
+    let mut out = Vec::new();
+    for sel in items {
+        match &sel.node {
+            Selection::Field(c) => out.push(&c.node),
+            Selection::InlineFragment(f) => {
+                if f.node.type_condition.is_some() {
+                    return None;
+                }
+                let mut keep = true;
+                for d in &f.node.directives {
+                    let name = d.node.name.node.as_str();
+                    if name != "skip" && name != "include" {
+                        return None;
+                    }
+                    let arg = d.node.get_argument("if")?.node.to_string();
+                    let cond = match arg.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        v => vars.get(v.strip_prefix('$')?)?.as_bool()?,
+                    };
+                    if (name == "skip" && cond) || (name == "include" && !cond) {
+                        keep = false;
+                    }
+                }
+                if keep {
+                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1)?);
+                }
+            }
+            Selection::FragmentSpread(_) => return None,
+        }
+    }
+    Some(out)
+}
+
 /// Rename the subgraph's root types to `Query` / `Mutation` inside the model, so the planner can look
 /// them up by the standard names whatever the subgraph calls them.
 fn normalize_root_names(m: &mut SubgraphModel, query: &str, mutation: &str) {
@@ -838,9 +878,7 @@ fn plan_field(
     let mut deps: Vec<(usize, String, Vec<String>)> = Vec::new();
     let mut avail: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut selected: Vec<String> = Vec::new();
-    for c in &f.selection_set.node.items {
-        let Selection::Field(c) = &c.node else { return None };
-        let c = &c.node;
+    for c in flatten_fields(&f.selection_set.node.items, vars, 0)? {
         if !field_included(c, vars)? {
             continue;
         }
@@ -1296,6 +1334,15 @@ mod tests {
         assert!(!uses_variable(&printed[1], "id"));
         assert!(uses_variable(&printed[1], "idx"));
         assert!(!uses_variable(&printed[0], "n"));
+    }
+
+    #[test]
+    fn flatten_fields_handles_untyped_fragments() {
+        let doc = parse_query("{ a { id ... @include(if: $x) { name } } }").unwrap();
+        let op = select_operation(&doc, None).unwrap();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0).unwrap().len();
+        assert_eq!((n(true), n(false)), (2, 1));
     }
 
     #[test]

@@ -2016,3 +2016,5 @@ We verified the join not only with fake subgraphs but also with **independent, r
 6. Use `RPoRea` from other languages (the C ABI): check it with Mojo, then Mac, Android and iPhone.
 
 **How we work**: we keep going on unfinished jobs **without asking for confirmation**. We test, check on real servers, and only then say "done". We never write secrets (such as passwords). We do not add new REST APIs.
+
+**2026-11-19 続き12**: 結合計画(`@key`)の経路でも、型条件なしのインラインフラグメントを展開して`@skip/@include`を評価できるようにした(ゲートウェイ試験56件成功)。計画の1番は完了。次は`... on 型`の安全な対応と、変更後の取り直し(自動で進める)。 / **Done**: the join planner (`@key`) now also flattens untyped inline fragments and evaluates `@skip/@include` (56 gateway tests pass). Plan item 1 is finished. Next: safe `... on Type` support and re-reading after a write (we keep going without asking).
