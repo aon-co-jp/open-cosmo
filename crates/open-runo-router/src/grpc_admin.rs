@@ -1291,6 +1291,41 @@ mod tests {
         );
     }
 
+    /// Reaxt の実サブグラフSDLを ComposeFederation(sdl経路)で登録できる。
+    #[tokio::test]
+    async fn federation_compose_accepts_reaxt_sdl() {
+        let (a, _s) = admin();
+        let h = key_headers("dev");
+        let sdl = "extend schema @link(url: \"https://specs.apollo.dev/federation/v2.0\", import: [\"@shareable\"])
+
+scalar JSON
+
+type Query {
+  reaxt_ready: Boolean! @shareable
+}
+
+type Mutation {
+  demo_v1_Counter_Inc(input: JSON): JSON
+}
+";
+        let c: v1::ComposeResponse = unary(
+            &a,
+            "ComposeFederation",
+            &h,
+            &v1::ComposeRequest {
+                services: vec![v1::ComposeService {
+                    service_name: "reaxt".into(),
+                    types: Default::default(),
+                    sdl: Some(sdl.into()),
+                }],
+            },
+        )
+        .await;
+        assert_eq!(c.contributing_services, vec!["reaxt"]);
+        assert_eq!(c.types["Query"].fields, vec!["reaxt_ready"]);
+        assert_eq!(c.types["Mutation"].fields, vec!["demo_v1_Counter_Inc"]);
+    }
+
     #[tokio::test]
     async fn feature_flags_persisted_queries_and_cache() {
         let (a, _s) = admin();
