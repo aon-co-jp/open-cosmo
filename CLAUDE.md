@@ -2438,3 +2438,78 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 
 ### فارسی
 اجرای زمان‌بندی‌شدهٔ `docs-latest` (رویداد `schedule`) ساعت ۲۱:۰۰ به وقت UTC (۰۶:۰۰ به وقت ژاپن) موفق بود. روتین ابری (هر دو ساعت) هم پنج بار اجرا شد و push‌ها انجام شد؛ پس فرض لازم‌بودن Claude GitHub App نادرست بود. با این حال در زمانی متفاوت از زمان‌های تنظیم‌شده (۱۰:۰۷، ۱۲:۰۷ و ۲۲:۰۷ به وقت ژاپن) اجرا شد، بنابراین در اجرای بعدی (۰۱:۰۷ UTC) دوباره بررسی می‌کنیم. تنها کار باقی‌مانده بررسی روی دستگاه‌های واقعی Mac و iPhone است (دستگاه نداریم).
+
+
+## 2026-11-21 現状と完成予定(12言語) / Status and what is left (12 languages)
+
+### 日本語(原文)
+**現状**: open-cosmo・RPoem・Reaxt・RPoRea の4つは、いつも一緒に作っています。ゲートウェイ(open-cosmo)は、1つの質問を複数のサーバーに分けて聞き、答えを1つにまとめます。`@key`・`@requires`・`@provides`・`@skip`・`@include`・名前付きフラグメント・書き込みのあとの取り直しに対応し、Apollo と async-graphql のサブグラフとも一緒に動くことを確かめました。Reaxt のアクションでは、`Option`・`Vec`・`HashMap`・小数・整数・`Box<T>`、そして **2〜12個組のタプル** が使えます(今回6個から12個へ広げ、試験26件がすべて成功)。RPoRea は Python と Mojo から、また Android の実機で呼べます。Mac は CI で Python からの呼び出しまで、iPhone は CI でビルドまで確かめています。クラウドの定期実行が、2時間ごとに小さな仕事を1つずつ進めています。
+**残り**: Mac と iPhone の実機での確認だけです(ここには実機がありません)。入れ子の `Option` は、`null` では段の区別がつかないため、あえて対象外にしています。
+**決まり**: 確認を取らずに進める/本物で確かめてから「完了」と書く/秘密は書かない/新しい REST は作らない。
+*翻訳について: 日本語が原文です。ほかの言語は AI が翻訳し、ネイティブに近い自然さかを AI が確認しました。人間のネイティブによる確認はまだです。*
+
+### English
+**Where things stand**: We always build the four projects (open-cosmo, RPoem, Reaxt and RPoRea) together. The gateway (open-cosmo) splits one query across several servers and merges the answers into one. It supports `@key`, `@requires`, `@provides`, `@skip`, `@include`, named fragments and re-reading after a write, and we have confirmed that it works alongside Apollo and async-graphql subgraphs. Reaxt actions can use `Option`, `Vec`, `HashMap`, decimals, integers, `Box<T>` and **tuples of 2 to 12 elements** (raised from 6 to 12 this time; all 26 tests pass). RPoRea can be called from Python and Mojo, and on a real Android phone. For Mac, CI checks calls from Python; for iPhone, CI checks the build. A scheduled cloud run moves one small task forward every two hours.
+**What is left**: only checks on a real Mac and a real iPhone (we have no such devices here). Nested `Option` is left out on purpose, because `null` cannot tell the levels apart.
+**Rules**: keep going without asking; write "done" only after checking on real systems; never write secrets; add no new REST APIs.
+*About the translations: Japanese is the original. The other languages were translated by AI, and AI checked that they read naturally, close to a native speaker's writing. No human native speaker has checked them yet.*
+
+### 简体中文
+**现状**：open-cosmo、RPoem、Reaxt、RPoRea 这四个项目始终一起开发。网关（open-cosmo）会把一个查询拆分给多台服务器，再把结果合并成一个。它支持 `@key`、`@requires`、`@provides`、`@skip`、`@include`、具名片段以及写入后重新读取，并已确认能与 Apollo 和 async-graphql 的子图协同工作。Reaxt 的动作可以使用 `Option`、`Vec`、`HashMap`、小数、整数、`Box<T>`，以及 **2 到 12 个元素的元组**（这次从 6 个扩展到 12 个，26 项测试全部通过）。RPoRea 可以从 Python 和 Mojo 调用，也能在真实的 Android 手机上调用。Mac 由 CI 验证了从 Python 的调用，iPhone 由 CI 验证了构建。云端定时任务每两小时推进一项小工作。
+**剩余工作**：只剩在真实的 Mac 和 iPhone 上验证（这里没有这些设备）。嵌套的 `Option` 被有意排除在外，因为 `null` 无法区分层级。
+**规则**：无需确认，自动继续；只有在真实系统上验证后才写“完成”；绝不写入机密；不新增 REST API。
+*关于翻译：日文为原文。其他语言由 AI 翻译，并由 AI 检查读起来是否接近母语者的自然程度；尚未经过人工母语者审校。*
+
+### 繁體中文
+**現況**：open-cosmo、RPoem、Reaxt、RPoRea 這四個專案一律一起開發。閘道（open-cosmo）會把一個查詢拆給多台伺服器，再把結果合併成一個。它支援 `@key`、`@requires`、`@provides`、`@skip`、`@include`、具名片段以及寫入後重新讀取，也已確認能與 Apollo 和 async-graphql 的子圖搭配運作。Reaxt 的動作可以使用 `Option`、`Vec`、`HashMap`、小數、整數、`Box<T>`，以及 **2 到 12 個元素的元組**（這次從 6 個擴充到 12 個，26 項測試全部通過）。RPoRea 可以從 Python 和 Mojo 呼叫，也能在實體 Android 手機上呼叫。Mac 由 CI 驗證了從 Python 的呼叫，iPhone 由 CI 驗證了建置。雲端排程每兩小時推進一項小工作。
+**尚待完成**：只剩在實體 Mac 和 iPhone 上確認（這裡沒有這些裝置）。巢狀 `Option` 刻意不支援，因為 `null` 無法區分層級。
+**規則**：不需確認，自動繼續；只有在真實系統上確認後才寫「完成」；絕不寫入機密；不新增 REST API。
+*關於翻譯：日文為原文。其他語言由 AI 翻譯，並由 AI 檢查讀起來是否接近母語人士的自然程度；尚未經過真人母語人士審閱。*
+
+### 한국어
+**현재 상황**: open-cosmo, RPoem, Reaxt, RPoRea 네 프로젝트는 항상 함께 개발합니다. 게이트웨이(open-cosmo)는 하나의 쿼리를 여러 서버로 나누어 보내고, 받은 답을 하나로 합칩니다. `@key`, `@requires`, `@provides`, `@skip`, `@include`, 이름 있는 프래그먼트, 쓰기 후 다시 읽기를 지원하며, Apollo와 async-graphql 서브그래프와도 함께 동작하는 것을 확인했습니다. Reaxt 액션에서는 `Option`, `Vec`, `HashMap`, 소수, 정수, `Box<T>`, 그리고 **2~12개 요소의 튜플**을 쓸 수 있습니다(이번에 6개에서 12개로 늘렸고, 테스트 26건이 모두 통과했습니다). RPoRea는 Python과 Mojo에서 호출할 수 있고, 실제 Android 휴대폰에서도 호출할 수 있습니다. Mac은 CI에서 Python 호출까지, iPhone은 CI에서 빌드까지 확인했습니다. 클라우드 정기 실행이 2시간마다 작은 작업을 하나씩 진행합니다.
+**남은 일**: 실제 Mac과 iPhone에서 확인하는 일만 남았습니다(여기에는 해당 기기가 없습니다). 중첩된 `Option`은 `null`로는 단계를 구분할 수 없어서 일부러 지원하지 않습니다.
+**규칙**: 확인을 묻지 않고 계속 진행합니다. 실제 환경에서 확인한 뒤에만 "완료"라고 씁니다. 비밀 정보는 절대 쓰지 않습니다. 새 REST API는 만들지 않습니다.
+*번역 안내: 일본어가 원문입니다. 다른 언어는 AI가 번역하고, 원어민이 쓴 것처럼 자연스러운지 AI가 확인했습니다. 사람 원어민의 검토는 아직 받지 않았습니다.*
+
+### Deutsch
+**Aktueller Stand**: Die vier Projekte open-cosmo, RPoem, Reaxt und RPoRea entwickeln wir immer gemeinsam. Das Gateway (open-cosmo) verteilt eine Abfrage auf mehrere Server und führt die Antworten zu einer einzigen zusammen. Es unterstützt `@key`, `@requires`, `@provides`, `@skip`, `@include`, benannte Fragmente und das erneute Lesen nach einem Schreibvorgang; auch das Zusammenspiel mit Subgraphen von Apollo und async-graphql ist bestätigt. Reaxt-Aktionen können `Option`, `Vec`, `HashMap`, Dezimalzahlen, Ganzzahlen, `Box<T>` und **Tupel mit 2 bis 12 Elementen** verwenden (diesmal von 6 auf 12 erweitert; alle 26 Tests bestehen). RPoRea lässt sich aus Python und Mojo sowie auf einem echten Android-Smartphone aufrufen. Für den Mac prüft die CI Aufrufe aus Python, für das iPhone den Build. Ein geplanter Cloud-Lauf bringt alle zwei Stunden eine kleine Aufgabe voran.
+**Was noch fehlt**: nur die Prüfung auf einem echten Mac und einem echten iPhone (solche Geräte haben wir hier nicht). Verschachteltes `Option` ist bewusst ausgenommen, weil sich die Ebenen an `null` nicht unterscheiden lassen.
+**Regeln**: ohne Rückfrage weitermachen; „fertig“ erst nach der Prüfung auf echten Systemen schreiben; niemals Geheimnisse aufschreiben; keine neuen REST-APIs.
+*Zur Übersetzung: Das Japanische ist das Original. Die anderen Sprachen hat eine KI übersetzt und anschließend geprüft, ob sie so natürlich klingen, wie ein Muttersprachler schreiben würde. Eine Prüfung durch menschliche Muttersprachler steht noch aus.*
+
+### Français
+**Où en est-on** : nous développons toujours ensemble les quatre projets open-cosmo, RPoem, Reaxt et RPoRea. La passerelle (open-cosmo) répartit une requête entre plusieurs serveurs et fusionne les réponses en une seule. Elle prend en charge `@key`, `@requires`, `@provides`, `@skip`, `@include`, les fragments nommés et la relecture après une écriture ; nous avons aussi vérifié qu'elle fonctionne avec des sous-graphes Apollo et async-graphql. Les actions Reaxt peuvent utiliser `Option`, `Vec`, `HashMap`, les nombres décimaux, les entiers, `Box<T>` et **les tuples de 2 à 12 éléments** (étendus cette fois de 6 à 12 ; les 26 tests passent). RPoRea peut être appelé depuis Python et Mojo, ainsi que sur un vrai téléphone Android. Sur Mac, la CI vérifie les appels depuis Python ; pour l'iPhone, elle vérifie la compilation. Une exécution planifiée dans le cloud fait avancer une petite tâche toutes les deux heures.
+**Ce qui reste** : uniquement les vérifications sur un vrai Mac et un vrai iPhone (nous n'avons pas ces appareils ici). Les `Option` imbriqués sont volontairement exclus, car `null` ne permet pas de distinguer les niveaux.
+**Règles** : continuer sans demander de confirmation ; n'écrire « terminé » qu'après vérification sur de vrais systèmes ; ne jamais écrire de secrets ; ne pas ajouter de nouvelle API REST.
+*À propos de la traduction : le japonais est l'original. Les autres langues ont été traduites par une IA, qui a ensuite vérifié qu'elles se lisent aussi naturellement qu'un texte écrit par un locuteur natif. Aucun locuteur natif humain ne les a encore relues.*
+
+### Español
+**Situación actual**: los cuatro proyectos open-cosmo, RPoem, Reaxt y RPoRea se desarrollan siempre juntos. La pasarela (open-cosmo) reparte una consulta entre varios servidores y une las respuestas en una sola. Admite `@key`, `@requires`, `@provides`, `@skip`, `@include`, fragmentos con nombre y la relectura tras una escritura, y comprobamos que también funciona junto a subgrafos de Apollo y async-graphql. Las acciones de Reaxt pueden usar `Option`, `Vec`, `HashMap`, números decimales, enteros, `Box<T>` y **tuplas de 2 a 12 elementos** (esta vez ampliadas de 6 a 12; pasan las 26 pruebas). RPoRea se puede llamar desde Python y Mojo, y también en un teléfono Android real. En Mac, la CI comprueba las llamadas desde Python; en iPhone, comprueba la compilación. Una ejecución programada en la nube hace avanzar una tarea pequeña cada dos horas.
+**Lo que falta**: solo las comprobaciones en un Mac y un iPhone reales (aquí no tenemos esos dispositivos). Los `Option` anidados quedan fuera a propósito, porque con `null` no se pueden distinguir los niveles.
+**Reglas**: seguir sin pedir confirmación; escribir «terminado» solo después de comprobarlo en sistemas reales; no escribir nunca secretos; no añadir nuevas API REST.
+*Sobre la traducción: el japonés es el original. Los demás idiomas los tradujo una IA, que después comprobó que suenen tan naturales como si los hubiera escrito un hablante nativo. Todavía no los ha revisado ningún hablante nativo humano.*
+
+### Português
+**Situação atual**: os quatro projetos open-cosmo, RPoem, Reaxt e RPoRea são sempre desenvolvidos juntos. O gateway (open-cosmo) divide uma consulta entre vários servidores e junta as respostas em uma só. Ele suporta `@key`, `@requires`, `@provides`, `@skip`, `@include`, fragmentos nomeados e a releitura após uma escrita, e confirmamos que também funciona junto com subgrafos do Apollo e do async-graphql. As ações do Reaxt podem usar `Option`, `Vec`, `HashMap`, números decimais, inteiros, `Box<T>` e **tuplas de 2 a 12 elementos** (desta vez ampliadas de 6 para 12; os 26 testes passam). O RPoRea pode ser chamado a partir de Python e Mojo, e também em um celular Android de verdade. No Mac, a CI verifica as chamadas a partir de Python; no iPhone, verifica a compilação. Uma execução agendada na nuvem faz avançar uma pequena tarefa a cada duas horas.
+**O que falta**: apenas as verificações em um Mac e um iPhone de verdade (não temos esses aparelhos aqui). `Option` aninhado fica de fora de propósito, porque com `null` não dá para distinguir os níveis.
+**Regras**: seguir sem pedir confirmação; escrever “concluído” só depois de verificar em sistemas reais; nunca escrever segredos; não criar novas APIs REST.
+*Sobre a tradução: o japonês é o original. Os outros idiomas foram traduzidos por uma IA, que depois verificou se soam tão naturais quanto um texto escrito por um falante nativo. Nenhum falante nativo humano os revisou ainda.*
+
+### Русский
+**Текущее состояние**: четыре проекта — open-cosmo, RPoem, Reaxt и RPoRea — мы всегда развиваем вместе. Шлюз (open-cosmo) распределяет один запрос между несколькими серверами и объединяет ответы в один. Он поддерживает `@key`, `@requires`, `@provides`, `@skip`, `@include`, именованные фрагменты и повторное чтение после записи; совместная работа с подграфами Apollo и async-graphql тоже подтверждена. В действиях Reaxt можно использовать `Option`, `Vec`, `HashMap`, дробные и целые числа, `Box<T>`, а также **кортежи из 2–12 элементов** (на этот раз предел поднят с 6 до 12; все 26 тестов проходят). RPoRea можно вызывать из Python и Mojo, а также на настоящем Android-смартфоне. Для Mac CI проверяет вызовы из Python, для iPhone — сборку. Облачный запуск по расписанию каждые два часа выполняет одну небольшую задачу.
+**Что осталось**: только проверка на настоящих Mac и iPhone (таких устройств у нас здесь нет). Вложенный `Option` намеренно не поддерживается: по `null` нельзя различить уровни вложенности.
+**Правила**: продолжаем без вопросов; пишем «готово» только после проверки на реальных системах; никогда не записываем секреты; не добавляем новых REST API.
+*О переводе: оригинал написан на японском. Остальные языки перевёл ИИ, а затем проверил, звучат ли они так же естественно, как текст носителя языка. Живые носители языка их пока не проверяли.*
+
+### العربية
+**الوضع الحالي:** نطوّر المشاريع الأربعة open-cosmo وRPoem وReaxt وRPoRea معًا دائمًا. تقسّم البوابة (open-cosmo) الاستعلام الواحد على عدة خوادم، ثم تدمج الإجابات في إجابة واحدة. وهي تدعم `@key` و`@requires` و`@provides` و`@skip` و`@include` والأجزاء المسمّاة (fragments) وإعادة القراءة بعد الكتابة، وتأكّدنا كذلك من أنها تعمل جنبًا إلى جنب مع الرسوم البيانية الفرعية (subgraphs) المبنية بـ Apollo وasync-graphql. ويمكن لإجراءات Reaxt استخدام `Option` و`Vec` و`HashMap` والأعداد العشرية والصحيحة و`Box<T>`، إضافةً إلى **الصفوف المرتّبة (tuples) التي تضم من عنصرين إلى 12 عنصرًا** (وسّعنا الحد هذه المرة من 6 إلى 12، ونجحت الاختبارات الـ26 كلها). ويمكن استدعاء RPoRea من Python وMojo، وكذلك على هاتف Android حقيقي. أما على Mac فيتحقق نظام التكامل المستمر (CI) من الاستدعاء من Python، وعلى iPhone يتحقق من البناء. ويُنجز تشغيلٌ سحابي مجدول مهمةً صغيرة واحدة كل ساعتين.
+**ما تبقّى:** التحقق على جهازَي Mac وiPhone حقيقيين فقط (لا تتوفر لدينا هذه الأجهزة هنا). واستبعدنا `Option` المتداخل عمدًا، لأن `null` لا يتيح التمييز بين المستويات.
+**القواعد:** نواصل العمل دون طلب تأكيد؛ ولا نكتب «تمّ» إلا بعد التحقق على أنظمة حقيقية؛ ولا نكتب أي معلومات سرّية أبدًا؛ ولا نضيف واجهات REST جديدة.
+*عن الترجمة: النص الياباني هو الأصل. ترجم الذكاء الاصطناعي اللغات الأخرى، ثم تحقّق من أنها تُقرأ بسلاسة قريبة مما يكتبه متحدث أصلي. ولم يراجعها بعدُ أي متحدث أصلي من البشر.*
+
+### فارسی
+**وضعیت کنونی:** چهار پروژهٔ open-cosmo، RPoem، Reaxt و RPoRea را همیشه با هم توسعه می‌دهیم. دروازه (open-cosmo) یک پرس‌وجو را میان چند سرور پخش می‌کند و پاسخ‌ها را در یک پاسخ واحد ترکیب می‌کند. این دروازه از `@key`، `@requires`، `@provides`، `@skip`، `@include`، فرگمنت‌های نام‌دار و خواندن دوباره پس از نوشتن پشتیبانی می‌کند و تأیید کرده‌ایم که در کنار زیرگراف‌های Apollo و async-graphql هم درست کار می‌کند. اکشن‌های Reaxt می‌توانند از `Option`، `Vec`، `HashMap`، اعداد اعشاری و صحیح، `Box<T>` و **چندتایی‌های (tuple) ۲ تا ۱۲ عضوی** استفاده کنند (این بار سقف را از ۶ به ۱۲ رساندیم و هر ۲۶ آزمون موفق بود). RPoRea را می‌توان از Python و Mojo و همچنین روی یک گوشی واقعی Android فراخوانی کرد. برای Mac، سامانهٔ CI فراخوانی از Python را بررسی می‌کند و برای iPhone، ساخت (build) را. یک اجرای زمان‌بندی‌شدهٔ ابری هر دو ساعت یک کار کوچک را پیش می‌برد.
+**آنچه مانده است:** فقط بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). `Option` تودرتو عمداً کنار گذاشته شده است، چون با `null` نمی‌توان سطح‌ها را از هم تشخیص داد.
+**قواعد:** بدون پرسیدن ادامه می‌دهیم؛ فقط پس از بررسی روی سامانه‌های واقعی می‌نویسیم «انجام شد»؛ هرگز اطلاعات محرمانه نمی‌نویسیم؛ REST API تازه اضافه نمی‌کنیم.
+*دربارهٔ ترجمه: متن ژاپنی متن اصلی است. زبان‌های دیگر را هوش مصنوعی ترجمه کرده و سپس بررسی کرده است که به همان اندازهٔ نوشتهٔ یک گویشور بومی روان و طبیعی باشند. هنوز هیچ گویشور بومیِ انسانی آن‌ها را بازبینی نکرده است.*
