@@ -2293,3 +2293,7 @@ We verified the join not only with fake subgraphs but also with **independent, r
 ## 2026-11-20 依存の更新(version-control通知) / Dependency update
 - **日本語**: sqlx 0.9.0→0.9.1(libsqlite3-sys 0.30.1→0.40.0、RUSTSEC-2026-0459)。`sqlite`機能は既定でオフで、ロックファイル上の記載の更新のみ。`cargo test --workspace --locked` 495件成功(先に`open-runo-dummy-http-server`をビルドする)。
 - **English**: sqlx 0.9.0 -> 0.9.1, libsqlite3-sys 0.30.1 -> 0.40.0 (RUSTSEC-2026-0459). The `sqlite` feature is off by default; only the lock file changed. `cargo test --workspace --locked`: 495 passed (build `open-runo-dummy-http-server` first).
+
+## 2026-11-20 低VRAM・VRAM無し端末(VPS・PC・タブレット・スマホ)でのAI/LLMのノウハウ / Low-VRAM AI know-how
+日本語: AI・LLMを使う機能(推論・要約・補完・OCR等)は、[aruaru-llm/docs/LOW-VRAM-KNOWHOW.md](https://github.com/aon-co-jp/aruaru-llm/blob/main/docs/LOW-VRAM-KNOWHOW.md) に従う: 短い文脈・上限・タイムアウト、VPSで重い推論を直接回さない、メモリが足りなければ小さいモデルへ自動で下げる。広い桁(FP64以上)は本番で使わず、試験の正解にだけ使う。
+English: Features that use AI/LLMs follow the file above: short context, caps and timeouts, no heavy inference directly on the VPS, auto-downgrade to a smaller model when memory is short. Wide floats (FP64 and above) are for test oracles only, not production.
