@@ -977,3 +977,7 @@ We verified the join not only with fake subgraphs but also with **independent, r
 ## 2026-11-20 追記: openapi.rs の旧記述を整理 / Tidied old wording in openapi.rs
 - **日本語**: `crates/open-runo-router/src/openapi.rs` の説明文を直しました。管理操作は Connect/gRPC(`open_runo.admin.v1.Admin`、`x-api-key` 必須)で、GraphQL は問い合わせ専用です(以前は「管理操作は POST /graphql」と書かれていた)。文書画面のタイトル「open-runo REST API」を「open-runo HTTP surface (health/ACME/MCP/SCIM)」へ変え、中身の無い見出しコメントを消しました。動作の変更はありません。`cargo test -p open-runo-router --lib openapi` は6件成功。
 - **English**: Fixed the description in `crates/open-runo-router/src/openapi.rs`: admin operations are on Connect/gRPC (`open_runo.admin.v1.Admin`, `x-api-key` required) and GraphQL is query-only (it used to say "admin via POST /graphql"). The docs page title "open-runo REST API" became "open-runo HTTP surface (health/ACME/MCP/SCIM)", and empty section comments were removed. No behaviour change; 6 tests pass.
+
+## 2026-11-20 依存の更新(version-control通知) / Dependency update
+- **日本語**: sqlx 0.9.0→0.9.1(libsqlite3-sys 0.30.1→0.40.0、RUSTSEC-2026-0459)。`sqlite`機能は既定でオフで、ロックファイル上の記載の更新のみ。`cargo test --workspace --locked` 495件成功(先に`open-runo-dummy-http-server`をビルドする)。
+- **English**: sqlx 0.9.0 -> 0.9.1, libsqlite3-sys 0.30.1 -> 0.40.0 (RUSTSEC-2026-0459). The `sqlite` feature is off by default; only the lock file changed. `cargo test --workspace --locked`: 495 passed (build `open-runo-dummy-http-server` first).

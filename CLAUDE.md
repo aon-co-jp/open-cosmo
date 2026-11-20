@@ -2289,3 +2289,7 @@ We verified the join not only with fake subgraphs but also with **independent, r
 - So **running on a Mac (a real call through Python) and building for iPhone are now confirmed in CI**. Android also passed the real-phone test. We have not checked by eye on a real iPhone or a real Mac, because we have no such devices.
 - Why CI tripped, and the fix: RPoRea uses sibling repositories through relative paths, so CI also checks out `Reaxt`, `RPoem`, `RS-JSON`, `open-web-server`, `RS-SmartTCP`, `open-raid-z`, `open-cpu`, `open-cuda` and `open-directx` into the same parent folder (`working-directory: RPoRea`). If RPoRea starts using another sibling repository, add it to `ci.yml`.
 - **Still open**: scheduled cloud runs (first connect GitHub to Claude), and real-device checks on iPhone and Mac.
+
+## 2026-11-20 依存の更新(version-control通知) / Dependency update
+- **日本語**: sqlx 0.9.0→0.9.1(libsqlite3-sys 0.30.1→0.40.0、RUSTSEC-2026-0459)。`sqlite`機能は既定でオフで、ロックファイル上の記載の更新のみ。`cargo test --workspace --locked` 495件成功(先に`open-runo-dummy-http-server`をビルドする)。
+- **English**: sqlx 0.9.0 -> 0.9.1, libsqlite3-sys 0.30.1 -> 0.40.0 (RUSTSEC-2026-0459). The `sqlite` feature is off by default; only the lock file changed. `cargo test --workspace --locked`: 495 passed (build `open-runo-dummy-http-server` first).
