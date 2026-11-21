@@ -137,4 +137,27 @@ mod tests {
         let breaking = detect_breaking_changes(&before, &after);
         assert_eq!(breaking, vec!["User.name removed".to_string()]);
     }
+
+    #[test]
+    fn detects_removed_type_as_breaking() {
+        let before = compose(&[svc("a", "User", &["id"]), svc("b", "Review", &["body"])]).unwrap();
+        let after = compose(&[svc("a", "User", &["id"])]).unwrap();
+        let breaking = detect_breaking_changes(&before, &after);
+        assert!(breaking.contains(&"Review.body removed".to_string()));
+        assert!(breaking.contains(&"type Review removed".to_string()));
+    }
+
+    #[test]
+    fn added_fields_are_not_breaking() {
+        let before = compose(&[svc("a", "User", &["id"])]).unwrap();
+        let after = compose(&[svc("a", "User", &["id", "name"])]).unwrap();
+        assert!(detect_breaking_changes(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn composing_nothing_gives_an_empty_schema() {
+        let composed = compose(&[]).unwrap();
+        assert!(composed.types.is_empty());
+        assert!(composed.contributing_services.is_empty());
+    }
 }
