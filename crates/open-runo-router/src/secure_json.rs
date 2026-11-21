@@ -8,12 +8,18 @@ use serde::de::DeserializeOwned;
 
 /// 既定の上限: 16 MiB・深さ64・重複キーは拒否。本文の大きさそのものは別途 `body_limit` でも制限される。
 pub fn limits() -> rust_json::Limits {
-    rust_json::Limits { max_bytes: 16 * 1024 * 1024, max_depth: 64, reject_duplicate_keys: true }
+    rust_json::Limits {
+        max_bytes: 16 * 1024 * 1024,
+        max_depth: 64,
+        reject_duplicate_keys: true,
+    }
 }
 
 /// 上限と重複キーを検査する(値は捨てる)。
 pub fn validate(text: &str) -> Result<(), String> {
-    rust_json::parse_secure_sonic(text, &limits()).map(|_| ()).map_err(|e| e.to_string())
+    rust_json::parse_secure_sonic(text, &limits())
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// 検査してから型 `T` へ読む。
@@ -36,7 +42,9 @@ mod tests {
     fn reads_valid_json_and_rejects_duplicates_and_deep_nesting() {
         let v: serde_json::Value = from_str(r#"{"a":[1,2,{"b":null}]}"#).unwrap();
         assert_eq!(v["a"][0], 1);
-        assert!(from_str::<serde_json::Value>(r#"{"a":1,"a":2}"#).unwrap_err().contains("duplicate"));
+        assert!(from_str::<serde_json::Value>(r#"{"a":1,"a":2}"#)
+            .unwrap_err()
+            .contains("duplicate"));
         let deep = format!("{}{}", "[".repeat(100), "]".repeat(100));
         assert!(from_str::<serde_json::Value>(&deep).is_err());
         assert!(from_slice::<serde_json::Value>(&[0xff, 0xfe]).is_err());

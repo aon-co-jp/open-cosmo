@@ -92,12 +92,15 @@ pub struct SubgraphModel {
 
 /// Parses a subgraph's SDL into a [`SubgraphModel`]. Same tolerance as [`parse_service_sdl`].
 pub fn parse_subgraph_model(sdl: &str) -> SubgraphModel {
-    let mut model = SubgraphModel::default();
-    model.has_abstract = sdl.lines().any(|l| {
+    let has_abstract = sdl.lines().any(|l| {
         let l = l.trim_start();
         let l = l.strip_prefix("extend ").unwrap_or(l).trim_start();
         l.starts_with("interface ") || l.starts_with("union ")
     });
+    let mut model = SubgraphModel {
+        has_abstract,
+        ..SubgraphModel::default()
+    };
     let n = sdl.len();
     let mut i = 0usize;
     while i < n {
@@ -222,7 +225,11 @@ fn parse_typed_fields(block: &str) -> Vec<(String, String, String)> {
                 .trim_matches(|c: char| c == '[' || c == ']' || c == '!')
                 .to_string();
             let after_dirs = skip_implements_and_directives(block, ty_end);
-            out.push((ident.to_string(), base, block[ty_end..after_dirs].to_string()));
+            out.push((
+                ident.to_string(),
+                base,
+                block[ty_end..after_dirs].to_string(),
+            ));
             i = after_dirs;
             let _ = j;
         } else {
@@ -638,8 +645,14 @@ type Mutation {
         assert!(m.externals.contains(&("User".into(), "name".into())));
         assert!(m.externals.contains(&("User".into(), "email".into())));
         assert!(!m.externals.contains(&("User".into(), "id".into())));
-        assert_eq!(m.provides[&("Review".to_string(), "author".to_string())], vec!["name"]);
-        assert_eq!(m.provides[&("Query".to_string(), "top".to_string())], vec!["author"]);
+        assert_eq!(
+            m.provides[&("Review".to_string(), "author".to_string())],
+            vec!["name"]
+        );
+        assert_eq!(
+            m.provides[&("Query".to_string(), "top".to_string())],
+            vec!["author"]
+        );
     }
 
     #[test]
@@ -647,9 +660,14 @@ type Mutation {
         let m = parse_subgraph_model(
             r#"type Product @key(fields: "upc") { upc: String! @external price: Int @external weight: Int @external shippingEstimate: Int @requires(fields: "price weight") }"#,
         );
-        assert_eq!(m.requires[&("Product".to_string(), "shippingEstimate".to_string())], vec!["price", "weight"]);
+        assert_eq!(
+            m.requires[&("Product".to_string(), "shippingEstimate".to_string())],
+            vec!["price", "weight"]
+        );
         assert!(m.externals.contains(&("Product".into(), "price".into())));
-        assert!(!m.requires.contains_key(&("Product".to_string(), "price".to_string())));
+        assert!(!m
+            .requires
+            .contains_key(&("Product".to_string(), "price".to_string())));
     }
 
     #[test]
@@ -676,7 +694,10 @@ type Mutation {
     #[test]
     fn model_knows_whether_the_sdl_has_interfaces_or_unions() {
         assert!(!parse_subgraph_model("type Query { a: A }\ntype A { id: ID }").has_abstract);
-        assert!(parse_subgraph_model("interface Node { id: ID }\ntype A implements Node { id: ID }").has_abstract);
+        assert!(
+            parse_subgraph_model("interface Node { id: ID }\ntype A implements Node { id: ID }")
+                .has_abstract
+        );
         assert!(parse_subgraph_model("union U = A | B\ntype A { id: ID }").has_abstract);
     }
 }

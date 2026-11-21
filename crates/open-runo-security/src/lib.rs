@@ -432,8 +432,12 @@ impl JwtCodec {
     ///
     /// `leeway` is 0 so an expired token is rejected immediately.
     pub fn decode(&self, token: &str) -> Result<Claims> {
-        open_runo_jwt::decode_hs256::<Claims>(token, &self.secret, &open_runo_jwt::Validation::default())
-            .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
+        open_runo_jwt::decode_hs256::<Claims>(
+            token,
+            &self.secret,
+            &open_runo_jwt::Validation::default(),
+        )
+        .map_err(|e| AppError::Validation(format!("invalid or expired token: {e}")))
     }
 }
 

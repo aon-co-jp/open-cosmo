@@ -45,7 +45,10 @@ pub struct Validation {
 }
 
 fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn split(token: &str) -> Result<(&str, &str, &str)> {
@@ -57,7 +60,8 @@ fn split(token: &str) -> Result<(&str, &str, &str)> {
 }
 
 fn b64(s: &str) -> Result<Vec<u8>> {
-    B64.decode(s).map_err(|e| Error(format!("invalid base64url: {e}")))
+    B64.decode(s)
+        .map_err(|e| Error(format!("invalid base64url: {e}")))
 }
 
 pub fn decode_header(token: &str) -> Result<Header> {
@@ -66,7 +70,11 @@ pub fn decode_header(token: &str) -> Result<Header> {
 }
 
 fn sign_input<T: Serialize>(claims: &T, alg: &str, kid: Option<&str>) -> Result<String> {
-    let header = Header { alg: alg.into(), kid: kid.map(str::to_string), typ: Some("JWT".into()) };
+    let header = Header {
+        alg: alg.into(),
+        kid: kid.map(str::to_string),
+        typ: Some("JWT".into()),
+    };
     let h = serde_json::to_vec(&header).map_err(|e| Error(e.to_string()))?;
     let p = serde_json::to_vec(claims).map_err(|e| Error(e.to_string()))?;
     Ok(format!("{}.{}", B64.encode(h), B64.encode(p)))
@@ -80,10 +88,13 @@ pub fn encode_hs256<T: Serialize>(claims: &T, secret: &[u8]) -> Result<String> {
 
 /// 署名を確かめたあとで、`exp`・`nbf`・`iss`・`aud`を検査して本文を返す。
 fn check_claims<T: DeserializeOwned>(payload_b64: &str, v: &Validation) -> Result<T> {
-    let value: serde_json::Value =
-        serde_json::from_slice(&b64(payload_b64)?).map_err(|e| Error(format!("invalid claims: {e}")))?;
+    let value: serde_json::Value = serde_json::from_slice(&b64(payload_b64)?)
+        .map_err(|e| Error(format!("invalid claims: {e}")))?;
     let t = now();
-    let exp = value.get("exp").and_then(|x| x.as_u64()).ok_or_else(|| Error("missing exp".into()))?;
+    let exp = value
+        .get("exp")
+        .and_then(|x| x.as_u64())
+        .ok_or_else(|| Error("missing exp".into()))?;
     if exp + v.leeway <= t {
         return err("token expired");
     }
@@ -116,7 +127,8 @@ pub fn decode_hs256<T: DeserializeOwned>(token: &str, secret: &[u8], v: &Validat
         return err("unexpected algorithm");
     }
     let key = hmac::Key::new(hmac::HMAC_SHA256, secret);
-    hmac::verify(&key, format!("{h}.{p}").as_bytes(), &b64(s)?).map_err(|_| Error("invalid signature".into()))?;
+    hmac::verify(&key, format!("{h}.{p}").as_bytes(), &b64(s)?)
+        .map_err(|_| Error("invalid signature".into()))?;
     check_claims(p, v)
 }
 
@@ -137,24 +149,45 @@ impl RsaPublicKey {
     }
 }
 
-pub fn decode_rs256<T: DeserializeOwned>(token: &str, key: &RsaPublicKey, v: &Validation) -> Result<T> {
+pub fn decode_rs256<T: DeserializeOwned>(
+    token: &str,
+    key: &RsaPublicKey,
+    v: &Validation,
+) -> Result<T> {
     let (h, p, s) = split(token)?;
     if decode_header(token)?.alg != "RS256" {
         return err("unexpected algorithm");
     }
-    let pk = signature::RsaPublicKeyComponents { n: key.n.as_slice(), e: key.e.as_slice() };
-    pk.verify(&signature::RSA_PKCS1_2048_8192_SHA256, format!("{h}.{p}").as_bytes(), &b64(s)?)
-        .map_err(|_| Error("invalid signature".into()))?;
+    let pk = signature::RsaPublicKeyComponents {
+        n: key.n.as_slice(),
+        e: key.e.as_slice(),
+    };
+    pk.verify(
+        &signature::RSA_PKCS1_2048_8192_SHA256,
+        format!("{h}.{p}").as_bytes(),
+        &b64(s)?,
+    )
+    .map_err(|_| Error("invalid signature".into()))?;
     check_claims(p, v)
 }
 
 /// テスト用のRS256署名(PKCS#8のDER鍵)。本番の発行には使わない想定。
-pub fn encode_rs256<T: Serialize>(claims: &T, kid: Option<&str>, pkcs8_der: &[u8]) -> Result<String> {
-    let kp = signature::RsaKeyPair::from_pkcs8(pkcs8_der).map_err(|e| Error(format!("invalid RSA key: {e}")))?;
+pub fn encode_rs256<T: Serialize>(
+    claims: &T,
+    kid: Option<&str>,
+    pkcs8_der: &[u8],
+) -> Result<String> {
+    let kp = signature::RsaKeyPair::from_pkcs8(pkcs8_der)
+        .map_err(|e| Error(format!("invalid RSA key: {e}")))?;
     let input = sign_input(claims, "RS256", kid)?;
     let mut sig = vec![0u8; kp.public().modulus_len()];
-    kp.sign(&signature::RSA_PKCS1_SHA256, &ring::rand::SystemRandom::new(), input.as_bytes(), &mut sig)
-        .map_err(|_| Error("signing failed".into()))?;
+    kp.sign(
+        &signature::RSA_PKCS1_SHA256,
+        &ring::rand::SystemRandom::new(),
+        input.as_bytes(),
+        &mut sig,
+    )
+    .map_err(|_| Error("signing failed".into()))?;
     Ok(format!("{input}.{}", B64.encode(sig)))
 }
 
@@ -162,7 +195,9 @@ pub fn encode_rs256<T: Serialize>(claims: &T, kid: Option<&str>, pkcs8_der: &[u8
 pub fn pem_to_der(pem: &str) -> Result<Vec<u8>> {
     use base64::engine::general_purpose::STANDARD;
     let body: String = pem.lines().filter(|l| !l.starts_with("-----")).collect();
-    STANDARD.decode(body.trim()).map_err(|e| Error(format!("invalid PEM: {e}")))
+    STANDARD
+        .decode(body.trim())
+        .map_err(|e| Error(format!("invalid PEM: {e}")))
 }
 
 #[cfg(test)]
@@ -186,7 +221,12 @@ mod tests {
         assert!(decode_hs256::<serde_json::Value>(&noexp, b"k", &Validation::default()).is_err());
         // 署名の改ざん・alg=none
         let (h, p, _) = split(&t).unwrap();
-        assert!(decode_hs256::<serde_json::Value>(&format!("{h}.{p}.AAAA"), b"k", &Validation::default()).is_err());
+        assert!(decode_hs256::<serde_json::Value>(
+            &format!("{h}.{p}.AAAA"),
+            b"k",
+            &Validation::default()
+        )
+        .is_err());
         let none = format!("{}.{p}.", B64.encode(br#"{"alg":"none"}"#));
         assert!(decode_hs256::<serde_json::Value>(&none, b"k", &Validation::default()).is_err());
     }
@@ -194,11 +234,21 @@ mod tests {
     #[test]
     fn issuer_and_audience_are_enforced() {
         let t = encode_hs256(&json!({"exp":exp(60),"iss":"i","aud":["x","y"]}), b"k").unwrap();
-        let ok = Validation { issuer: Some("i".into()), audience: Some("y".into()), ..Default::default() };
+        let ok = Validation {
+            issuer: Some("i".into()),
+            audience: Some("y".into()),
+            ..Default::default()
+        };
         assert!(decode_hs256::<serde_json::Value>(&t, b"k", &ok).is_ok());
-        let bad = Validation { issuer: Some("z".into()), ..Default::default() };
+        let bad = Validation {
+            issuer: Some("z".into()),
+            ..Default::default()
+        };
         assert!(decode_hs256::<serde_json::Value>(&t, b"k", &bad).is_err());
-        let bad = Validation { audience: Some("z".into()), ..Default::default() };
+        let bad = Validation {
+            audience: Some("z".into()),
+            ..Default::default()
+        };
         assert!(decode_hs256::<serde_json::Value>(&t, b"k", &bad).is_err());
     }
 

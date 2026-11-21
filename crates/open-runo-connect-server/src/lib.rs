@@ -14,12 +14,12 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
-use open_runo_connect_core as core;
-use open_runo_connect_core::{code, Codec, Protocol, Status};
 use http_body_util::combinators::BoxBody;
 use http_body_util::{BodyExt, Limited, StreamBody};
 use hyper::body::{Body as HttpBody, Frame};
 use hyper::{HeaderMap, Response, StatusCode};
+use open_runo_connect_core as core;
+use open_runo_connect_core::{code, Codec, Protocol, Status};
 use std::convert::Infallible;
 use std::pin::Pin;
 
@@ -162,10 +162,10 @@ fn finish(protocol: Protocol, st: &Status) -> Frame<Bytes> {
                 t.insert("grpc-message", v);
             }
             Frame::trailers(t)
-        }
+        },
         Protocol::GrpcWeb => {
             Frame::data(Bytes::from(core::encode_web_trailers(st.code, &st.message)))
-        }
+        },
         Protocol::GrpcWebText => Frame::data(Bytes::from(core::b64_encode(
             &core::encode_web_trailers(st.code, &st.message),
         ))),
@@ -222,7 +222,7 @@ fn error_response(protocol: Option<Protocol>, st: &Status) -> Response<Body> {
             builder(p, 200, &[])
                 .body(stream_body(futures::stream::iter([finish(p, st)])))
                 .expect("fixed headers are valid")
-        }
+        },
     }
 }
 
@@ -241,9 +241,17 @@ fn json_to_proto(info: &MethodInfo, body: &[u8]) -> Result<Vec<u8>, Status> {
     let text: &[u8] = if body.is_empty() { b"{}" } else { body };
     // 先に RS-JSON の安全モード(SIMD 版 `parse_secure_sonic`)で検査する(上限: 8 MiB・深さ64、重複キーは拒否)。
     {
-        let limits = rust_json::Limits { max_bytes: 8 * 1024 * 1024, max_depth: 64, reject_duplicate_keys: true };
-        let s = std::str::from_utf8(text)
-            .map_err(|_| Status::new(code::INVALID_ARGUMENT, "bad JSON request: body is not valid UTF-8"))?;
+        let limits = rust_json::Limits {
+            max_bytes: 8 * 1024 * 1024,
+            max_depth: 64,
+            reject_duplicate_keys: true,
+        };
+        let s = std::str::from_utf8(text).map_err(|_| {
+            Status::new(
+                code::INVALID_ARGUMENT,
+                "bad JSON request: body is not valid UTF-8",
+            )
+        })?;
         rust_json::parse_secure_sonic(s, &limits)
             .map_err(|e| Status::new(code::INVALID_ARGUMENT, format!("bad JSON request: {e}")))?;
     }
@@ -353,14 +361,14 @@ where
                 code::INVALID_ARGUMENT,
                 "this method streams: use application/connect+proto or application/connect+json",
             ));
-        }
+        },
         Protocol::ConnectStream(_) if !info.server_streaming => {
             return connect_error(&Status::new(
                 code::INVALID_ARGUMENT,
                 "this method is unary: use application/proto or application/json",
             ));
-        }
-        _ => {}
+        },
+        _ => {},
     }
     // 圧縮は未対応(identityのみ)。
     let enc_header = if matches!(protocol, Protocol::ConnectStream(_)) {
@@ -384,7 +392,7 @@ where
                 Some(protocol),
                 &Status::new(code::RESOURCE_EXHAUSTED, "request too large"),
             );
-        }
+        },
     };
     let collected = if protocol == Protocol::GrpcWebText {
         match core::decode_text_body(&collected) {
@@ -394,7 +402,7 @@ where
                     Some(protocol),
                     &Status::new(code::INVALID_ARGUMENT, "invalid base64 body"),
                 );
-            }
+            },
         }
     } else {
         collected
@@ -410,14 +418,14 @@ where
                     Some(protocol),
                     &Status::new(code::UNIMPLEMENTED, "compressed messages are not supported"),
                 );
-            }
+            },
             None if collected.is_empty() => Vec::new(),
             None => {
                 return error_response(
                     Some(protocol),
                     &Status::new(code::INVALID_ARGUMENT, "malformed frame"),
                 );
-            }
+            },
         }
     } else {
         collected.to_vec()
@@ -449,7 +457,7 @@ where
                         }
                     }
                     resp
-                }
+                },
                 Err(e) => error_response(Some(protocol), &e),
             },
             _ => {
@@ -464,7 +472,7 @@ where
                 builder(protocol, 200, &headers)
                     .body(stream_body(futures::stream::iter(frames)))
                     .expect("fixed headers are valid")
-            }
+            },
         },
         Ok(Output {
             reply: Reply::Stream(s),
@@ -482,7 +490,7 @@ where
             builder(protocol, 200, &headers)
                 .body(stream_body(data.chain(end)))
                 .expect("fixed headers are valid")
-        }
+        },
     }
 }
 

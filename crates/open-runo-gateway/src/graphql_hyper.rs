@@ -86,7 +86,12 @@ pub fn graphql_post_handler(
             // サブグラフへ転送してよいヘッダ(CSRFの目印 `x-reaxt` だけ。認証系は転送しない)。
             let forward_headers: Vec<(String, String)> = crate::remote_subgraphs::FORWARD_HEADERS
                 .iter()
-                .filter_map(|n| req.headers().get(*n).and_then(|v| v.to_str().ok()).map(|v| (n.to_string(), v.to_string())))
+                .filter_map(|n| {
+                    req.headers()
+                        .get(*n)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|v| (n.to_string(), v.to_string()))
+                })
                 .collect();
             let body = match http_body_util::Limited::new(req.into_body(), MAX_BODY_BYTES)
                 .collect()
@@ -107,15 +112,16 @@ pub fn graphql_post_handler(
                     "batched requests are not supported; send one operation per request",
                 );
             }
-            let mut request: async_graphql::Request = match open_runo_router::secure_json::from_slice(&body) {
-                Ok(v) => v,
-                Err(e) => {
-                    return gql_error(
-                        hyper::StatusCode::BAD_REQUEST,
-                        format!("invalid request: {e}"),
-                    )
-                },
-            };
+            let mut request: async_graphql::Request =
+                match open_runo_router::secure_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        return gql_error(
+                            hyper::StatusCode::BAD_REQUEST,
+                            format!("invalid request: {e}"),
+                        )
+                    },
+                };
 
             let hash = persisted_query_hash(&request);
             let raw = if request.query.trim().is_empty() {

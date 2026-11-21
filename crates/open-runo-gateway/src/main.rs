@@ -49,9 +49,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&state),
         Arc::clone(&grpc_guardian),
     )
-    .with_ext(Arc::new(open_runo_gateway::appserver_admin::AppServerAdmin::new(
-        Arc::clone(&appserver_registry),
-    )));
+    .with_ext(Arc::new(
+        open_runo_gateway::appserver_admin::AppServerAdmin::new(Arc::clone(&appserver_registry)),
+    ));
     // GraphQL(Federationの問い合わせ)の本番向け防御(登録済みクエリのみ・深さ/複雑さ上限・
     // イントロスペクション停止・エイリアス/バッチ対策)。`OPEN_RUNO_ENV=production`で既定オン。
     let graphql_sec =

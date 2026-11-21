@@ -22,6 +22,12 @@ pub struct AppServerAdmin {
     registry: Arc<SupervisedTenantRegistry>,
 }
 
+impl std::fmt::Debug for AppServerAdmin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppServerAdmin").finish_non_exhaustive()
+    }
+}
+
 impl AppServerAdmin {
     pub fn new(registry: Arc<SupervisedTenantRegistry>) -> Self {
         Self { registry }
@@ -64,12 +70,7 @@ fn timeout_of(req: &Value) -> Result<Duration, GrpcErr> {
 
 #[async_trait::async_trait]
 impl AdminExt for AppServerAdmin {
-    async fn call(
-        &self,
-        method: &str,
-        _actor: &str,
-        req: Value,
-    ) -> Option<Result<Value, GrpcErr>> {
+    async fn call(&self, method: &str, _actor: &str, req: Value) -> Option<Result<Value, GrpcErr>> {
         let reg = Arc::clone(&self.registry);
         Some(match method {
             "AppServerRegisterProcess" => register_process(reg, req).await,
@@ -191,9 +192,11 @@ async fn register_process(
     };
     let poll = Duration::from_millis(ms_of(&req, "poll_interval_ms")?.unwrap_or(1000));
     let h = host.clone();
-    tokio::task::spawn_blocking(move || reg.register_with_managed_process(&h, profile, policy, poll))
-        .await
-        .map_err(|_| GrpcErr::new(code::INTERNAL, "failed to start managed process"))?;
+    tokio::task::spawn_blocking(move || {
+        reg.register_with_managed_process(&h, profile, policy, poll)
+    })
+    .await
+    .map_err(|_| GrpcErr::new(code::INTERNAL, "failed to start managed process"))?;
     Ok(json!({ "status": "registered", "host": host }))
 }
 
@@ -269,9 +272,13 @@ mod tests {
                 .unwrap();
             assert_eq!(e.code, code::NOT_FOUND, "{m}");
         }
-        let st = call(&s, "AppServerProcessStatus", json!({"host":"none.example.jp"}))
-            .await
-            .unwrap();
+        let st = call(
+            &s,
+            "AppServerProcessStatus",
+            json!({"host":"none.example.jp"}),
+        )
+        .await
+        .unwrap();
         assert!(st["status"].is_null());
         let l = call(&s, "AppServerListProcesses", json!({})).await.unwrap();
         assert_eq!(l["processes"].as_array().unwrap().len(), 0);

@@ -92,7 +92,11 @@ pub fn swagger_ui_handler() -> Handler {
         Box::pin(async move {
             crate::hyper_compat::html_response(
                 StatusCode::OK,
-                docs_html(DocsUi::SwaggerUi, "open-runo HTTP surface (health/ACME/MCP/SCIM)", "/api/openapi.json"),
+                docs_html(
+                    DocsUi::SwaggerUi,
+                    "open-runo HTTP surface (health/ACME/MCP/SCIM)",
+                    "/api/openapi.json",
+                ),
             )
         })
     })
@@ -104,7 +108,11 @@ pub fn redoc_handler() -> Handler {
         Box::pin(async move {
             crate::hyper_compat::html_response(
                 StatusCode::OK,
-                docs_html(DocsUi::Redoc, "open-runo HTTP surface (health/ACME/MCP/SCIM)", "/api/openapi.json"),
+                docs_html(
+                    DocsUi::Redoc,
+                    "open-runo HTTP surface (health/ACME/MCP/SCIM)",
+                    "/api/openapi.json",
+                ),
             )
         })
     })

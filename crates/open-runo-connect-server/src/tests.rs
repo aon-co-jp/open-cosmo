@@ -91,7 +91,7 @@ impl Service for Demo {
                 );
                 out.headers.push(("x-served-by".into(), "demo".into()));
                 Ok(out)
-            }
+            },
             "Fail" => Err(Status::new(code::NOT_FOUND, "見つかりません")),
             "Ticks" => Ok(Output::stream(Box::pin(futures::stream::iter(
                 (1..=3).map(|i| {

@@ -4,7 +4,7 @@
 //! 経由でGraphQL(`open-runo-gateway`の`admin`)が提供する。ここに残すのは、REST以外の
 //! 手段が無い**外部プロトコル**だけ:
 //! - SCIM 2.0(`/scim/v2/Users`・`/Groups`): RFC 7644でIdPがRESTで叩く標準プロトコル。
-//! (旧`POST /internal/db/mutate`は`Admin/DbMutate`のConnect/gRPCへ移行済み。`db_mutate_core`)
+//!   (旧`POST /internal/db/mutate`は`Admin/DbMutate`のConnect/gRPCへ移行済み。`db_mutate_core`)
 
 use crate::auth_hyper::authenticate_with_session;
 use crate::hyper_compat::{
@@ -96,7 +96,11 @@ pub async fn db_mutate_core(
     if let Ok(receipt_json) = serde_json::to_string(&receipt) {
         let _ = state
             .db
-            .put(MUTATION_RECEIPTS_TABLE, &body.idempotency_key, &receipt_json)
+            .put(
+                MUTATION_RECEIPTS_TABLE,
+                &body.idempotency_key,
+                &receipt_json,
+            )
             .await;
     }
     Ok(serde_json::to_value(&receipt).unwrap_or_default())
@@ -796,7 +800,10 @@ mod tests {
             .await
             .expect("mutate should succeed");
         assert_eq!(receipt["committed"], serde_json::json!(true));
-        assert_eq!(receipt["idempotency_key"], serde_json::json!("mutate-key-1"));
+        assert_eq!(
+            receipt["idempotency_key"],
+            serde_json::json!("mutate-key-1")
+        );
         // InMemoryBackendはコミット概念を持たないため正直にNoneが返る。
         assert_eq!(receipt["db_commit_id"], serde_json::json!(null));
         let stored: serde_json::Value = serde_json::from_str(

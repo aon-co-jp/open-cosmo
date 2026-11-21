@@ -202,7 +202,7 @@ impl Protocol {
             "application/grpc-web" | "application/grpc-web+proto" => Some(Protocol::GrpcWeb),
             "application/grpc-web-text" | "application/grpc-web-text+proto" => {
                 Some(Protocol::GrpcWebText)
-            }
+            },
             "application/proto" => Some(Protocol::ConnectUnary(Codec::Proto)),
             "application/json" => Some(Protocol::ConnectUnary(Codec::Json)),
             "application/connect+proto" => Some(Protocol::ConnectStream(Codec::Proto)),
@@ -275,7 +275,7 @@ pub fn parse_web_trailers(body: &[u8]) -> (i32, String) {
             match k.trim().to_ascii_lowercase().as_str() {
                 "grpc-status" => status = v.trim().parse().unwrap_or(code::UNKNOWN),
                 "grpc-message" => message = percent_decode(v.trim()),
-                _ => {}
+                _ => {},
             }
         }
     }
@@ -365,7 +365,7 @@ pub fn decode_text_body(body: &[u8]) -> Option<Vec<u8>> {
                     j += 1;
                 }
                 j
-            }
+            },
             None => rest.len(),
         };
         out.extend(

@@ -11,4 +11,10 @@ cognitive-complexity-threshold = 30
 
 # MSRV should match [workspace.package].rust-version in Cargo.toml so clippy
 # doesn't suggest APIs newer than what open-runo supports.
-msrv = "1.75"
+msrv = "1.88"
+
+# `unwrap()`/`expect()` in test code is idiomatic and desirable (a failing
+# unwrap *is* the test assertion). Keep the `unwrap_used`/`expect_used`
+# Quality Gate for production code only.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

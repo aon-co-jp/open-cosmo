@@ -68,6 +68,24 @@ pub struct Output {
     pub headers: Vec<(&'static str, String)>,
 }
 
+impl std::fmt::Debug for Reply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unary(b) => f.debug_tuple("Unary").field(&b.len()).finish(),
+            Self::Stream(_) => f.write_str("Stream(..)"),
+        }
+    }
+}
+
+impl std::fmt::Debug for Output {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Output")
+            .field("reply", &self.reply)
+            .field("headers", &self.headers)
+            .finish()
+    }
+}
+
 impl Output {
     fn unary(bytes: Vec<u8>) -> Self {
         Self {
@@ -480,7 +498,7 @@ impl AdminGrpc {
                 return Err(GrpcErr::new(
                     code::UNIMPLEMENTED,
                     format!("unknown method: {other}"),
-                ))
+                ));
             },
         })
     }
@@ -544,6 +562,9 @@ pub fn method_of(path: &str) -> Option<&str> {
 
 fn pool() -> &'static prost_reflect::DescriptorPool {
     static POOL: OnceLock<prost_reflect::DescriptorPool> = OnceLock::new();
+    // 記述子セットはビルド時に`open-runo-proto`のbuild.rsが生成して埋め込むもので、
+    // 読めないならビルドの不具合。起動直後に必ず気づけるよう、ここだけは止める。
+    #[allow(clippy::expect_used)]
     POOL.get_or_init(|| {
         prost_reflect::DescriptorPool::decode(open_runo_proto::FILE_DESCRIPTOR_SET)
             .expect("admin descriptor set must decode")
@@ -612,8 +633,8 @@ pub fn browser_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
     use crate::keyring::GuardianConfig;
+    use futures::StreamExt;
 
     fn admin() -> (AdminGrpc, Arc<AppState>) {
         let state = Arc::new(AppState::new());
@@ -1064,7 +1085,7 @@ mod tests {
             let cfg = crate::grpc::grpc_tls_config(
                 t.server_cert.as_bytes(),
                 t.server_key.as_bytes(),
-                mtls.then(|| t.ca_pem.as_bytes()),
+                mtls.then_some(t.ca_pem.as_bytes()),
             )
             .unwrap();
             let (addr, h) = crate::grpc::serve_grpc_tls(

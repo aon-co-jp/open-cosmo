@@ -22,8 +22,8 @@
 use async_graphql::parser::{
     parse_query,
     types::{
-        DocumentOperations, ExecutableDocument, Field, OperationDefinition, OperationType,
-        InlineFragment, Selection, SelectionSet,
+        DocumentOperations, ExecutableDocument, Field, InlineFragment, OperationDefinition,
+        OperationType, Selection, SelectionSet,
     },
 };
 use open_runo_federation::{parse_subgraph_model, SubgraphModel};
@@ -139,7 +139,7 @@ impl RemoteSubgraphs {
             Some(_) => {
                 d.remove(name);
                 true
-            }
+            },
             None => true,
         }
     }
@@ -193,7 +193,10 @@ impl RemoteSubgraphs {
                 .unwrap_or(default)
                 .to_string()
         };
-        let (qname, mname) = (root_name("queryType", "Query"), root_name("mutationType", "Mutation"));
+        let (qname, mname) = (
+            root_name("queryType", "Query"),
+            root_name("mutationType", "Mutation"),
+        );
         for root in ["queryType", "mutationType"] {
             if let Some(list) = v
                 .pointer(&format!("/data/__schema/{root}/fields"))
@@ -219,7 +222,9 @@ impl RemoteSubgraphs {
             .await
         {
             if let Ok(bytes) = r.bytes().await {
-                if let Ok(v) = open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
+                if let Ok(v) =
+                    open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes)
+                {
                     if let Some(sdl) = v.pointer("/data/_service/sdl").and_then(|x| x.as_str()) {
                         let mut m = parse_subgraph_model(sdl);
                         normalize_root_names(&mut m, &qname, &mname);
@@ -237,7 +242,8 @@ impl RemoteSubgraphs {
         operation_name: Option<&str>,
         variables: serde_json::Value,
     ) -> Routed {
-        self.route_with_headers(query, operation_name, variables, &[]).await
+        self.route_with_headers(query, operation_name, variables, &[])
+            .await
     }
 
     /// Like [`route`](Self::route), also sending `headers` (callers pass only [`FORWARD_HEADERS`]).
@@ -351,7 +357,9 @@ impl RemoteSubgraphs {
         let mut joins: Vec<Join> = Vec::new();
         let mut query_parts: Vec<String> = Vec::new();
         for sel in &op.selection_set.node.items {
-            let Selection::Field(f) = &sel.node else { return None };
+            let Selection::Field(f) = &sel.node else {
+                return None;
+            };
             let f = &f.node;
             if f.name.node.starts_with("__") {
                 return None;
@@ -359,12 +367,33 @@ impl RemoteSubgraphs {
             if !field_included(f, variables)? {
                 continue;
             }
-            let rkey = f.alias.as_ref().map_or(f.name.node.as_str(), |a| a.node.as_str()).to_string();
-            let ret = a.types.get(root_type).and_then(|q| q.get(f.name.node.as_str()));
+            let rkey = f
+                .alias
+                .as_ref()
+                .map_or(f.name.node.as_str(), |a| a.node.as_str())
+                .to_string();
+            let ret = a
+                .types
+                .get(root_type)
+                .and_then(|q| q.get(f.name.node.as_str()));
             match ret {
                 Some(ty) if !f.selection_set.node.items.is_empty() => {
-                    let provided = a.provides.get(&(root_type.to_string(), f.name.node.to_string())).cloned().unwrap_or_default();
-                    query_parts.push(plan_field(f, ty, &provided, &[rkey], a, &models, &target.0, variables, &mut joins)?);
+                    let provided = a
+                        .provides
+                        .get(&(root_type.to_string(), f.name.node.to_string()))
+                        .cloned()
+                        .unwrap_or_default();
+                    query_parts.push(plan_field(
+                        f,
+                        ty,
+                        &provided,
+                        &[rkey],
+                        a,
+                        &models,
+                        &target.0,
+                        variables,
+                        &mut joins,
+                    )?);
                 },
                 _ => query_parts.push(print_field(f, 0, variables)?),
             }
@@ -379,20 +408,31 @@ impl RemoteSubgraphs {
             head = head.replacen("query", "mutation", 1);
         }
         let q = format!("{head} {{ {body_sel} }}");
-        let Routed::Forwarded(mut v) = self.forward(&target.0, &target.1, &q, None, variables, headers).await else {
-            return Some(Routed::Rejected(format!("subgraph `{}` could not run the entity query", target.0)));
+        let Routed::Forwarded(mut v) = self
+            .forward(&target.0, &target.1, &q, None, variables, headers)
+            .await
+        else {
+            return Some(Routed::Rejected(format!(
+                "subgraph `{}` could not run the entity query",
+                target.0
+            )));
         };
         let mut errors: Vec<serde_json::Value> = Vec::new();
         // Shallow joins first, so a deeper join sees the fields a shallower one added.
         joins.sort_by_key(|j| (j.path.len(), j.rank));
         for join in &joins {
-            let Some(data) = v.get_mut("data") else { continue };
+            let Some(data) = v.get_mut("data") else {
+                continue;
+            };
             let mut objs = collect_at(data, &join.path);
             let mut idx: Vec<usize> = Vec::new();
             let mut reps: Vec<serde_json::Value> = Vec::new();
             for (i, o) in objs.iter().enumerate() {
                 let mut r = serde_json::Map::new();
-                r.insert("__typename".into(), serde_json::Value::String(join.ty.clone()));
+                r.insert(
+                    "__typename".into(),
+                    serde_json::Value::String(join.ty.clone()),
+                );
                 let mut ok = true;
                 for k in join.key.iter().chain(join.requires.iter()) {
                     match o.get(k.as_str()) {
@@ -411,13 +451,19 @@ impl RemoteSubgraphs {
                 continue;
             }
             let inner = join.texts.join(" ");
-            let ent_sel = format!("_entities(representations: $reps) {{ ... on {} {{ {inner} }} }}", join.ty);
+            let ent_sel = format!(
+                "_entities(representations: $reps) {{ ... on {} {{ {inner} }} }}",
+                join.ty
+            );
             let mut vars = variables.as_object().cloned().unwrap_or_default();
             vars.insert("reps".into(), serde_json::Value::Array(reps));
             let head = query_head(op, &inner, &["$reps: [_Any!]!".to_string()]);
             let bq = format!("{head} {{ {ent_sel} }}");
             let (bn, bu, _) = &models[join.b];
-            match self.forward(bn, bu, &bq, None, &serde_json::Value::Object(vars), headers).await {
+            match self
+                .forward(bn, bu, &bq, None, &serde_json::Value::Object(vars), headers)
+                .await
+            {
                 Routed::Forwarded(r) => {
                     if let Some(list) = r.pointer("/data/_entities").and_then(|x| x.as_array()) {
                         for (k, ent) in list.iter().enumerate() {
@@ -456,7 +502,9 @@ impl RemoteSubgraphs {
         }
         if !errors.is_empty() {
             if let Some(m) = v.as_object_mut() {
-                let e = m.entry("errors").or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                let e = m
+                    .entry("errors")
+                    .or_insert_with(|| serde_json::Value::Array(Vec::new()));
                 if let Some(arr) = e.as_array_mut() {
                     arr.extend(errors);
                 }
@@ -482,7 +530,8 @@ impl RemoteSubgraphs {
             .map(|(n, _)| n.as_str())
             .collect::<Vec<_>>()
             .join("` and `");
-        let reject = |why: &str| Routed::Rejected(format!("query spans subgraphs `{names}`; {why}"));
+        let reject =
+            |why: &str| Routed::Rejected(format!("query spans subgraphs `{names}`; {why}"));
         let Some(op) = select_operation(doc, operation_name) else {
             return reject("the operation could not be selected");
         };
@@ -540,7 +589,11 @@ impl RemoteSubgraphs {
             } else {
                 format!("query({})", defs.join(", "))
             };
-            calls.push((name.clone(), url.clone(), format!("{head} {{ {body_sel} }}")));
+            calls.push((
+                name.clone(),
+                url.clone(),
+                format!("{head} {{ {body_sel} }}"),
+            ));
         }
         let futs = calls
             .iter()
@@ -573,6 +626,8 @@ impl RemoteSubgraphs {
     }
 
     /// Send one query to one subgraph (headers filtered by trust).
+    // 1回の送信に要る値(宛先・問い合わせ・変数・ヘッダー)をそのまま受け取る内部関数。
+    #[allow(clippy::too_many_arguments)]
     async fn forward(
         &self,
         name: &str,
@@ -595,14 +650,16 @@ impl RemoteSubgraphs {
         }
         match req.send().await {
             Ok(r) => match r.bytes().await {
-                Ok(bytes) => match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
-                    Ok(v) => Routed::Forwarded(v),
-                    Err(e) => {
-                        // A reply that is not valid (or is oversized / over-nested) JSON: stop trusting it.
-                        self.revoke(&name);
-                        Routed::Rejected(format!(
-                            "subgraph `{name}` returned an invalid response: {e}"
-                        ))
+                Ok(bytes) => {
+                    match open_runo_router::secure_json::from_slice::<serde_json::Value>(&bytes) {
+                        Ok(v) => Routed::Forwarded(v),
+                        Err(e) => {
+                            // A reply that is not valid (or is oversized / over-nested) JSON: stop trusting it.
+                            self.revoke(&name);
+                            Routed::Rejected(format!(
+                                "subgraph `{name}` returned an invalid response: {e}"
+                            ))
+                        },
                     }
                 },
                 Err(e) => {
@@ -610,7 +667,7 @@ impl RemoteSubgraphs {
                     Routed::Rejected(format!(
                         "subgraph `{name}` returned an invalid response: {e}"
                     ))
-                }
+                },
             },
             Err(e) => Routed::Rejected(format!("subgraph `{name}` is unreachable: {e}")),
         }
@@ -629,7 +686,10 @@ fn inline_named_fragments(doc: &mut ExecutableDocument) {
     let frags = doc.fragments.clone();
     fn walk(
         set: &mut SelectionSet,
-        frags: &HashMap<async_graphql::Name, async_graphql::Positioned<async_graphql::parser::types::FragmentDefinition>>,
+        frags: &HashMap<
+            async_graphql::Name,
+            async_graphql::Positioned<async_graphql::parser::types::FragmentDefinition>,
+        >,
         stack: &mut Vec<String>,
     ) {
         for sel in &mut set.items {
@@ -638,7 +698,9 @@ fn inline_named_fragments(doc: &mut ExecutableDocument) {
                 Selection::InlineFragment(f) => walk(&mut f.node.selection_set.node, frags, stack),
                 Selection::FragmentSpread(sp) => {
                     let name = sp.node.fragment_name.node.to_string();
-                    let Some(def) = frags.get(&sp.node.fragment_name.node) else { continue };
+                    let Some(def) = frags.get(&sp.node.fragment_name.node) else {
+                        continue;
+                    };
                     if !def.node.directives.is_empty() || stack.contains(&name) || stack.len() > 8 {
                         continue;
                     }
@@ -651,8 +713,9 @@ fn inline_named_fragments(doc: &mut ExecutableDocument) {
                         directives: sp.node.directives.clone(),
                         selection_set: inner,
                     };
-                    sel.node = Selection::InlineFragment(async_graphql::Positioned::new(frag, sp.pos));
-                }
+                    sel.node =
+                        Selection::InlineFragment(async_graphql::Positioned::new(frag, sp.pos));
+                },
             }
         }
     }
@@ -673,7 +736,10 @@ fn select_operation<'a>(
     match &doc.operations {
         DocumentOperations::Single(op) => Some(&op.node),
         DocumentOperations::Multiple(map) => match operation_name {
-            Some(n) => map.iter().find(|(k, _)| k.as_str() == n).map(|(_, o)| &o.node),
+            Some(n) => map
+                .iter()
+                .find(|(k, _)| k.as_str() == n)
+                .map(|(_, o)| &o.node),
             None if map.len() == 1 => map.values().next().map(|o| &o.node),
             None => None,
         },
@@ -742,7 +808,12 @@ fn print_field(f: &Field, depth: usize, vars: &serde_json::Value) -> Option<Stri
 /// flattened into its parent (its `@skip` / `@include` are evaluated here). Fragments with a type
 /// condition or named spreads give `None` (plain forwarding): flattening them would be wrong for
 /// interfaces and unions.
-fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize, vars: &serde_json::Value, out: &mut Vec<String>) -> Option<()> {
+fn print_selections(
+    items: &[async_graphql::Positioned<Selection>],
+    depth: usize,
+    vars: &serde_json::Value,
+    out: &mut Vec<String>,
+) -> Option<()> {
     if depth > 16 {
         return None;
     }
@@ -753,7 +824,7 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
                 if !t.is_empty() {
                     out.push(t);
                 }
-            }
+            },
             Selection::InlineFragment(f) => {
                 if f.node.type_condition.is_some() {
                     return None;
@@ -777,7 +848,7 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
                 if keep {
                     print_selections(&f.node.selection_set.node.items, depth + 1, vars, out)?;
                 }
-            }
+            },
             Selection::FragmentSpread(_) => return None,
         }
     }
@@ -786,7 +857,13 @@ fn print_selections(items: &[async_graphql::Positioned<Selection>], depth: usize
 
 /// The fields of a selection list, with untyped inline fragments flattened (their `@skip` / `@include`
 /// evaluated). `None` for typed or named fragments and other directives.
-fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &serde_json::Value, depth: usize, ty: Option<&str>, concrete: bool) -> Option<Vec<&'a Field>> {
+fn flatten_fields<'a>(
+    items: &'a [async_graphql::Positioned<Selection>],
+    vars: &serde_json::Value,
+    depth: usize,
+    ty: Option<&str>,
+    concrete: bool,
+) -> Option<Vec<&'a Field>> {
     if depth > 16 {
         return None;
     }
@@ -823,9 +900,15 @@ fn flatten_fields<'a>(items: &'a [async_graphql::Positioned<Selection>], vars: &
                     }
                 }
                 if keep {
-                    out.extend(flatten_fields(&f.node.selection_set.node.items, vars, depth + 1, ty, concrete)?);
+                    out.extend(flatten_fields(
+                        &f.node.selection_set.node.items,
+                        vars,
+                        depth + 1,
+                        ty,
+                        concrete,
+                    )?);
                 }
-            }
+            },
             Selection::FragmentSpread(_) => return None,
         }
     }
@@ -847,12 +930,27 @@ fn normalize_root_names(m: &mut SubgraphModel, query: &str, mutation: &str) {
         }
         m.externals = std::mem::take(&mut m.externals)
             .into_iter()
-            .map(|(t, f)| if t == from { (to.to_string(), f) } else { (t, f) })
+            .map(|(t, f)| {
+                if t == from {
+                    (to.to_string(), f)
+                } else {
+                    (t, f)
+                }
+            })
             .collect();
         for map in [&mut m.provides, &mut m.requires] {
             *map = std::mem::take(map)
                 .into_iter()
-                .map(|((t, f), v)| (if t == from { (to.to_string(), f) } else { (t, f) }, v))
+                .map(|((t, f), v)| {
+                    (
+                        if t == from {
+                            (to.to_string(), f)
+                        } else {
+                            (t, f)
+                        },
+                        v,
+                    )
+                })
                 .collect();
         }
     }
@@ -879,6 +977,8 @@ struct Join {
 /// Make `field` of `ty` available for a representation: `-1` if subgraph A already has it, otherwise the
 /// rank of the extra join (against the subgraph that owns it, and recursively its own `@requires`)
 /// that supplies it. `None` when no subgraph can supply it.
+// 再帰する計画処理の内部関数。文脈を構造体にまとめると呼び出し箇所が大きく変わるため、引数のまま保つ。
+#[allow(clippy::too_many_arguments)]
 fn supply(
     ty: &str,
     field: &str,
@@ -917,6 +1017,8 @@ fn supply(
 
 /// Print field `f` (returning entity/object type `ty` of subgraph A) for subgraph A, moving the fields
 /// only another subgraph defines into `joins`, recursively through nested object fields.
+// 再帰する計画処理の内部関数。文脈を構造体にまとめると呼び出し箇所が大きく変わるため、引数のまま保つ。
+#[allow(clippy::too_many_arguments)]
 fn plan_field(
     f: &Field,
     ty: &str,
@@ -936,18 +1038,30 @@ fn plan_field(
     let mut deps: Vec<(usize, String, Vec<String>)> = Vec::new();
     let mut avail: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut selected: Vec<String> = Vec::new();
-    for c in flatten_fields(&f.selection_set.node.items, vars, 0, Some(ty), !a.has_abstract)? {
+    for c in flatten_fields(
+        &f.selection_set.node.items,
+        vars,
+        0,
+        Some(ty),
+        !a.has_abstract,
+    )? {
         if !field_included(c, vars)? {
             continue;
         }
         let cname = c.name.node.as_str();
-        let ckey = c.alias.as_ref().map_or(cname, |x| x.node.as_str()).to_string();
+        let ckey = c
+            .alias
+            .as_ref()
+            .map_or(cname, |x| x.node.as_str())
+            .to_string();
         if c.alias.is_none() {
             selected.push(cname.to_string());
         }
         // A field marked `@external` is not resolved here, unless the parent field `@provides` it.
-        let external = a.externals.contains(&(ty.to_string(), cname.to_string())) && !provided.iter().any(|p| p == cname);
-        let owned_here = cname == "__typename" || (!external && a.types.get(ty).is_some_and(|t| t.contains_key(cname)));
+        let external = a.externals.contains(&(ty.to_string(), cname.to_string()))
+            && !provided.iter().any(|p| p == cname);
+        let owned_here = cname == "__typename"
+            || (!external && a.types.get(ty).is_some_and(|t| t.contains_key(cname)));
         if !owned_here {
             let other = models.iter().position(|(n, _, m)| {
                 n != a_name
@@ -957,7 +1071,12 @@ fn plan_field(
             if let Some(b) = other {
                 let text = print_field(c, 1, vars)?;
                 // `@requires` of the other subgraph: subgraph A must be able to supply those fields.
-                let reqs = models[b].2.requires.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
+                let reqs = models[b]
+                    .2
+                    .requires
+                    .get(&(ty.to_string(), cname.to_string()))
+                    .cloned()
+                    .unwrap_or_default();
                 for r in &reqs {
                     // A supplies it, or another subgraph does (a chain of joins); otherwise no join.
                     supply(ty, r, a, models, a_name, &mut deps, &mut avail, 0)?;
@@ -979,23 +1098,43 @@ fn plan_field(
         // A nested object field that A owns: look inside it for more joins.
         let child_ty = a.types.get(ty).and_then(|t| t.get(cname));
         match child_ty {
-            Some(cty) if !c.selection_set.node.items.is_empty() && a.types.contains_key(cty.as_str()) => {
+            Some(cty)
+                if !c.selection_set.node.items.is_empty() && a.types.contains_key(cty.as_str()) =>
+            {
                 let mut p = path.to_vec();
                 p.push(ckey);
-                let child_provided = a.provides.get(&(ty.to_string(), cname.to_string())).cloned().unwrap_or_default();
-                local.push(plan_field(c, cty, &child_provided, &p, a, models, a_name, vars, joins)?);
+                let child_provided = a
+                    .provides
+                    .get(&(ty.to_string(), cname.to_string()))
+                    .cloned()
+                    .unwrap_or_default();
+                local.push(plan_field(
+                    c,
+                    cty,
+                    &child_provided,
+                    &p,
+                    a,
+                    models,
+                    a_name,
+                    vars,
+                    joins,
+                )?);
             },
             _ => local.push(print_field(c, 1, vars)?),
         }
     }
     let a_owns = |k: &str| {
-        a.types.get(ty).is_some_and(|t| t.contains_key(k)) && !a.externals.contains(&(ty.to_string(), k.to_string()))
+        a.types.get(ty).is_some_and(|t| t.contains_key(k))
+            && !a.externals.contains(&(ty.to_string(), k.to_string()))
     };
     // Joins: the ones the client's fields need, plus the extra ones that supply `@requires` fields.
     let mut specs: Vec<(usize, Vec<String>, Vec<String>)> = ext.clone();
     for (c, field, creqs) in &deps {
         // The client may already have selected that field itself (then it is already one of `ext`).
-        if !ext.iter().any(|(b, texts, _)| b == c && texts.iter().any(|t| t == field)) {
+        if !ext
+            .iter()
+            .any(|(b, texts, _)| b == c && texts.iter().any(|t| t == field))
+        {
             specs.push((*c, vec![field.clone()], creqs.clone()));
         }
     }
@@ -1016,7 +1155,11 @@ fn plan_field(
                 added.push(k.clone());
             }
         }
-        let rank = reqs.iter().map(|r| avail.get(r).copied().unwrap_or(-1)).max().map_or(0, |m| m + 1);
+        let rank = reqs
+            .iter()
+            .map(|r| avail.get(r).copied().unwrap_or(-1))
+            .max()
+            .map_or(0, |m| m + 1);
         joins.push(Join {
             path: path.to_vec(),
             b: *b,
@@ -1043,14 +1186,21 @@ fn plan_field(
     }
     head.push_str(f.name.node.as_str());
     if !f.arguments.is_empty() {
-        let args = f.arguments.iter().map(|(k, v)| format!("{}: {}", k.node, v.node)).collect::<Vec<_>>();
+        let args = f
+            .arguments
+            .iter()
+            .map(|(k, v)| format!("{}: {}", k.node, v.node))
+            .collect::<Vec<_>>();
         head.push_str(&format!("({})", args.join(", ")));
     }
     Some(format!("{head} {{ {} }}", local.join(" ")))
 }
 
 /// Every JSON object reached by following `path` (response keys) from `data`, through arrays.
-fn collect_at<'a>(data: &'a mut serde_json::Value, path: &[String]) -> Vec<&'a mut serde_json::Value> {
+fn collect_at<'a>(
+    data: &'a mut serde_json::Value,
+    path: &[String],
+) -> Vec<&'a mut serde_json::Value> {
     let mut cur: Vec<&'a mut serde_json::Value> = vec![data];
     for key in path {
         let mut next: Vec<&'a mut serde_json::Value> = Vec::new();
@@ -1250,11 +1400,21 @@ mod tests {
 
     #[tokio::test]
     async fn forwards_only_the_allowed_headers() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         let h: Handler = Arc::new(move |req, _p| {
             Box::pin(async move {
-                let reaxt = req.headers().get("x-reaxt").and_then(|v| v.to_str().ok()).map(str::to_string);
-                let auth = req.headers().get("authorization").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let reaxt = req
+                    .headers()
+                    .get("x-reaxt")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
+                let auth = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
                 let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
                 let out = if body["query"].as_str().unwrap_or("").contains("__schema") {
                     serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"items"}]},"mutationType":null}}})
@@ -1270,11 +1430,14 @@ mod tests {
         let r = RemoteSubgraphs::new(vec![("items".into(), format!("http://{addr}/graphql"))]);
         // 呼び出し側が渡したヘッダはそのまま送られる(許可リストの絞り込みは呼び出し側=FORWARD_HEADERS)
         let sent = vec![("x-reaxt".to_string(), "1".to_string())];
-        match r.route_with_headers("{ items }", None, serde_json::json!({}), &sent).await {
+        match r
+            .route_with_headers("{ items }", None, serde_json::json!({}), &sent)
+            .await
+        {
             Routed::Forwarded(v) => {
                 assert_eq!(v["data"]["x_reaxt"], "1");
                 assert!(v["data"]["authorization"].is_null());
-            }
+            },
             other => panic!("expected Forwarded, got {other:?}"),
         }
         assert_eq!(FORWARD_HEADERS, &["x-reaxt", "authorization"]);
@@ -1296,20 +1459,33 @@ mod tests {
     fn credentials_need_allow_list_and_safe_channel_and_no_revocation() {
         let url = "http://127.0.0.1:1/graphql";
         let none = RemoteSubgraphs::new(vec![("a".into(), url.into())]);
-        assert!(!none.credentials_allowed("a", url), "empty allow-list trusts nobody");
-        let r = RemoteSubgraphs::new(vec![("a".into(), url.into())]).with_trusted(["a".to_string()]);
+        assert!(
+            !none.credentials_allowed("a", url),
+            "empty allow-list trusts nobody"
+        );
+        let r =
+            RemoteSubgraphs::new(vec![("a".into(), url.into())]).with_trusted(["a".to_string()]);
         assert!(r.credentials_allowed("a", url));
         assert!(!r.credentials_allowed("b", url), "not on the list");
-        assert!(!r.credentials_allowed("a", "http://example.com/graphql"), "plain http to a remote host");
+        assert!(
+            !r.credentials_allowed("a", "http://example.com/graphql"),
+            "plain http to a remote host"
+        );
         r.revoke("a");
         assert!(!r.credentials_allowed("a", url), "revoked at run time");
     }
 
     async fn header_echo_subgraph() -> String {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         let h: Handler = Arc::new(move |req, _p| {
             Box::pin(async move {
-                let auth = req.headers().get("authorization").and_then(|v| v.to_str().ok()).map(str::to_string);
+                let auth = req
+                    .headers()
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_string);
                 let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
                 let out = if body["query"].as_str().unwrap_or("").contains("__schema") {
                     serde_json::json!({"data":{"__schema":{"queryType":{"fields":[{"name":"me"}]},"mutationType":null}}})
@@ -1331,19 +1507,29 @@ mod tests {
         let sent = vec![("authorization".to_string(), "Bearer t".to_string())];
         // 許可リスト無し: 渡らない
         let r = RemoteSubgraphs::new(vec![("me".into(), url.clone())]);
-        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+        match r
+            .route_with_headers("{ me }", None, serde_json::json!({}), &sent)
+            .await
+        {
             Routed::Forwarded(v) => assert!(v["data"]["authorization"].is_null(), "{v}"),
             other => panic!("{other:?}"),
         }
         // 許可リストにある+ループバック: 渡る
-        let r = RemoteSubgraphs::new(vec![("me".into(), url.clone())]).with_trusted(["me".to_string()]);
-        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+        let r =
+            RemoteSubgraphs::new(vec![("me".into(), url.clone())]).with_trusted(["me".to_string()]);
+        match r
+            .route_with_headers("{ me }", None, serde_json::json!({}), &sent)
+            .await
+        {
             Routed::Forwarded(v) => assert_eq!(v["data"]["authorization"], "Bearer t"),
             other => panic!("{other:?}"),
         }
         // 実行中に信頼を取り消す: 渡らなくなる
         r.revoke("me");
-        match r.route_with_headers("{ me }", None, serde_json::json!({}), &sent).await {
+        match r
+            .route_with_headers("{ me }", None, serde_json::json!({}), &sent)
+            .await
+        {
             Routed::Forwarded(v) => assert!(v["data"]["authorization"].is_null(), "{v}"),
             other => panic!("{other:?}"),
         }
@@ -1398,11 +1584,18 @@ mod tests {
     fn a_different_type_is_dropped_only_when_the_schema_has_no_abstract_types() {
         let doc = parse_query("{ a { id ... on Admin { secret } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         let items = &f.node.selection_set.node.items;
         let v = serde_json::json!({});
         let flat = flatten_fields(items, &v, 0, Some("User"), true).unwrap();
-        assert_eq!(flat.iter().map(|f| f.name.node.as_str()).collect::<Vec<_>>(), ["id"]);
+        assert_eq!(
+            flat.iter()
+                .map(|f| f.name.node.as_str())
+                .collect::<Vec<_>>(),
+            ["id"]
+        );
         assert!(flatten_fields(items, &v, 0, Some("User"), false).is_none());
     }
 
@@ -1410,10 +1603,17 @@ mod tests {
     fn flatten_fields_accepts_on_type_only_for_the_static_type() {
         let doc = parse_query("{ a { id ... on User { name } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         let v = serde_json::json!({});
         let items = &f.node.selection_set.node.items;
-        assert_eq!(flatten_fields(items, &v, 0, Some("User"), false).unwrap().len(), 2);
+        assert_eq!(
+            flatten_fields(items, &v, 0, Some("User"), false)
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(flatten_fields(items, &v, 0, Some("Admin"), false).is_none());
         assert!(flatten_fields(items, &v, 0, None, false).is_none());
     }
@@ -1422,21 +1622,45 @@ mod tests {
     fn flatten_fields_handles_untyped_fragments() {
         let doc = parse_query("{ a { id ... @include(if: $x) { name } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        let n = |x: bool| flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": x}), 0, None, false).unwrap().len();
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
+        let n = |x: bool| {
+            flatten_fields(
+                &f.node.selection_set.node.items,
+                &serde_json::json!({"x": x}),
+                0,
+                None,
+                false,
+            )
+            .unwrap()
+            .len()
+        };
         assert_eq!((n(true), n(false)), (2, 1));
     }
 
     #[test]
     fn untyped_inline_fragments_are_flattened_with_directives() {
-        let doc = parse_query("{ a { id ... @include(if: $x) { name } ... @skip(if: true) { gone } } }").unwrap();
+        let doc =
+            parse_query("{ a { id ... @include(if: $x) { name } ... @skip(if: true) { gone } } }")
+                .unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
-        assert_eq!(print_field(&f.node, 0, &serde_json::json!({"x": true})).unwrap(), "a { id name }");
-        assert_eq!(print_field(&f.node, 0, &serde_json::json!({"x": false})).unwrap(), "a { id }");
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
+        assert_eq!(
+            print_field(&f.node, 0, &serde_json::json!({"x": true})).unwrap(),
+            "a { id name }"
+        );
+        assert_eq!(
+            print_field(&f.node, 0, &serde_json::json!({"x": false})).unwrap(),
+            "a { id }"
+        );
         let doc = parse_query("{ a { ... on A { id } } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         assert!(print_field(&f.node, 0, &serde_json::json!({})).is_none());
     }
 
@@ -1445,13 +1669,39 @@ mod tests {
         let mut doc = parse_query("{ a { id ...F @include(if: $x) } } fragment F on User { name ...G } fragment G on User { age }").unwrap();
         inline_named_fragments(&mut doc);
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         let v = serde_json::json!({"x": true});
-        let flat = flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("User"), false).unwrap();
-        assert_eq!(flat.iter().map(|f| f.name.node.as_str()).collect::<Vec<_>>(), ["id", "name", "age"]);
-        assert_eq!(flatten_fields(&f.node.selection_set.node.items, &serde_json::json!({"x": false}), 0, Some("User"), false).unwrap().len(), 1);
+        let flat =
+            flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("User"), false).unwrap();
+        assert_eq!(
+            flat.iter()
+                .map(|f| f.name.node.as_str())
+                .collect::<Vec<_>>(),
+            ["id", "name", "age"]
+        );
+        assert_eq!(
+            flatten_fields(
+                &f.node.selection_set.node.items,
+                &serde_json::json!({"x": false}),
+                0,
+                Some("User"),
+                false
+            )
+            .unwrap()
+            .len(),
+            1
+        );
         // a different static type stays unflattened
-        assert!(flatten_fields(&f.node.selection_set.node.items, &v, 0, Some("Admin"), false).is_none());
+        assert!(flatten_fields(
+            &f.node.selection_set.node.items,
+            &v,
+            0,
+            Some("Admin"),
+            false
+        )
+        .is_none());
         // a cycle is left alone instead of looping
         let mut doc = parse_query("{ a { ...F } } fragment F on A { ...F }").unwrap();
         inline_named_fragments(&mut doc);
@@ -1462,11 +1712,15 @@ mod tests {
         let none = serde_json::json!({});
         let doc = parse_query("{ a @deprecated { id } }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         assert!(print_field(&f.node, 0, &none).is_none());
         let doc = parse_query("{ a { ...F } } fragment F on A { id }").unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         assert!(print_field(&f.node, 0, &none).is_none());
     }
 
@@ -1477,7 +1731,9 @@ mod tests {
         )
         .unwrap();
         let op = select_operation(&doc, None).unwrap();
-        let Selection::Field(f) = &op.selection_set.node.items[0].node else { unreachable!() };
+        let Selection::Field(f) = &op.selection_set.node.items[0].node else {
+            unreachable!()
+        };
         let on = serde_json::json!({"on": true});
         let off = serde_json::json!({"on": false});
         assert_eq!(print_field(&f.node, 0, &on).unwrap(), "a { id name tag }");
@@ -1488,7 +1744,9 @@ mod tests {
 
     #[tokio::test]
     async fn joins_entities_across_subgraphs_by_key() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         // `users` owns User{id,name}; `reviews` adds User.reviews via @key(fields: "id").
         async fn start(users: bool) -> String {
             let h: Handler = Arc::new(move |req, _p| {
@@ -1506,7 +1764,10 @@ mod tests {
                         };
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         let list: Vec<serde_json::Value> = reps
                             .iter()
                             .map(|r| serde_json::json!({"reviews": format!("r-{}", r["id"].as_str().unwrap_or("?"))}))
@@ -1523,24 +1784,37 @@ mod tests {
             std::mem::forget(handle);
             format!("http://{addr}/graphql")
         }
-        let r = RemoteSubgraphs::new(vec![("users".into(), start(true).await), ("reviews".into(), start(false).await)]);
-        match r.route("{ user { name reviews } }", None, serde_json::json!({})).await {
+        let r = RemoteSubgraphs::new(vec![
+            ("users".into(), start(true).await),
+            ("reviews".into(), start(false).await),
+        ]);
+        match r
+            .route("{ user { name reviews } }", None, serde_json::json!({}))
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["user"], serde_json::json!({"name":"Ann","reviews":"r-7"}), "{v}");
+                assert_eq!(
+                    v["data"]["user"],
+                    serde_json::json!({"name":"Ann","reviews":"r-7"}),
+                    "{v}"
+                );
                 assert!(v.get("errors").is_none(), "{v}");
             },
             _ => panic!("expected a joined result"),
         }
         // Without a field of the other subgraph, the query is forwarded unchanged.
         assert!(matches!(
-            r.route("{ user { name } }", None, serde_json::json!({})).await,
+            r.route("{ user { name } }", None, serde_json::json!({}))
+                .await,
             Routed::Forwarded(_)
         ));
     }
 
     #[tokio::test]
     async fn joins_nested_entities_across_subgraphs() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         // `users` owns Query.me -> User -> manager: User; `reviews` adds User.reviews (key id).
         async fn start(users: bool) -> String {
             let h: Handler = Arc::new(move |req, _p| {
@@ -1558,7 +1832,10 @@ mod tests {
                         };
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         let list: Vec<serde_json::Value> = reps
                             .iter()
                             .map(|r| serde_json::json!({"reviews": format!("r-{}", r["id"].as_str().unwrap_or("?"))}))
@@ -1575,8 +1852,18 @@ mod tests {
             std::mem::forget(handle);
             format!("http://{addr}/graphql")
         }
-        let r = RemoteSubgraphs::new(vec![("users".into(), start(true).await), ("reviews".into(), start(false).await)]);
-        match r.route("{ me { name reviews manager { name reviews } } }", None, serde_json::json!({})).await {
+        let r = RemoteSubgraphs::new(vec![
+            ("users".into(), start(true).await),
+            ("reviews".into(), start(false).await),
+        ]);
+        match r
+            .route(
+                "{ me { name reviews manager { name reviews } } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
                 assert_eq!(
                     v["data"]["me"],
@@ -1591,7 +1878,9 @@ mod tests {
 
     #[tokio::test]
     async fn external_fields_are_joined_unless_provided() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         // `reviews` returns Review{author: User}; User.name is @external there and only `users` resolves it,
         // while `email` is provided by Review.author @provides(fields: "email").
         async fn start(reviews: bool) -> (String, Arc<std::sync::atomic::AtomicU32>) {
@@ -1614,8 +1903,14 @@ mod tests {
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
                         ec.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
-                        let list: Vec<serde_json::Value> = reps.iter().map(|_| serde_json::json!({"name":"Ann"})).collect();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps
+                            .iter()
+                            .map(|_| serde_json::json!({"name":"Ann"}))
+                            .collect();
                         serde_json::json!({"data":{"_entities":list}})
                     } else {
                         serde_json::json!({"data":{"review":{"id":"r1","author":{"id":"7","__typename":"User","email":"a@example.com"}}}})
@@ -1630,18 +1925,42 @@ mod tests {
         }
         let (reviews_url, _) = start(true).await;
         let (users_url, users_calls) = start(false).await;
-        let r = RemoteSubgraphs::new(vec![("reviews".into(), reviews_url), ("users".into(), users_url)]);
+        let r = RemoteSubgraphs::new(vec![
+            ("reviews".into(), reviews_url),
+            ("users".into(), users_url),
+        ]);
         // `email` is provided by the reviews subgraph: no join. `name` is external: joined from users.
-        match r.route("{ review { author { email name } } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ review { author { email name } } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["review"]["author"], serde_json::json!({"email":"a@example.com","name":"Ann"}), "{v}");
+                assert_eq!(
+                    v["data"]["review"]["author"],
+                    serde_json::json!({"email":"a@example.com","name":"Ann"}),
+                    "{v}"
+                );
             },
             _ => panic!("expected a joined result"),
         }
         assert_eq!(users_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         // Only the provided field: no entity call at all.
-        match r.route("{ review { author { email } } }", None, serde_json::json!({})).await {
-            Routed::Forwarded(v) => assert_eq!(v["data"]["review"]["author"]["email"], "a@example.com", "{v}"),
+        match r
+            .route(
+                "{ review { author { email } } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
+            Routed::Forwarded(v) => assert_eq!(
+                v["data"]["review"]["author"]["email"], "a@example.com",
+                "{v}"
+            ),
             _ => panic!("expected a forwarded result"),
         }
         assert_eq!(users_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -1649,7 +1968,9 @@ mod tests {
 
     #[tokio::test]
     async fn requires_sends_the_needed_fields_in_the_representation() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         // `catalog` owns Product{upc, price, weight}; `shipping` adds shippingEstimate, which
         // @requires "price weight" (external there). The estimate is computed from the representation.
         async fn start(catalog: bool) -> String {
@@ -1668,13 +1989,18 @@ mod tests {
                         };
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         let list: Vec<serde_json::Value> = reps
                             .iter()
                             .map(|r| {
                                 // Only computable when the representation carries price and weight.
                                 match (r["price"].as_i64(), r["weight"].as_i64()) {
-                                    (Some(p), Some(w)) => serde_json::json!({"shippingEstimate": p * w}),
+                                    (Some(p), Some(w)) => {
+                                        serde_json::json!({"shippingEstimate": p * w})
+                                    },
                                     _ => serde_json::json!({"shippingEstimate": null}),
                                 }
                             })
@@ -1691,19 +2017,44 @@ mod tests {
             std::mem::forget(handle);
             format!("http://{addr}/graphql")
         }
-        let r = RemoteSubgraphs::new(vec![("catalog".into(), start(true).await), ("shipping".into(), start(false).await)]);
+        let r = RemoteSubgraphs::new(vec![
+            ("catalog".into(), start(true).await),
+            ("shipping".into(), start(false).await),
+        ]);
         // price and weight are NOT selected by the client: the gateway adds them, then removes them.
-        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ product { upc shippingEstimate } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert_eq!(
+                    v["data"]["product"],
+                    serde_json::json!({"upc":"p1","shippingEstimate":15}),
+                    "{v}"
+                );
                 assert!(v.get("errors").is_none(), "{v}");
             },
             _ => panic!("expected a joined result"),
         }
         // When the client selects price itself, it stays in the result.
-        match r.route("{ product { price shippingEstimate } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ product { price shippingEstimate } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["product"], serde_json::json!({"price":5,"shippingEstimate":15}), "{v}");
+                assert_eq!(
+                    v["data"]["product"],
+                    serde_json::json!({"price":5,"shippingEstimate":15}),
+                    "{v}"
+                );
             },
             _ => panic!("expected a joined result"),
         }
@@ -1711,9 +2062,12 @@ mod tests {
 
     #[tokio::test]
     async fn mutation_result_is_completed_by_a_read_only_join() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         async fn start(users: bool) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
-            let seen: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let seen: Arc<std::sync::Mutex<Vec<String>>> =
+                Arc::new(std::sync::Mutex::new(Vec::new()));
             let s2 = seen.clone();
             let h: Handler = Arc::new(move |req, _p| {
                 let s2 = s2.clone();
@@ -1735,11 +2089,16 @@ mod tests {
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
                         s2.lock().unwrap().push("entities".into());
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         let list: Vec<serde_json::Value> = reps.iter().map(|r| serde_json::json!({"reviews": format!("r-{}", r["id"].as_str().unwrap_or("?"))})).collect();
                         serde_json::json!({"data":{"_entities":list}})
                     } else {
-                        s2.lock().unwrap().push(q.split_whitespace().next().unwrap_or("").to_string());
+                        s2.lock()
+                            .unwrap()
+                            .push(q.split_whitespace().next().unwrap_or("").to_string());
                         serde_json::json!({"data":{"createUser":{"name":"Ann","id":"9","__typename":"User"}}})
                     };
                     json_response(hyper::StatusCode::OK, &out)
@@ -1752,10 +2111,24 @@ mod tests {
         }
         let (users_url, users_seen) = start(true).await;
         let (reviews_url, reviews_seen) = start(false).await;
-        let r = RemoteSubgraphs::new(vec![("users".into(), users_url), ("reviews".into(), reviews_url)]);
-        match r.route("mutation { createUser { name reviews } }", None, serde_json::json!({})).await {
+        let r = RemoteSubgraphs::new(vec![
+            ("users".into(), users_url),
+            ("reviews".into(), reviews_url),
+        ]);
+        match r
+            .route(
+                "mutation { createUser { name reviews } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["createUser"], serde_json::json!({"name":"Ann","reviews":"r-9"}), "{v}");
+                assert_eq!(
+                    v["data"]["createUser"],
+                    serde_json::json!({"name":"Ann","reviews":"r-9"}),
+                    "{v}"
+                );
                 assert!(v.get("errors").is_none(), "{v}");
             },
             _ => panic!("expected a joined mutation result"),
@@ -1767,7 +2140,9 @@ mod tests {
 
     #[tokio::test]
     async fn skip_and_include_decide_which_fields_are_joined() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         async fn start(users: bool, calls: Arc<std::sync::atomic::AtomicU32>) -> String {
             let h: Handler = Arc::new(move |req, _p| {
                 let calls = calls.clone();
@@ -1786,8 +2161,14 @@ mod tests {
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
                         calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
-                        let list: Vec<serde_json::Value> = reps.iter().map(|_| serde_json::json!({"reviews":"r"})).collect();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        let list: Vec<serde_json::Value> = reps
+                            .iter()
+                            .map(|_| serde_json::json!({"reviews":"r"}))
+                            .collect();
                         serde_json::json!({"data":{"_entities":list}})
                     } else {
                         serde_json::json!({"data":{"user":{"id":"7","name":"Ann","__typename":"User"}}})
@@ -1808,13 +2189,20 @@ mod tests {
         let q = "query($on: Boolean!) { user { name reviews @include(if: $on) } }";
         let run = |on: bool| r.route(q, None, serde_json::json!({"on": on}));
         match run(true).await {
-            Routed::Forwarded(v) => assert_eq!(v["data"]["user"], serde_json::json!({"name":"Ann","reviews":"r"}), "{v}"),
+            Routed::Forwarded(v) => assert_eq!(
+                v["data"]["user"],
+                serde_json::json!({"name":"Ann","reviews":"r"}),
+                "{v}"
+            ),
             _ => panic!("expected a joined result"),
         }
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         // @include(if: false): the field is dropped and the other subgraph is not called at all.
         match run(false).await {
-            Routed::Forwarded(v) => assert!(v["data"]["user"].get("reviews").is_none() && v["data"]["user"]["name"] == "Ann", "{v}"),
+            Routed::Forwarded(v) => assert!(
+                v["data"]["user"].get("reviews").is_none() && v["data"]["user"]["name"] == "Ann",
+                "{v}"
+            ),
             _ => panic!("expected a forwarded result"),
         }
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
@@ -1822,10 +2210,15 @@ mod tests {
 
     #[tokio::test]
     async fn requires_chain_through_a_third_subgraph() {
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
         // catalog (A) owns Product{upc}; pricing (C) owns price; shipping (B) adds shippingEstimate which
         // @requires price (external there). price is not selected by the client and not in the catalog.
-        async fn start(role: u8, reps_seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>) -> String {
+        async fn start(
+            role: u8,
+            reps_seen: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        ) -> String {
             let h: Handler = Arc::new(move |req, _p| {
                 let reps_seen = reps_seen.clone();
                 Box::pin(async move {
@@ -1842,7 +2235,10 @@ mod tests {
                         ][role as usize];
                         serde_json::json!({"data":{"_service":{"sdl":sdl}}})
                     } else if q.contains("_entities") {
-                        let reps = body["variables"]["reps"].as_array().cloned().unwrap_or_default();
+                        let reps = body["variables"]["reps"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
                         reps_seen.lock().unwrap().extend(reps.iter().cloned());
                         let list: Vec<serde_json::Value> = reps
                             .iter()
@@ -1869,15 +2265,30 @@ mod tests {
             ("shipping".into(), start(2, seen.clone()).await),
             ("pricing".into(), start(1, seen.clone()).await),
         ]);
-        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ product { upc shippingEstimate } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert_eq!(
+                    v["data"]["product"],
+                    serde_json::json!({"upc":"p1","shippingEstimate":15}),
+                    "{v}"
+                );
                 assert!(v.get("errors").is_none(), "{v}");
             },
             _ => panic!("expected a chained joined result"),
         }
         // The shipping representation carried the price that the pricing subgraph supplied.
-        assert!(seen.lock().unwrap().iter().any(|r| r["price"] == 5 && r["upc"] == "p1"));
+        assert!(seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r["price"] == 5 && r["upc"] == "p1"));
     }
 
     /// Two independent, real GraphQL servers built with `async-graphql`'s own federation support
@@ -1885,7 +2296,9 @@ mod tests {
     #[tokio::test]
     async fn joins_real_async_graphql_federation_subgraphs() {
         use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, ID};
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
 
         #[derive(Clone)]
         struct UserA {
@@ -1937,12 +2350,15 @@ mod tests {
             }
         }
 
-        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(schema: Schema<Q, EmptyMutation, EmptySubscription>) -> String {
+        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(
+            schema: Schema<Q, EmptyMutation, EmptySubscription>,
+        ) -> String {
             let h: Handler = Arc::new(move |req, _p| {
                 let schema = schema.clone();
                 Box::pin(async move {
                     let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
-                    let mut request = async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
+                    let mut request =
+                        async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
                     if let Some(v) = body.get("variables") {
                         request = request.variables(async_graphql::Variables::from_json(v.clone()));
                     }
@@ -1956,10 +2372,23 @@ mod tests {
             std::mem::forget(handle);
             format!("http://{addr}/graphql")
         }
-        let a = serve_schema(Schema::build(QueryA, EmptyMutation, EmptySubscription).enable_federation().finish()).await;
-        let b = serve_schema(Schema::build(QueryB, EmptyMutation, EmptySubscription).enable_federation().finish()).await;
+        let a = serve_schema(
+            Schema::build(QueryA, EmptyMutation, EmptySubscription)
+                .enable_federation()
+                .finish(),
+        )
+        .await;
+        let b = serve_schema(
+            Schema::build(QueryB, EmptyMutation, EmptySubscription)
+                .enable_federation()
+                .finish(),
+        )
+        .await;
         let r = RemoteSubgraphs::new(vec![("users".into(), a), ("reviews".into(), b)]);
-        match r.route("{ me { name reviews } }", None, serde_json::json!({})).await {
+        match r
+            .route("{ me { name reviews } }", None, serde_json::json!({}))
+            .await
+        {
             Routed::Forwarded(v) => {
                 assert_eq!(
                     v["data"]["me"],
@@ -2007,7 +2436,9 @@ mod tests {
             }
             #[graphql(provides = "price")]
             async fn product(&self) -> Product {
-                Product { upc: ID("p".into()) }
+                Product {
+                    upc: ID("p".into()),
+                }
             }
         }
         struct Query;
@@ -2021,17 +2452,35 @@ mod tests {
                 Product { upc }
             }
         }
-        let schema = Schema::build(Query, EmptyMutation, EmptySubscription).enable_federation().finish();
+        let schema = Schema::build(Query, EmptyMutation, EmptySubscription)
+            .enable_federation()
+            .finish();
         let resp = schema.execute("{ _service { sdl } }").await;
         let v = serde_json::to_value(&resp).unwrap();
         let sdl = v["data"]["_service"]["sdl"].as_str().unwrap().to_string();
         let m = parse_subgraph_model(&sdl);
         assert!(m.keys.contains_key("Product"), "{sdl}");
-        assert!(m.externals.contains(&("Product".to_string(), "price".to_string())), "{sdl}");
-        assert_eq!(m.requires[&("Product".to_string(), "shippingEstimate".to_string())], vec!["price"], "{sdl}");
-        assert_eq!(m.provides[&("Review".to_string(), "product".to_string())], vec!["price"], "{sdl}");
+        assert!(
+            m.externals
+                .contains(&("Product".to_string(), "price".to_string())),
+            "{sdl}"
+        );
+        assert_eq!(
+            m.requires[&("Product".to_string(), "shippingEstimate".to_string())],
+            vec!["price"],
+            "{sdl}"
+        );
+        assert_eq!(
+            m.provides[&("Review".to_string(), "product".to_string())],
+            vec!["price"],
+            "{sdl}"
+        );
         // `upc` is the key, not external.
-        assert!(!m.externals.contains(&("Product".to_string(), "upc".to_string())), "{sdl}");
+        assert!(
+            !m.externals
+                .contains(&("Product".to_string(), "upc".to_string())),
+            "{sdl}"
+        );
     }
 
     /// Four independent, real `async-graphql` federation servers: a `@requires` chain
@@ -2040,7 +2489,9 @@ mod tests {
     #[tokio::test]
     async fn requires_chain_and_provides_with_real_async_graphql_servers() {
         use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema, ID};
-        use open_runo_router::hyper_compat::{json_response, read_json_body, serve, Handler, Router};
+        use open_runo_router::hyper_compat::{
+            json_response, read_json_body, serve, Handler, Router,
+        };
 
         // catalog: Product{upc}
         struct ProductCatalog {
@@ -2056,7 +2507,9 @@ mod tests {
         #[Object]
         impl QueryCatalog {
             async fn product(&self) -> ProductCatalog {
-                ProductCatalog { upc: ID("p1".into()) }
+                ProductCatalog {
+                    upc: ID("p1".into()),
+                }
             }
             #[graphql(entity)]
             async fn find_product(&self, upc: ID) -> ProductCatalog {
@@ -2115,7 +2568,11 @@ mod tests {
                 true
             }
             #[graphql(entity)]
-            async fn find_product(&self, #[graphql(key)] upc: ID, price: Option<i32>) -> ProductShipping {
+            async fn find_product(
+                &self,
+                #[graphql(key)] upc: ID,
+                price: Option<i32>,
+            ) -> ProductShipping {
                 ProductShipping { upc, price }
             }
         }
@@ -2142,7 +2599,9 @@ mod tests {
             }
             #[graphql(provides = "price")]
             async fn product(&self) -> ProductReviews {
-                ProductReviews { upc: ID("p1".into()) }
+                ProductReviews {
+                    upc: ID("p1".into()),
+                }
             }
         }
         struct QueryReviews;
@@ -2157,17 +2616,23 @@ mod tests {
             }
         }
 
-        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(schema: Schema<Q, EmptyMutation, EmptySubscription>) -> String {
+        async fn serve_schema<Q: async_graphql::ObjectType + 'static>(
+            schema: Schema<Q, EmptyMutation, EmptySubscription>,
+        ) -> String {
             let h: Handler = Arc::new(move |req, _p| {
                 let schema = schema.clone();
                 Box::pin(async move {
                     let body: serde_json::Value = read_json_body(req).await.unwrap_or_default();
-                    let mut request = async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
+                    let mut request =
+                        async_graphql::Request::new(body["query"].as_str().unwrap_or(""));
                     if let Some(v) = body.get("variables") {
                         request = request.variables(async_graphql::Variables::from_json(v.clone()));
                     }
                     let resp = schema.execute(request).await;
-                    json_response(hyper::StatusCode::OK, &serde_json::to_value(&resp).unwrap_or_default())
+                    json_response(
+                        hyper::StatusCode::OK,
+                        &serde_json::to_value(&resp).unwrap_or_default(),
+                    )
                 })
             });
             let router = Router::new().route(hyper::Method::POST, "/graphql", h);
@@ -2177,7 +2642,12 @@ mod tests {
         }
         macro_rules! build {
             ($q:expr) => {
-                serve_schema(Schema::build($q, EmptyMutation, EmptySubscription).enable_federation().finish()).await
+                serve_schema(
+                    Schema::build($q, EmptyMutation, EmptySubscription)
+                        .enable_federation()
+                        .finish(),
+                )
+                .await
             };
         }
         let r = RemoteSubgraphs::new(vec![
@@ -2188,15 +2658,33 @@ mod tests {
         ]);
 
         // @requires chain: price is neither selected by the client nor known to the catalog.
-        match r.route("{ product { upc shippingEstimate } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ product { upc shippingEstimate } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
-                assert_eq!(v["data"]["product"], serde_json::json!({"upc":"p1","shippingEstimate":15}), "{v}");
+                assert_eq!(
+                    v["data"]["product"],
+                    serde_json::json!({"upc":"p1","shippingEstimate":15}),
+                    "{v}"
+                );
                 assert!(v.get("errors").is_none(), "{v}");
             },
             other => panic!("expected the chained result, got {other:?}"),
         }
         // @provides: reviews supplies price (9) itself; the gateway must not ask pricing (it would say 5).
-        match r.route("{ review { id product { upc price } } }", None, serde_json::json!({})).await {
+        match r
+            .route(
+                "{ review { id product { upc price } } }",
+                None,
+                serde_json::json!({}),
+            )
+            .await
+        {
             Routed::Forwarded(v) => {
                 assert_eq!(v["data"]["review"]["product"]["price"], 9, "{v}");
                 assert!(v.get("errors").is_none(), "{v}");
