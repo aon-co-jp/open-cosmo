@@ -666,3 +666,55 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 **آنچه مانده است:** فقط بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). `Option` تودرتو عمداً کنار گذاشته شده است، چون با `null` نمی‌توان سطح‌ها را از هم تشخیص داد.
 **قواعد:** بدون پرسیدن ادامه می‌دهیم؛ فقط پس از بررسی روی سامانه‌های واقعی می‌نویسیم «انجام شد»؛ هرگز اطلاعات محرمانه نمی‌نویسیم؛ REST API تازه اضافه نمی‌کنیم.
 *دربارهٔ ترجمه: متن ژاپنی متن اصلی است. زبان‌های دیگر را هوش مصنوعی ترجمه کرده و سپس بررسی کرده است که به همان اندازهٔ نوشتهٔ یک گویشور بومی روان و طبیعی باشند. هنوز هیچ گویشور بومیِ انسانی آن‌ها را بازبینی نکرده است.*
+
+
+## 2026-11-21 追記: CI の品質チェックを通るように直した(12言語) / CI quality gate fixed (12 languages)
+*日本語が原文です。ほかの言語は AI が翻訳し、ネイティブに近い自然さかを AI が確認しました。人間のネイティブ確認はまだです。 / Japanese is the original. The other languages were translated by AI and checked by AI for native-like fluency; no human native speaker has checked them yet.*
+
+### 日本語(原文)
+**やったこと**: RPoem と open-cosmo の CI(GitHub の自動チェック)は、60回以上続けて失敗していました。原因はプログラムの不具合ではなく、書き方の決まり(`rustfmt` の整形と `clippy` の警告)を守れていない箇所でした。整形をそろえ、警告を1つずつ直し、CI が通ることを確かめました。試験は RPoem が589件、open-cosmo が495件で、どちらもすべて成功です。動作は変えていません。CI の Rust(1.100)はこの PC の版(1.98)より新しく、新しい警告が1件出たため、同じ版を手元に入れて確かめました。試験で使うダミーサーバーを先に作る手順も、CI に足しました。open-cosmo の `clippy.toml` は、対応する Rust の版(1.88)と「試験の中では `unwrap` を許す」設定を RPoem にそろえました。
+**残り**: Mac と iPhone の実機での確認だけです(ここには実機がありません)。
+
+### English
+**What we did**: CI (GitHub's automatic checks) for RPoem and open-cosmo had failed more than 60 times in a row. The cause was not a bug in the program but code that did not follow the style rules (`rustfmt` formatting and `clippy` warnings). We formatted the code, fixed the warnings one by one, and confirmed that CI now passes. All tests pass: 589 in RPoem and 495 in open-cosmo. Behavior is unchanged. CI uses a newer Rust (1.100) than this PC (1.98), and it raised one new warning, so we installed the same version locally to check. We also added a CI step that builds the dummy servers the tests use before the tests run. In open-cosmo, `clippy.toml` now matches RPoem: the supported Rust version (1.88) and the setting that allows `unwrap` inside tests.
+**What is left**: only checks on a real Mac and a real iPhone (we have no such devices here).
+
+### 简体中文
+**完成的工作**：RPoem 和 open-cosmo 的 CI（GitHub 的自动检查）连续 60 多次运行都失败了。原因不是程序有缺陷，而是代码没有遵守规范（`rustfmt` 格式化和 `clippy` 警告）。我们统一了格式，逐一修正了警告，并确认 CI 现已通过。测试全部通过：RPoem 589 项，open-cosmo 495 项。程序行为没有改变。CI 使用的 Rust（1.100）比这台电脑上的版本（1.98）新，因此多出了一条新警告；我们在本地安装了相同版本进行确认。我们还在 CI 中加了一步：在运行测试前，先构建测试要用的模拟服务器。open-cosmo 的 `clippy.toml` 已与 RPoem 保持一致：支持的 Rust 版本（1.88），以及“允许在测试中使用 `unwrap`”的设置。
+**剩余工作**：只剩在真实的 Mac 和 iPhone 上验证（这里没有这些设备）。
+
+### 繁體中文
+**完成的工作**：RPoem 和 open-cosmo 的 CI（GitHub 的自動檢查）連續 60 多次執行都失敗。原因不是程式有缺陷，而是程式碼沒有遵守規範（`rustfmt` 格式化和 `clippy` 警告）。我們統一了格式，逐一修正警告，並確認 CI 現在已經通過。測試全部通過：RPoem 589 項，open-cosmo 495 項。程式行為沒有改變。CI 使用的 Rust（1.100）比這台電腦上的版本（1.98）新，因此多出一則新警告；我們在本機安裝了相同版本來確認。我們也在 CI 加了一個步驟：執行測試前，先建置測試要用的模擬伺服器。open-cosmo 的 `clippy.toml` 已與 RPoem 一致：支援的 Rust 版本（1.88），以及「允許在測試中使用 `unwrap`」的設定。
+**尚待完成**：只剩在實體 Mac 和 iPhone 上確認（這裡沒有這些裝置）。
+
+### 한국어
+**한 일**: RPoem과 open-cosmo의 CI(GitHub 자동 검사)는 60번 넘게 연속으로 실패하고 있었습니다. 원인은 프로그램의 버그가 아니라, 코드 작성 규칙(`rustfmt` 서식과 `clippy` 경고)을 지키지 않은 부분이었습니다. 서식을 맞추고 경고를 하나씩 고친 뒤, 이제 CI가 통과하는 것을 확인했습니다. 테스트는 RPoem 589건, open-cosmo 495건이 모두 통과했습니다. 동작은 바뀌지 않았습니다. CI의 Rust(1.100)가 이 PC의 버전(1.98)보다 새로워서 새 경고가 하나 나왔기 때문에, 같은 버전을 로컬에 설치해 확인했습니다. 또한 테스트에 쓰는 더미 서버를 테스트 전에 먼저 빌드하는 단계를 CI에 추가했습니다. open-cosmo의 `clippy.toml`은 지원하는 Rust 버전(1.88)과 "테스트 안에서는 `unwrap`을 허용"하는 설정을 RPoem과 같게 맞췄습니다.
+**남은 일**: 실제 Mac과 iPhone에서 확인하는 일만 남았습니다(여기에는 해당 기기가 없습니다).
+
+### Deutsch
+**Was wir getan haben**: Die CI (die automatischen Prüfungen auf GitHub) von RPoem und open-cosmo war mehr als 60-mal in Folge fehlgeschlagen. Ursache war kein Fehler im Programm, sondern Code, der die Stilregeln nicht einhielt (Formatierung mit `rustfmt` und Warnungen von `clippy`). Wir haben den Code formatiert, die Warnungen einzeln behoben und bestätigt, dass die CI jetzt durchläuft. Alle Tests bestehen: 589 in RPoem und 495 in open-cosmo. Das Verhalten ist unverändert. Die CI nutzt eine neuere Rust-Version (1.100) als dieser PC (1.98) und meldete deshalb eine neue Warnung; wir haben dieselbe Version lokal installiert, um sie zu prüfen. Außerdem baut die CI jetzt vor den Tests die dafür nötigen Dummy-Server. In open-cosmo entspricht `clippy.toml` jetzt RPoem: die unterstützte Rust-Version (1.88) und die Einstellung, die `unwrap` in Tests erlaubt.
+**Was noch fehlt**: nur die Prüfung auf einem echten Mac und einem echten iPhone (solche Geräte haben wir hier nicht).
+
+### Français
+**Ce que nous avons fait** : la CI (les vérifications automatiques de GitHub) de RPoem et d'open-cosmo échouait depuis plus de 60 exécutions consécutives. La cause n'était pas un bogue du programme, mais du code qui ne respectait pas les règles de style (mise en forme `rustfmt` et avertissements `clippy`). Nous avons mis le code en forme, corrigé les avertissements un par un, puis vérifié que la CI passe désormais. Tous les tests passent : 589 dans RPoem et 495 dans open-cosmo. Le comportement n'a pas changé. La CI utilise une version de Rust plus récente (1.100) que ce PC (1.98), ce qui a fait apparaître un nouvel avertissement ; nous avons installé la même version en local pour vérifier. Nous avons aussi ajouté à la CI une étape qui compile, avant les tests, les serveurs factices dont ils ont besoin. Dans open-cosmo, `clippy.toml` est désormais aligné sur RPoem : la version de Rust prise en charge (1.88) et le réglage qui autorise `unwrap` dans les tests.
+**Ce qui reste** : uniquement les vérifications sur un vrai Mac et un vrai iPhone (nous n'avons pas ces appareils ici).
+
+### Español
+**Qué hicimos**: la CI (las comprobaciones automáticas de GitHub) de RPoem y open-cosmo llevaba más de 60 ejecuciones seguidas fallando. La causa no era un error del programa, sino código que no seguía las reglas de estilo (el formato de `rustfmt` y las advertencias de `clippy`). Dimos formato al código, corregimos las advertencias una por una y comprobamos que la CI ya pasa. Pasan todas las pruebas: 589 en RPoem y 495 en open-cosmo. El comportamiento no ha cambiado. La CI usa una versión de Rust más reciente (1.100) que este PC (1.98) y por eso apareció una advertencia nueva; instalamos la misma versión en local para comprobarlo. También añadimos a la CI un paso que compila, antes de las pruebas, los servidores de prueba que estas necesitan. En open-cosmo, `clippy.toml` ahora coincide con el de RPoem: la versión de Rust admitida (1.88) y el ajuste que permite `unwrap` dentro de las pruebas.
+**Lo que falta**: solo las comprobaciones en un Mac y un iPhone reales (aquí no tenemos esos dispositivos).
+
+### Português
+**O que fizemos**: a CI (as verificações automáticas do GitHub) do RPoem e do open-cosmo vinha falhando havia mais de 60 execuções seguidas. A causa não era um defeito no programa, e sim código que não seguia as regras de estilo (a formatação do `rustfmt` e os avisos do `clippy`). Formatamos o código, corrigimos os avisos um a um e confirmamos que a CI agora passa. Todos os testes passam: 589 no RPoem e 495 no open-cosmo. O comportamento não mudou. A CI usa uma versão do Rust mais nova (1.100) que a deste PC (1.98), por isso apareceu um aviso novo; instalamos a mesma versão localmente para conferir. Também adicionamos à CI uma etapa que compila, antes dos testes, os servidores de teste de que eles precisam. No open-cosmo, o `clippy.toml` agora segue o do RPoem: a versão do Rust suportada (1.88) e a configuração que permite `unwrap` dentro dos testes.
+**O que falta**: apenas as verificações em um Mac e um iPhone de verdade (não temos esses aparelhos aqui).
+
+### Русский
+**Что сделано**: CI (автоматические проверки на GitHub) у RPoem и open-cosmo падала более 60 запусков подряд. Причина была не в ошибке программы, а в коде, который не соответствовал правилам оформления (форматирование `rustfmt` и предупреждения `clippy`). Мы отформатировали код, по одному исправили предупреждения и убедились, что теперь CI проходит. Все тесты проходят: 589 в RPoem и 495 в open-cosmo. Поведение программ не изменилось. В CI используется более новая версия Rust (1.100), чем на этом ПК (1.98), поэтому появилось одно новое предупреждение; мы установили ту же версию локально, чтобы проверить. Кроме того, в CI добавлен шаг, который перед тестами собирает нужные им фиктивные серверы. В open-cosmo файл `clippy.toml` теперь совпадает с RPoem: поддерживаемая версия Rust (1.88) и настройка, разрешающая `unwrap` внутри тестов.
+**Что осталось**: только проверка на настоящих Mac и iPhone (таких устройств у нас здесь нет).
+
+### العربية
+**ما أنجزناه:** ظلّ نظام التكامل المستمر (CI)، أي الفحوص التلقائية على GitHub، في مشروعَي RPoem وopen-cosmo يفشل في أكثر من 60 تشغيلًا متتاليًا. ولم يكن السبب خللًا في البرنامج، بل شيفرةً لا تلتزم بقواعد الأسلوب (تنسيق `rustfmt` وتحذيرات `clippy`). نسّقنا الشيفرة، وأصلحنا التحذيرات واحدًا تلو الآخر، وتأكّدنا من أن فحوص CI تنجح الآن. ونجحت الاختبارات كلها: 589 اختبارًا في RPoem و495 اختبارًا في open-cosmo. ولم يتغيّر سلوك البرنامج. ويستخدم نظام CI إصدارًا أحدث من Rust ‏(1.100) مما على هذا الحاسوب (1.98)، فظهر تحذير جديد واحد؛ لذلك ثبّتنا الإصدار نفسه محليًا للتحقق. وأضفنا كذلك إلى CI خطوة تبني الخوادم التجريبية التي تحتاجها الاختبارات قبل تشغيلها. وأصبح ملف `clippy.toml` في open-cosmo مطابقًا لما في RPoem: إصدار Rust المدعوم (1.88)، والإعداد الذي يسمح باستخدام `unwrap` داخل الاختبارات.
+**ما تبقّى:** التحقق على جهازَي Mac وiPhone حقيقيين فقط (لا تتوفر لدينا هذه الأجهزة هنا).
+
+### فارسی
+**کاری که انجام دادیم:** CI (بررسی‌های خودکار GitHub) در RPoem و open-cosmo در بیش از ۶۰ اجرای پیاپی شکست خورده بود. علت، خطا در برنامه نبود؛ بخش‌هایی از کد قواعد نگارش (قالب‌بندی `rustfmt` و هشدارهای `clippy`) را رعایت نمی‌کردند. کد را قالب‌بندی کردیم، هشدارها را یکی‌یکی رفع کردیم و مطمئن شدیم که CI اکنون موفق است. همهٔ آزمون‌ها موفق‌اند: ۵۸۹ آزمون در RPoem و ۴۹۵ آزمون در open-cosmo. رفتار برنامه تغییری نکرده است. CI از نسخهٔ جدیدتری از Rust (۱.۱۰۰) نسبت به این رایانه (۱.۹۸) استفاده می‌کند و به همین دلیل یک هشدار تازه نشان داد؛ برای بررسی، همان نسخه را روی رایانهٔ خودمان نصب کردیم. همچنین گامی به CI افزودیم که پیش از اجرای آزمون‌ها، سرورهای آزمایشیِ موردنیاز آن‌ها را می‌سازد. فایل `clippy.toml` در open-cosmo اکنون با RPoem یکسان است: نسخهٔ پشتیبانی‌شدهٔ Rust (۱.۸۸) و تنظیمی که استفاده از `unwrap` را درون آزمون‌ها مجاز می‌کند.
+**آنچه مانده است:** فقط بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم).
