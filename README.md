@@ -1142,7 +1142,7 @@ Status: a GraphQL Federation gateway (fully free OSS that includes Cosmo's paid-
 
 ### 한국어
 
-현황: GraphQL Federation 게이트웨이(Cosmo 유료 기능을 포함한 완전 무료 오픈소스)입니다. 최근 CI 품질 검사(rustfmt와 clippy)를 통과시켰고, 연합 시험(타입 삭제, 추가만 있는 변경, 빈 합성)을 추가했습니다. 남은 일: 실제 Mac과 iPhone에서의 확인(여기에는 해당 기기가 없습니다). 번역: AI 번역이며 원어민의 확인은 아직 받지 않았습니다.
+현황: GraphQL Federation 게이트웨이(Cosmo 유료 기능을 포함한 완전 무료 오픈소스)입니다. 최근 CI 품질 검사(rustfmt와 clippy)를 통과시켰고, 연합 테스트(타입 삭제, 추가만 있는 변경, 빈 합성)을 추가했습니다. 남은 일: 실제 Mac과 iPhone에서의 확인(여기에는 해당 기기가 없습니다). 번역: AI 번역이며 원어민의 확인은 아직 받지 않았습니다.
 
 ### Deutsch
 

@@ -1,3 +1,3 @@
 source: aon-co-jp/open-cosmo
-commit: 9acdac58d2ae95224fb463823a33f70c00540568
-updated: 2026-11-24T21:46:09Z
+commit: ffb7170baeb002685623672b083d37b2c97790ef
+updated: 2026-11-24T22:03:32Z
