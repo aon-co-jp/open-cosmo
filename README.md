@@ -1119,3 +1119,55 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 ### فارسی
 **کاری که انجام دادیم:** CI (بررسی‌های خودکار GitHub) در RPoem و open-cosmo در بیش از ۶۰ اجرای پیاپی شکست خورده بود. علت، خطا در برنامه نبود؛ بخش‌هایی از کد قواعد نگارش (قالب‌بندی `rustfmt` و هشدارهای `clippy`) را رعایت نمی‌کردند. کد را قالب‌بندی کردیم، هشدارها را یکی‌یکی رفع کردیم و مطمئن شدیم که CI اکنون موفق است. همهٔ آزمون‌ها موفق‌اند: ۵۸۹ آزمون در RPoem و ۴۹۵ آزمون در open-cosmo. رفتار برنامه تغییری نکرده است. CI از نسخهٔ جدیدتری از Rust (۱.۱۰۰) نسبت به این رایانه (۱.۹۸) استفاده می‌کند و به همین دلیل یک هشدار تازه نشان داد؛ برای بررسی، همان نسخه را روی رایانهٔ خودمان نصب کردیم. همچنین گامی به CI افزودیم که پیش از اجرای آزمون‌ها، سرورهای آزمایشیِ موردنیاز آن‌ها را می‌سازد. فایل `clippy.toml` در open-cosmo اکنون با RPoem یکسان است: نسخهٔ پشتیبانی‌شدهٔ Rust (۱.۸۸) و تنظیمی که استفاده از `unwrap` را درون آزمون‌ها مجاز می‌کند.
 **آنچه مانده است:** فقط بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم).
+
+## 2026-11-25 現況・未了 / Status and open items
+
+*日本語・English が基本、ほかの言語は AI 翻訳(ネイティブ確認前)。 / Japanese and English are the base; other languages are AI-translated, not native-checked.*
+
+### 日本語
+
+現状: GraphQL Federation のゲートウェイ(Cosmo の有料版機能を含む、完全無料の OSS)。最近は CI の品質ゲート(rustfmt と clippy)を通し、連合の試験(型の削除、追加だけの変更、空の合成)を足した。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: a GraphQL Federation gateway (fully free OSS that includes Cosmo's paid-tier features). Recently its CI quality gate (rustfmt and clippy) was made to pass and federation tests were added (removed type, additive change, empty compose). Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
+
+### 简体中文
+
+现状:GraphQL Federation 网关(完全免费的开源软件,包含 Cosmo 付费版的功能)。最近让 CI 质量检查(rustfmt 与 clippy)通过,并新增了联合测试(删除类型、仅新增的变更、空合成)。待办:在真实的 Mac 和 iPhone 上验证(这里没有这些设备)。翻译:由 AI 翻译,尚未经母语者确认。
+
+### 繁體中文
+
+現況:GraphQL Federation 閘道(完全免費的開源軟體,包含 Cosmo 付費版的功能)。最近讓 CI 品質檢查(rustfmt 與 clippy)通過,並新增了聯合測試(刪除型別、僅新增的變更、空合成)。待辦:在實體 Mac 和 iPhone 上驗證(這裡沒有這些裝置)。翻譯:由 AI 翻譯,尚未經母語人士確認。
+
+### 한국어
+
+현황: GraphQL Federation 게이트웨이(Cosmo 유료 기능을 포함한 완전 무료 오픈소스)입니다. 최근 CI 품질 검사(rustfmt와 clippy)를 통과시켰고, 연합 시험(타입 삭제, 추가만 있는 변경, 빈 합성)을 추가했습니다. 남은 일: 실제 Mac과 iPhone에서의 확인(여기에는 해당 기기가 없습니다). 번역: AI 번역이며 원어민의 확인은 아직 받지 않았습니다.
+
+### Deutsch
+
+Stand: ein GraphQL-Federation-Gateway (vollständig kostenlose Open Source, einschließlich der Bezahlfunktionen von Cosmo). Zuletzt besteht das CI-Qualitätstor (rustfmt und clippy) wieder, und es kamen Federation-Tests hinzu (entfernter Typ, rein additive Änderung, leere Komposition). Offen: Prüfung auf einem echten Mac und iPhone (solche Geräte haben wir hier nicht). Übersetzungen: KI-übersetzt, noch nicht von Muttersprachlern geprüft.
+
+### Français
+
+État : une passerelle GraphQL Federation (open source entièrement gratuit, y compris les fonctions payantes de Cosmo). Récemment, le contrôle qualité de la CI (rustfmt et clippy) passe de nouveau et des tests de fédération ont été ajoutés (type supprimé, changement purement additif, composition vide). Reste à faire : vérifier sur un vrai Mac et un vrai iPhone (nous n'avons pas ces appareils ici). Traductions : faites par IA, pas encore relues par des locuteurs natifs.
+
+### Español
+
+Estado: una pasarela de GraphQL Federation (código abierto totalmente gratuito, con las funciones de pago de Cosmo incluidas). Hace poco la puerta de calidad de la CI (rustfmt y clippy) volvió a pasar y se añadieron pruebas de federación (tipo eliminado, cambio solo aditivo, composición vacía). Pendiente: comprobar en un Mac y un iPhone reales (aquí no tenemos esos dispositivos). Traducciones: hechas por IA, aún sin revisión de hablantes nativos.
+
+### Português
+
+Situação: um gateway de GraphQL Federation (código aberto totalmente gratuito, incluindo os recursos pagos do Cosmo). Recentemente o controle de qualidade da CI (rustfmt e clippy) voltou a passar e foram adicionados testes de federação (tipo removido, mudança apenas aditiva, composição vazia). Pendente: verificar em um Mac e um iPhone de verdade (não temos esses aparelhos aqui). Traduções: feitas por IA, ainda não revisadas por falantes nativos.
+
+### Русский
+
+Состояние: шлюз GraphQL Federation (полностью бесплатное open source, включающее платные функции Cosmo). Недавно проверка качества в CI (rustfmt и clippy) снова проходит, добавлены тесты федерации (удалённый тип, только добавляющее изменение, пустая композиция). Осталось: проверка на настоящих Mac и iPhone (таких устройств у нас здесь нет). Переводы: выполнены ИИ, носители языка их пока не проверяли.
+
+### العربية
+
+الوضع: بوابة GraphQL Federation (برمجيات مفتوحة المصدر مجانية بالكامل تشمل ميزات Cosmo المدفوعة). نجحت مؤخرًا بوابة الجودة في CI (rustfmt وclippy) وأُضيفت اختبارات للاتحاد (نوع محذوف، تغيير إضافي فقط، تركيب فارغ). المتبقي: التحقق على جهازَي Mac وiPhone حقيقيين (لا تتوفر لدينا هذه الأجهزة هنا). الترجمات: أنجزها الذكاء الاصطناعي ولم يراجعها بعدُ متحدثون أصليون.
+
+### فارسی
+
+وضعیت: دروازهٔ GraphQL Federation (نرم‌افزار آزاد و کاملاً رایگان که ویژگی‌های نسخهٔ پولی Cosmo را هم دارد). اخیراً دروازهٔ کیفیت CI (rustfmt و clippy) دوباره موفق شد و آزمون‌های فدراسیون افزوده شد (نوع حذف‌شده، تغییر فقط افزایشی، ترکیب خالی). باقی‌مانده: بررسی روی Mac و iPhone واقعی (این دستگاه‌ها را اینجا نداریم). ترجمه‌ها: با هوش مصنوعی انجام شده و هنوز گویشوران بومی آن‌ها را بررسی نکرده‌اند.
