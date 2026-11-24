@@ -1,3 +1,5 @@
+> Latest translations / 翻訳の最新版: [0-LATEST-TRANSLATIONS.md](0-LATEST-TRANSLATIONS.md)
+
 # open-cosmo
 
 **Rust 製 GraphQL Federation プラットフォーム。WunderGraph Cosmo の有料版を含む
