@@ -2569,3 +2569,13 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 ## 2026-11-21 追記: federation の試験を3件追加(自動の小さな保守) / 3 federation tests added (small automated maintenance)
 - **日本語**: `open-runo-federation` に、型ごと消えた場合の破壊的変更の検出、フィールド追加は破壊的でないこと、空の合成が空のスキーマになることの試験を足しました(`cargo test -p open-runo-federation` 19件成功、clippy 警告なし)。コードの動作は変えていません。未了: Mac・iPhone の実機確認(実機なし)。日英のみの記載で、他言語の訳は今回作っていません(ネイティブ確認前の扱いのまま)。
 - **English**: Added three tests to `open-runo-federation`: a removed whole type is reported as breaking, added fields are not breaking, and composing nothing gives an empty schema (19 pass, no clippy warnings). No behavior changed. Still open: real-device checks on Mac and iPhone. Only Japanese and English were written this time; no other translations were produced (they remain not native-checked).
+
+## 2026-11-25 現況・未了 / Status and open items
+
+### 日本語
+
+現状: GraphQL Federation のゲートウェイ(Cosmo の有料版機能を含む、完全無料の OSS)。最近は CI の品質ゲート(rustfmt と clippy)を通し、連合の試験(型の削除、追加だけの変更、空の合成)を足した。残り: Mac・iPhone の実機での確認(ここには実機がありません)。翻訳: AI 翻訳(ja/en 以外)、ネイティブの確認はまだです。
+
+### English
+
+Status: a GraphQL Federation gateway (fully free OSS that includes Cosmo's paid-tier features). Recently its CI quality gate (rustfmt and clippy) was made to pass and federation tests were added (removed type, additive change, empty compose). Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
