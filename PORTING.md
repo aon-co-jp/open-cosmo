@@ -1259,3 +1259,7 @@ A execução agendada do `docs-latest` (evento `schedule`) teve sucesso às 21:0
 ### English
 
 Status: a GraphQL Federation gateway (fully free OSS that includes Cosmo's paid-tier features). Recently its CI quality gate (rustfmt and clippy) was made to pass and federation tests were added (removed type, additive change, empty compose). Open: checks on a real Mac and iPhone (no such devices here). Translations: AI-translated (other than ja/en), not yet checked by native speakers.
+
+## 2026-11-25 url 2.5.9・jsonschema 0.63(version-control通知)
+- 日本語: `apps/desktop-tray` の `url` を 2.5.9 へ(RUSTSEC-2026-0592)、`jsonschema` を 0.63 へ更新し、`cargo test --workspace` 成功。**tao 0.38 は見送り**: 最新の tray-icon 0.26.1 が gtk 0.18 系(libappindicator)を使い、tao 0.38 の gtk 0.19 と同じネイティブライブラリ `gtk-3` を二重にリンクするため解決できない。tray-icon が tao 0.38 に追従したら上げる。
+- English: bumped `url` in `apps/desktop-tray` to 2.5.9 (RUSTSEC-2026-0592) and `jsonschema` to 0.63; `cargo test --workspace` passes. **tao 0.38 is deferred**: the latest tray-icon 0.26.1 uses gtk 0.18 (libappindicator) while tao 0.38 uses gtk 0.19, and both link the native `gtk-3` library, so cargo cannot resolve them together. Bump once tray-icon follows tao 0.38.
