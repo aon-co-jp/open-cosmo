@@ -107,7 +107,7 @@ impl MethodInfo {
 /// 提供するサービス。通信方式に依存しない処理本体。
 #[async_trait]
 pub trait Service: Send + Sync + 'static {
-    /// 完全修飾名(例: `open_runo.admin.v1.Admin`)。パスは`/<これ>/<メソッド>`。
+    /// 完全修飾名(例: `open_runo.admin.Admin`)。パスは`/<これ>/<メソッド>`。
     fn service_name(&self) -> &str;
     /// メソッドの定義。知らないメソッドは`None`(→UNIMPLEMENTED)。
     fn method(&self, name: &str) -> Option<MethodInfo>;

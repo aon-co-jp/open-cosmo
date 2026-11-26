@@ -88,7 +88,7 @@ fn parse_stage(s: &str) -> Stage {
     }
 }
 
-/// 公開Query(認証なし)。管理操作はgRPC(`open_runo.admin.v1.Admin`)へ移したのでここには無い。
+/// 公開Query(認証なし)。管理操作はgRPC(`open_runo.admin.Admin`)へ移したのでここには無い。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct QueryRoot;
 

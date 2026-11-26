@@ -2,7 +2,7 @@
 //
 // このファイルが管理操作の唯一の正(旧 /api/openapi* の代わり)。サーバー(open-runo-router)、
 // CLI、管理画面(WASM、gRPC-web)、呼び出し側(open-web-server 等)が同じ定義を使う。
-// リフレクション(grpcurl <addr> describe open_runo.admin.v1.Admin)でも取得できる。
+// リフレクション(grpcurl <addr> describe open_runo.admin.Admin)でも取得できる。
 //
 // 認証: gRPC メタデータ(HTTPヘッダ)の `x-api-key`、またはセッション(`cookie` + `x-csrf-token`)。
 // `SelfIssueKey` と `SessionLogin` の入口だけは鍵なしで呼べる。権限はREST時代と同じ(認証済みなら実行可)。
@@ -10,7 +10,7 @@
 // 409=ALREADY_EXISTS(6), 429=RESOURCE_EXHAUSTED(8), 501=UNIMPLEMENTED(12), 500=INTERNAL(13)。
 syntax = "proto3";
 
-package open_runo.admin.v1;
+package open_runo.admin;
 
 import "google/protobuf/struct.proto";
 

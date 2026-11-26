@@ -12,7 +12,7 @@
 //! | GET    | `/.well-known/acme-challenge/:t`  | ACME HTTP-01 challenge response    |
 //! | POST   | `/mcp`                            | Model Context Protocol (JSON-RPC)  |
 //! | *      | `/scim/v2/Users`, `/Groups`       | SCIM 2.0 (RFC 7644, IdP向け標準)   |
-//! | POST   | `/open_runo.admin.v1.Admin/DbMutate` | open-web-server-ledger からの内部経路(Connect、認証あり) |
+//! | POST   | `/open_runo.admin.Admin/DbMutate` | open-web-server-ledger からの内部経路(Connect、認証あり) |
 //! | GET    | `/`, `/pkg/*`, `/manifest.json`   | 管理画面(WASM)の静的配信          |
 //!
 //! `/scim/v2/*`は`X-Api-Key`(またはセッション)が必要。

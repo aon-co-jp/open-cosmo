@@ -45,7 +45,7 @@ struct MutationReceiptWire {
 
 const MUTATION_RECEIPTS_TABLE: &str = "__mutation_receipts";
 
-/// `open_runo.admin.v1.Admin/DbMutate`(旧`POST /internal/db/mutate`、REST全廃で移行)。
+/// `open_runo.admin.Admin/DbMutate`(旧`POST /internal/db/mutate`、REST全廃で移行)。
 /// `open-web-server-ledger::Ledger::commit()`が`forward_once()`で呼ぶ先。
 /// 認証は`AdminGrpc`側(`x-api-key`/セッション)で済ませてから呼ばれる。
 ///

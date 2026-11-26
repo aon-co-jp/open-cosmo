@@ -1,7 +1,7 @@
 //! アプリケーションサーバー層(「第二のTomcat」)の管理操作。
 //!
 //! 旧`/admin/appserver-processes*`・`/admin/appserver-tenants*`のREST 10本を、
-//! `open_runo.admin.v1.Admin`のRPC(`AppServer*`、gRPC / gRPC-web / Connect で同じ定義)へ
+//! `open_runo.admin.Admin`のRPC(`AppServer*`、gRPC / gRPC-web / Connect で同じ定義)へ
 //! 移したもの(REST全廃、2026-11-07)。認証・上限・監査は`AdminGrpc`側で済ませてから呼ばれる。
 //! 要求・応答は`google.protobuf.Struct`(旧RESTと同じJSON形)。旧RESTの経路は削除済み。
 //!

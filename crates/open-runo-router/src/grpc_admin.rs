@@ -1,4 +1,4 @@
-//! 管理用 gRPC サービス `open_runo.admin.v1.Admin`(REST全廃・gRPC移行、CLAUDE.md「2026-11-01追記」)。
+//! 管理用 gRPC サービス `open_runo.admin.Admin`(REST全廃・gRPC移行、CLAUDE.md「2026-11-01追記」)。
 //!
 //! RESTハンドラやGraphQLの`admin`と同じく、処理は通信方式に依存しない共通関数
 //! ([`crate::admin_ops`]・[`crate::admin_sys`])に任せ、ここは「プロトコル⇔共通関数」の変換だけを持つ
@@ -108,7 +108,7 @@ pub trait AdminExt: Send + Sync {
     ) -> Option<Result<serde_json::Value, GrpcErr>>;
 }
 
-/// `open_runo.admin.v1.Admin`の実体。
+/// `open_runo.admin.Admin`の実体。
 #[derive(Clone)]
 pub struct AdminGrpc {
     state: Arc<AppState>,
@@ -555,7 +555,7 @@ use std::sync::OnceLock;
 
 pub use open_runo_connect_core::decode_text_body;
 
-/// 管理サービスのパスから`method`を取り出す(`/open_runo.admin.v1.Admin/<method>`)。
+/// 管理サービスのパスから`method`を取り出す(`/open_runo.admin.Admin/<method>`)。
 pub fn method_of(path: &str) -> Option<&str> {
     cs::method_of(open_runo_proto::ADMIN_SERVICE, path)
 }
@@ -616,7 +616,7 @@ pub async fn handle_grpc(admin: &AdminGrpc, req: Request) -> Response {
     cs::handle(admin, req).await
 }
 
-/// gRPC-web用のHTTPハンドラ。`POST /open_runo.admin.v1.Admin/:method`に載せる。
+/// gRPC-web用のHTTPハンドラ。`POST /open_runo.admin.Admin/:method`に載せる。
 pub fn grpc_web_handler(admin: AdminGrpc) -> crate::hyper_compat::Handler {
     browser_handler(admin)
 }
@@ -654,12 +654,12 @@ mod tests {
     #[test]
     fn method_of_parses_only_the_admin_service() {
         assert_eq!(
-            method_of("/open_runo.admin.v1.Admin/DbList"),
+            method_of("/open_runo.admin.Admin/DbList"),
             Some("DbList")
         );
-        assert_eq!(method_of("/open_runo.admin.v1.Admin/"), None);
+        assert_eq!(method_of("/open_runo.admin.Admin/"), None);
         assert_eq!(method_of("/grpc.health.v1.Health/Check"), None);
-        assert_eq!(method_of("/open_runo.admin.v1.Admin/a/b"), None);
+        assert_eq!(method_of("/open_runo.admin.Admin/a/b"), None);
     }
 
     #[tokio::test]
@@ -862,13 +862,13 @@ mod tests {
         let (a, _state) = admin();
         let app = Router::new().route(
             Method::POST,
-            "/open_runo.admin.v1.Admin/:method",
+            "/open_runo.admin.Admin/:method",
             grpc_web_handler(a),
         );
         let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
         let call = |method: &str, msg: Vec<u8>, key: Option<&str>| {
             let mut r = reqwest::Client::new()
-                .post(format!("http://{addr}/open_runo.admin.v1.Admin/{method}"))
+                .post(format!("http://{addr}/open_runo.admin.Admin/{method}"))
                 .header("content-type", "application/grpc-web+proto")
                 .body(open_runo_proto::encode_frame(&msg));
             if let Some(k) = key {
@@ -925,9 +925,9 @@ mod tests {
             .await
             .unwrap();
         let text = String::from_utf8_lossy(&frames[0]).to_string();
-        assert!(text.contains("open_runo.admin.v1.Admin"), "{text}");
+        assert!(text.contains("open_runo.admin.Admin"), "{text}");
         // file_containing_symbol = 4 (string)
-        let sym = b"open_runo.admin.v1.Admin";
+        let sym = b"open_runo.admin.Admin";
         req = vec![0x22, sym.len() as u8];
         req.extend_from_slice(sym);
         let (frames, _) = c
@@ -961,6 +961,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn legacy_v1_path_is_not_served() {
+        use crate::hyper_compat::{serve, Router};
+        let (a, _state) = admin();
+        let app = Router::new().route(
+            Method::POST,
+            "/open_runo.admin.Admin/:method",
+            grpc_web_handler(a),
+        );
+        let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
+        let old = reqwest::Client::new()
+            .post(format!("http://{addr}/open_runo.admin.v1.Admin/SelfIssueKey"))
+            .header("content-type", "application/grpc-web+proto")
+            .body(open_runo_proto::encode_frame(&[]))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(old.status(), 404);
+    }
+
+    #[tokio::test]
     async fn grpc_web_text_round_trips_like_binary() {
         use crate::hyper_compat::{serve, Router};
         use base64::Engine as _;
@@ -968,11 +988,11 @@ mod tests {
         let (a, _state) = admin();
         let app = Router::new().route(
             Method::POST,
-            "/open_runo.admin.v1.Admin/:method",
+            "/open_runo.admin.Admin/:method",
             grpc_web_handler(a),
         );
         let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
-        let url = |m: &str| format!("http://{addr}/open_runo.admin.v1.Admin/{m}");
+        let url = |m: &str| format!("http://{addr}/open_runo.admin.Admin/{m}");
         let post = |m: &str, msg: &[u8], key: Option<&str>| {
             let mut r = reqwest::Client::new()
                 .post(url(m))
@@ -1706,14 +1726,14 @@ type Mutation {
         let (a, _state) = admin();
         let app = Router::new().route(
             Method::POST,
-            "/open_runo.admin.v1.Admin/:method",
+            "/open_runo.admin.Admin/:method",
             browser_handler(a),
         );
         let (addr, _h) = serve(app, "127.0.0.1:0".parse().unwrap()).await.unwrap();
         // HTTP/1.1: curl相当のConnect JSON。
         let r = reqwest::Client::new()
             .post(format!(
-                "http://{addr}/open_runo.admin.v1.Admin/SelfIssueKey"
+                "http://{addr}/open_runo.admin.Admin/SelfIssueKey"
             ))
             .header("content-type", "application/json")
             .body("{}")

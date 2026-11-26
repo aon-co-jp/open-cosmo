@@ -1,6 +1,6 @@
 //! gRPC クライアント(CLI・呼び出し側用。`client` feature)。
 //!
-//! HTTP/2 で `open_runo.admin.v1.Admin` を呼ぶ。`http://`は平文(h2c、開発・閉域用)、`https://`は
+//! HTTP/2 で `open_runo.admin.Admin` を呼ぶ。`http://`は平文(h2c、開発・閉域用)、`https://`は
 //! **TLS 1.3 のみ**(ALPN `h2`)。CA は PEM で渡す(未指定なら`webpki-roots`)。管理系の相互認証(mTLS)は
 //! クライアント証明書+鍵のPEMを渡す。認証は`x-api-key`メタデータ(またはCookie)。
 

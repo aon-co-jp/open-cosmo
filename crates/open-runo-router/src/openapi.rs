@@ -37,7 +37,7 @@ const NOT_FOUND: &str = "Not found";
 /// MCPリソースとして出すため(仕様本体の唯一の正本)。
 pub(crate) fn document() -> Spec {
     Spec::new("open-runo router (non-GraphQL surface)", env!("CARGO_PKG_VERSION"))
-        .description("REST全廃(2026-11-01)後にopen-runo-routerへ残る、GraphQL以外の外部プロトコルだけの文書(health/ACME/MCP/SCIM/内部経路)。管理操作はConnect/gRPC(`open_runo.admin.v1.Admin`、`x-api-key`必須)。GraphQL(`POST /graphql`)は問い合わせ専用。")
+        .description("REST全廃(2026-11-01)後にopen-runo-routerへ残る、GraphQL以外の外部プロトコルだけの文書(health/ACME/MCP/SCIM/内部経路)。管理操作はConnect/gRPC(`open_runo.admin.Admin`、`x-api-key`必須)。GraphQL(`POST /graphql`)は問い合わせ専用。")
         .api_key_header("X-Api-Key")
         .shared_error_typed::<t::RateLimitedResponse>(429, "RateLimited", "Rate limit exceeded; see Retry-After header and retry_after_secs in the body")
         // --- health / docs ---

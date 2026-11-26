@@ -35,9 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = Arc::new(AppState::new());
     let request_metrics = Arc::clone(&state.request_metrics);
-    // 管理用 gRPC(`open_runo.admin.v1.Admin`)。通信路は2つ: 素のgRPC(HTTP/2、
+    // 管理用 gRPC(`open_runo.admin.Admin`)。通信路は2つ: 素のgRPC(HTTP/2、
     // `OPEN_RUNO_GRPC_BIND_ADDR`で別ポート)と、ブラウザ(管理画面WASM)向けのgRPC-web
-    // (本体のHTTPルーター上の`POST /open_runo.admin.v1.Admin/:method`)。
+    // (本体のHTTPルーター上の`POST /open_runo.admin.Admin/:method`)。
     let grpc_guardian = Arc::new(KeyGuardian::new(
         Arc::clone(&state.db),
         GuardianConfig::from_env(),
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await
     .route(
         hyper::Method::POST,
-        "/open_runo.admin.v1.Admin/:method",
+        "/open_runo.admin.Admin/:method",
         grpc_web,
     )
     .route(hyper::Method::GET, "/graphql/ws", graphql_ws)

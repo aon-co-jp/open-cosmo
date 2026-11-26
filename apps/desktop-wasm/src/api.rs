@@ -1,4 +1,4 @@
-//! open-runo 管理サービス(`open_runo.admin.v1.Admin`)のブラウザ(WASM)クライアント。
+//! open-runo 管理サービス(`open_runo.admin.Admin`)のブラウザ(WASM)クライアント。
 //!
 //! **ハイブリッド通信**(ConnectとgRPC-webの良いとこ取り):
 //! - 単項呼び出しは**Connect**(`application/proto`の素の本文)。枠もトレーラーも無いので軽く、

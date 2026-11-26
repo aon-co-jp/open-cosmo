@@ -16,21 +16,21 @@ pub use prost_types;
 #[cfg(feature = "client")]
 pub mod client;
 
-/// 生成された型。`open_runo.admin.v1`。
+/// 生成された型。`open_runo.admin`。
 pub mod v1 {
-    include!(concat!(env!("OUT_DIR"), "/open_runo.admin.v1.rs"));
+    include!(concat!(env!("OUT_DIR"), "/open_runo.admin.rs"));
 }
 
 /// `admin.proto` の `FileDescriptorSet`(エンコード済み)。
 pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/admin_fds.bin"));
 
 /// `admin.proto`の本文(CLIの`proto`コマンドや文書用。定義の唯一の正)。
-pub const ADMIN_PROTO: &str = include_str!("../proto/open_runo/admin/v1/admin.proto");
+pub const ADMIN_PROTO: &str = include_str!("../proto/open_runo/admin/admin.proto");
 
 /// 管理サービスの完全修飾名。
-pub const ADMIN_SERVICE: &str = "open_runo.admin.v1.Admin";
+pub const ADMIN_SERVICE: &str = "open_runo.admin.Admin";
 
-/// `/open_runo.admin.v1.Admin/<method>` のパス。
+/// `/open_runo.admin.Admin/<method>` のパス。
 pub fn method_path(method: &str) -> String {
     format!("/{ADMIN_SERVICE}/{method}")
 }
@@ -270,7 +270,7 @@ mod tests {
         let admin = fds
             .file
             .iter()
-            .find(|f| f.name() == "open_runo/admin/v1/admin.proto")
+            .find(|f| f.name() == "open_runo/admin/admin.proto")
             .expect("admin.proto");
         assert_eq!(admin.service[0].name(), "Admin");
         assert!(admin.service[0].method.len() >= 35);

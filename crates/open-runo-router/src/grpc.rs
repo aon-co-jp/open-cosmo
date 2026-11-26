@@ -386,8 +386,8 @@ fn build_health_file_descriptor_proto() -> Bytes {
 /// `NOT_FOUND`, mirroring how `Check`/`Watch` already report `NOT_FOUND`
 /// for a health-check request naming an unknown service).
 fn resolve_symbol_file_descriptor(symbol: &str, admin: bool) -> Option<Vec<Bytes>> {
-    if admin && symbol.starts_with("open_runo.admin.v1") {
-        return admin_descriptor_files("open_runo/admin/v1/admin.proto");
+    if admin && symbol.starts_with("open_runo.admin") {
+        return admin_descriptor_files("open_runo/admin/admin.proto");
     }
     const HEALTH_SYMBOLS: &[&str] = &[
         "grpc.health.v1.Health",
@@ -433,7 +433,7 @@ fn resolve_filename_file_descriptor(filename: &str, admin: bool) -> Option<Vec<B
     if filename == HEALTH_PROTO_FILENAME {
         Some(vec![build_health_file_descriptor_proto()])
     } else if admin
-        && (filename == "open_runo/admin/v1/admin.proto"
+        && (filename == "open_runo/admin/admin.proto"
             || filename == "google/protobuf/struct.proto")
     {
         admin_descriptor_files(filename)
@@ -906,7 +906,7 @@ pub async fn serve_grpc(
     serve_grpc_with(addr, None).await
 }
 
-/// [`serve_grpc`] に管理サービス(`open_runo.admin.v1.Admin`)を載せられる版。
+/// [`serve_grpc`] に管理サービス(`open_runo.admin.Admin`)を載せられる版。
 /// `admin`が`Some`なら、Health/Reflectionに加えて管理サービスを同じポートで提供する
 /// (平文のh2c。本番はTLS1.3必須の[`serve_grpc_tls`]を使う)。
 pub async fn serve_grpc_with(

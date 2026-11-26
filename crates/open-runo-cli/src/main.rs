@@ -1,5 +1,5 @@
 //! `open-runo-cli` -- a small command-line client over open-runo's admin gRPC
-//! service (`open_runo.admin.v1.Admin`): schema registry register/get/history,
+//! service (`open_runo.admin.Admin`): schema registry register/get/history,
 //! federation status, DB key/value operations, and the service's `.proto`. This
 //! is open-runo's answer to Cosmo's `wgc` CLI (see `docs/cosmo-parity.md` 4a).
 //!
